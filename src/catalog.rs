@@ -105,6 +105,31 @@ impl Catalog {
         parse_track(&self.get(&format!("/tracks/{id}"), &[]).await?)
             .context("Spotify returned no playable track metadata")
     }
+    pub async fn tracks(&self, ids: &[String]) -> Result<Vec<Track>> {
+        if ids.is_empty() {
+            return Ok(vec![]);
+        }
+        let valid: Vec<String> = ids.iter().filter(|id| valid_id(id)).cloned().collect();
+        if valid.is_empty() {
+            return Ok(vec![]);
+        }
+
+        // Fetch tracks concurrently using individual /tracks/{id} endpoints.
+        // Spotify's batch /v1/tracks?ids=... endpoint returns HTTP 403 Forbidden for apps in Development Mode,
+        // but individual /v1/tracks/{id} endpoints are fully supported (HTTP 200 OK).
+        let mut set = tokio::task::JoinSet::new();
+        for id in valid {
+            let cat = self.clone();
+            set.spawn(async move { cat.track(&id).await });
+        }
+        let mut tracks = Vec::new();
+        while let Some(res) = set.join_next().await {
+            if let Ok(Ok(track)) = res {
+                tracks.push(track);
+            }
+        }
+        Ok(tracks)
+    }
     pub async fn page(&self, browse: &Browse, offset: usize) -> Result<Page> {
         if let Browse::Search(query) = browse {
             if let Some(id) = track_id(query) {

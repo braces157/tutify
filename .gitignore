@@ -2,3 +2,4 @@
 /dist/
 /api-rules.*
 *.tmp
+*.exe

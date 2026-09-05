@@ -31,6 +31,7 @@ impl View {
         Self::Queue,
         Self::Help,
     ];
+    #[allow(dead_code)]
     pub fn name(self) -> &'static str {
         match self {
             Self::Search => "Search",
@@ -75,6 +76,8 @@ pub struct App {
     /// restart still uses the user's persisted volume setting.
     muted_volume: Option<u8>,
     request: u64,
+    pub filter: String,
+    pub filtering: bool,
     pub quit: bool,
 }
 
@@ -91,6 +94,8 @@ impl App {
             selected: 0,
             query: String::new(),
             editing: false,
+            filter: String::new(),
+            filtering: false,
             status: "Paused. / search | 1-5 views | Tab navigation | ? help | q quit".into(),
             busy: false,
             state: State::Paused,
@@ -105,18 +110,73 @@ impl App {
             quit: false,
         }
     }
+    pub fn is_filtered(&self) -> bool {
+        (self.view == View::Liked || self.view == View::Playlists) && !self.filter.is_empty()
+    }
+    pub fn raw_len(&self) -> usize {
+        match &self.rows {
+            Rows::Tracks(t) => t.len(),
+            Rows::Playlists(p) => p.len(),
+        }
+    }
+    pub fn filtered_indices(&self) -> Vec<usize> {
+        if !self.is_filtered() {
+            return match &self.rows {
+                Rows::Tracks(t) => (0..t.len()).collect(),
+                Rows::Playlists(p) => (0..p.len()).collect(),
+            };
+        }
+        let terms: Vec<String> = self
+            .filter
+            .to_lowercase()
+            .split_whitespace()
+            .map(|s| s.to_string())
+            .collect();
+        if terms.is_empty() {
+            return match &self.rows {
+                Rows::Tracks(t) => (0..t.len()).collect(),
+                Rows::Playlists(p) => (0..p.len()).collect(),
+            };
+        }
+        match &self.rows {
+            Rows::Tracks(tracks) => tracks
+                .iter()
+                .enumerate()
+                .filter(|(_, t)| {
+                    let name = t.name.to_lowercase();
+                    let artists = t.artists.to_lowercase();
+                    terms
+                        .iter()
+                        .all(|term| name.contains(term) || artists.contains(term))
+                })
+                .map(|(i, _)| i)
+                .collect(),
+            Rows::Playlists(playlists) => playlists
+                .iter()
+                .enumerate()
+                .filter(|(_, p)| {
+                    let name = p.name.to_lowercase();
+                    let owner = p.owner.to_lowercase();
+                    terms
+                        .iter()
+                        .all(|term| name.contains(term) || owner.contains(term))
+                })
+                .map(|(i, _)| i)
+                .collect(),
+        }
+    }
     pub fn len(&self) -> usize {
         if self.view == View::Help {
             33
         } else if self.view == View::Queue {
             self.queue.order.len()
+        } else if self.is_filtered() {
+            self.filtered_indices().len()
         } else {
-            match &self.rows {
-                Rows::Tracks(t) => t.len(),
-                Rows::Playlists(p) => p.len(),
-            }
+            self.raw_len()
         }
     }
+    #[allow(dead_code)]
     pub fn selection(&self) -> usize {
         if self.view == View::Queue {
             self.queue.selected
@@ -145,7 +205,12 @@ impl App {
                         .unwrap_or_else(|| Track::unknown(id))
                 })
         } else if let Rows::Tracks(t) = &self.rows {
-            t.get(self.selected).cloned()
+            let actual_idx = if self.is_filtered() {
+                *self.filtered_indices().get(self.selected)?
+            } else {
+                self.selected
+            };
+            t.get(actual_idx).cloned()
         } else {
             None
         }
@@ -284,9 +349,14 @@ impl Tasks {
                 .order
                 .iter()
                 .skip(start)
-                .take(16)
+                .take(50)
                 .map(|i| app.queue.ids[*i].clone()),
         );
+        for i in &app.queue.order {
+            if let Some(id) = app.queue.ids.get(*i) {
+                ids.push(id.clone());
+            }
+        }
         ids.retain(|id| !app.cache.contains_key(id) && self.requested.insert(id.clone()));
         if ids.is_empty() {
             return;
@@ -294,17 +364,16 @@ impl Tasks {
         let catalog = self.catalog.clone();
         let tx = self.tx.clone();
         self.metadata = Some(tokio::spawn(async move {
-            for id in ids {
-                match catalog.track(&id).await {
-                    Ok(track) => {
+            match catalog.tracks(&ids).await {
+                Ok(tracks) => {
+                    for track in tracks {
                         let _ = tx.send(Background::Metadata(track));
                     }
-                    Err(e) => {
-                        let _ = tx.send(Background::MetadataError(format!(
-                            "Queue names could not load: {e:#}"
-                        )));
-                        break;
-                    }
+                }
+                Err(e) => {
+                    let _ = tx.send(Background::MetadataError(format!(
+                        "Queue names could not load: {e:#}"
+                    )));
                 }
             }
         }));
@@ -315,6 +384,8 @@ impl Tasks {
         app.sidebar = false;
         app.selected = 0;
         app.editing = false;
+        app.filter.clear();
+        app.filtering = false;
         app.request += 1;
         app.busy = false;
         if let Some(task) = self.browse.take() {
@@ -371,8 +442,48 @@ fn key(app: &mut App, key: KeyEvent, tasks: &mut Tasks, tx: &mpsc::UnboundedSend
         }
         return;
     }
+    if app.filtering {
+        match key.code {
+            KeyCode::Esc => {
+                app.filter.clear();
+                app.filtering = false;
+                app.selected = 0;
+                return;
+            }
+            KeyCode::Enter => {
+                app.filtering = false;
+            }
+            KeyCode::Down => {
+                app.filtering = false;
+                if app.len() > 1 {
+                    app.selected = 1;
+                }
+                return;
+            }
+            KeyCode::Tab => {
+                app.filtering = false;
+                return;
+            }
+            KeyCode::Backspace => {
+                app.filter.pop();
+                app.selected = 0;
+                return;
+            }
+            KeyCode::Char(c) if !c.is_control() && app.filter.len() < 100 => {
+                app.filter.push(c);
+                app.selected = 0;
+                return;
+            }
+            _ => return,
+        }
+    }
     match key.code {
         KeyCode::Char('q') => app.quit = true,
+        KeyCode::Esc if !app.filter.is_empty() => {
+            app.filter.clear();
+            app.filtering = false;
+            app.selected = 0;
+        }
         KeyCode::Esc if app.view != View::Help => app.quit = true,
         KeyCode::Esc => tasks.view(app, View::Search),
         KeyCode::Tab | KeyCode::BackTab => {
@@ -382,9 +493,20 @@ fn key(app: &mut App, key: KeyEvent, tasks: &mut Tasks, tx: &mpsc::UnboundedSend
         KeyCode::Char('?') | KeyCode::F(1) => tasks.view(app, View::Help),
         KeyCode::Char(c @ '1'..='5') => tasks.view(app, View::ALL[c as usize - '1' as usize]),
         KeyCode::Char('/') => {
-            tasks.view(app, View::Search);
-            app.editing = true;
-            app.query.clear();
+            if matches!(app.view, View::Liked | View::Playlists) {
+                app.filter.clear();
+                app.filtering = true;
+                app.selected = 0;
+            } else {
+                tasks.view(app, View::Search);
+                app.editing = true;
+                app.query.clear();
+            }
+        }
+        KeyCode::Char('f') if matches!(app.view, View::Liked | View::Playlists) => {
+            app.filter.clear();
+            app.filtering = true;
+            app.selected = 0;
         }
         KeyCode::Up | KeyCode::Char('k') => {
             if app.sidebar {
@@ -398,18 +520,43 @@ fn key(app: &mut App, key: KeyEvent, tasks: &mut Tasks, tx: &mpsc::UnboundedSend
         KeyCode::Down | KeyCode::Char('j') => {
             if app.sidebar {
                 app.nav = (app.nav + 1).min(4);
+            } else if app.view == View::Queue {
+                app.queue.selected =
+                    (app.queue.selected + 1).min(app.queue.ids.len().saturating_sub(1));
             } else {
-                let at = (app.selection() + 1).min(app.len().saturating_sub(1));
-                if app.view == View::Queue {
-                    app.queue.selected = at;
-                } else {
-                    app.selected = at;
+                let at = (app.selected + 1).min(app.len().saturating_sub(1));
+                app.selected = at;
+                if !app.busy && !app.is_filtered() && at + 5 >= app.len() {
+                    if let Some(offset) = app.next {
+                        tasks.request(app, offset);
+                    }
                 }
             }
         }
-        KeyCode::PageDown if !app.busy && !matches!(app.view, View::Queue | View::Help) => {
-            if let Some(offset) = app.next {
-                tasks.request(app, offset);
+        KeyCode::PageUp => {
+            if app.sidebar {
+                app.nav = 0;
+            } else if app.view == View::Queue {
+                app.queue.selected = app.queue.selected.saturating_sub(15);
+            } else {
+                app.selected = app.selected.saturating_sub(15);
+            }
+        }
+        KeyCode::PageDown | KeyCode::Char('J') | KeyCode::Char('>')
+            if !matches!(app.view, View::Help) =>
+        {
+            if app.sidebar {
+                app.nav = 4;
+            } else if app.view == View::Queue {
+                app.queue.selected =
+                    (app.queue.selected + 15).min(app.queue.ids.len().saturating_sub(1));
+            } else {
+                app.selected = (app.selected + 15).min(app.len().saturating_sub(1));
+                if !app.busy && !app.is_filtered() {
+                    if let Some(offset) = app.next {
+                        tasks.request(app, offset);
+                    }
+                }
             }
         }
         KeyCode::F(5) => {
@@ -425,12 +572,21 @@ fn key(app: &mut App, key: KeyEvent, tasks: &mut Tasks, tx: &mpsc::UnboundedSend
         KeyCode::Enter if app.view != View::Help => {
             if let Rows::Playlists(rows) = &app.rows {
                 if app.view == View::Playlists {
-                    if let Some(p) = rows.get(app.selected).cloned() {
-                        app.browse = Browse::Playlist(p.id);
-                        app.title = p.name;
-                        app.rows = Rows::Tracks(vec![]);
-                        app.selected = 0;
-                        tasks.request(app, 0);
+                    let actual_idx = if app.is_filtered() {
+                        app.filtered_indices().get(app.selected).copied()
+                    } else {
+                        Some(app.selected)
+                    };
+                    if let Some(idx) = actual_idx {
+                        if let Some(p) = rows.get(idx).cloned() {
+                            app.browse = Browse::Playlist(p.id);
+                            app.title = p.name;
+                            app.rows = Rows::Tracks(vec![]);
+                            app.selected = 0;
+                            app.filter.clear();
+                            app.filtering = false;
+                            tasks.request(app, 0);
+                        }
                     }
                     return;
                 }
@@ -443,17 +599,35 @@ fn key(app: &mut App, key: KeyEvent, tasks: &mut Tasks, tx: &mpsc::UnboundedSend
                 if app.view == View::Queue {
                     app.queue.select(app.queue.selected);
                 } else if let Rows::Tracks(tracks) = &app.rows {
-                    // Preserve the selected occurrence even when duplicate IDs are present.
-                    let index = tracks[..app.selected].iter().filter(|t| t.playable).count();
-                    app.queue.replace(
-                        tracks
+                    let (track_ids, index) = if app.is_filtered() {
+                        let filtered = app.filtered_indices();
+                        let playable_filtered: Vec<(usize, &Track)> = filtered
+                            .iter()
+                            .filter_map(|&i| tracks.get(i).map(|t| (i, t)))
+                            .filter(|(_, t)| t.playable)
+                            .collect();
+                        let play_idx = playable_filtered
+                            .iter()
+                            .position(|(orig_idx, _)| filtered.get(app.selected) == Some(orig_idx))
+                            .unwrap_or(0);
+                        let ids: Vec<String> = playable_filtered
+                            .into_iter()
+                            .map(|(_, t)| t.id.clone())
+                            .collect();
+                        (ids, play_idx)
+                    } else {
+                        let index = tracks[..app.selected.min(tracks.len())]
+                            .iter()
+                            .filter(|t| t.playable)
+                            .count();
+                        let ids: Vec<String> = tracks
                             .iter()
                             .filter(|t| t.playable)
                             .map(|t| t.id.clone())
-                            .collect(),
-                        index,
-                        app.config.shuffle,
-                    );
+                            .collect();
+                        (ids, index)
+                    };
+                    app.queue.replace(track_ids, index, app.config.shuffle);
                 }
                 app.load(tx);
             }
@@ -588,6 +762,9 @@ pub async fn run(store: Storage) -> Result<()> {
         config.volume,
     );
     let mut app = App::new(config, queue);
+    if let Ok(cached) = store.cache() {
+        app.cache = cached;
+    }
     let (bg_tx, mut bg_rx) = mpsc::unbounded_channel();
     let mut tasks = Tasks {
         catalog,
@@ -597,10 +774,11 @@ pub async fn run(store: Storage) -> Result<()> {
         requested: HashSet::new(),
     };
     let (save_tx, mut save_rx) = watch::channel((app.config.clone(), app.queue.clone()));
+    let persist_store = store.clone();
     let persistence = tokio::spawn(async move {
         while save_rx.changed().await.is_ok() {
             let (config, queue) = save_rx.borrow_and_update().clone();
-            let store = store.clone();
+            let store = persist_store.clone();
             let result = tokio::task::spawn_blocking(move || store.save(&config, &queue)).await;
             if let Err(e) = result.map_err(anyhow::Error::from).and_then(|r| r) {
                 let _ = bg_tx.send(Background::SaveError(format!(
@@ -621,6 +799,10 @@ pub async fn run(store: Storage) -> Result<()> {
                 key_event = keys.next() => match key_event {
                     Some(Ok(Input::Key(event))) => { key(&mut app,event,&mut tasks,&playback.commands); save_tx.send_replace((app.config.clone(),app.queue.clone())); },
                     Some(Ok(Input::Paste(text))) if app.editing => app.query.extend(text.chars().filter(|c| !c.is_control()).take(500usize.saturating_sub(app.query.len()))),
+                    Some(Ok(Input::Paste(text))) if app.filtering => {
+                        app.filter.extend(text.chars().filter(|c| !c.is_control()).take(100usize.saturating_sub(app.filter.len())));
+                        app.selected = 0;
+                    },
                     Some(Err(e)) => return Err(e.into()), None => break, _ => (),
                 },
                 event = playback.events.recv(), if playback_open => if let Some(event) = event { app.playback_event(event,&playback.commands); } else { playback_open = false; app.loaded = false; app.state = State::Failed; app.status = "Playback worker exited. Quit and restart Tuitify; your queue is saved.".into(); },
@@ -630,20 +812,33 @@ pub async fn run(store: Storage) -> Result<()> {
                         match result {
                             Ok(page) => {
                                 app.next = page.next;
-                                if let Rows::Tracks(tracks) = &page.rows { for track in tracks { app.cache.insert(track.id.clone(),track.clone()); } }
+                                if let Rows::Tracks(tracks) = &page.rows {
+                                    for track in tracks { app.cache.insert(track.id.clone(),track.clone()); }
+                                    let _ = store.save_cache(&app.cache);
+                                }
                                 if page.offset == 0 { app.rows = page.rows; app.selected = 0; }
                                 else { match (&mut app.rows,page.rows) { (Rows::Tracks(a),Rows::Tracks(b))=>a.extend(b), (Rows::Playlists(a),Rows::Playlists(b))=>a.extend(b), _=>() } }
-                                app.status = if app.len() == 0 { "No tracks or playlists available here. / starts a search.".into() } else { format!("{} loaded | Enter play/open | a enqueue{}",app.len(),if app.next.is_some() {" | PgDn load more"} else {""}) };
+                                app.status = if app.len() == 0 { "No tracks or playlists available here. / starts a search.".into() } else { format!("{} loaded | Enter play/open | a enqueue{}",app.len(),if app.next.is_some() {" | Scroll down or PgDn to load more"} else {""}) };
                             },
                             Err(e) => app.status = format!("{e:#}"),
                         }
                     },
-                    Some(Background::Metadata(track)) => { app.cache.insert(track.id.clone(),track); },
-                    Some(Background::MetadataError(e)) | Some(Background::SaveError(e)) => app.status = e,
+                    Some(Background::Metadata(track)) => {
+                        app.cache.insert(track.id.clone(),track);
+                        let _ = store.save_cache(&app.cache);
+                    },
+                    Some(Background::MetadataError(e)) => {
+                        app.status = e;
+                        tasks.requested.clear();
+                    },
+                    Some(Background::SaveError(e)) => app.status = e,
                     _ => (),
                 },
                 _ = tick.tick() => tasks.metadata(&app),
-                _ = save_tick.tick() => { save_tx.send_replace((app.config.clone(),app.queue.clone())); },
+                _ = save_tick.tick() => {
+                    save_tx.send_replace((app.config.clone(),app.queue.clone()));
+                    let _ = store.save_cache(&app.cache);
+                },
                 _ = tokio::signal::ctrl_c() => break,
             }
             if app.quit { break; }
@@ -652,6 +847,7 @@ pub async fn run(store: Storage) -> Result<()> {
     }.await;
     app.send(&playback.commands, Command::Stop);
     save_tx.send_replace((app.config.clone(), app.queue.clone()));
+    let _ = store.save_cache(&app.cache);
     drop(save_tx);
     let saved = persistence.await;
     drop(terminal);
@@ -705,5 +901,86 @@ mod tests {
         assert_eq!(app.state, State::Failed);
         assert!(matches!(rx.try_recv().unwrap(), Command::Stop));
         assert!(rx.try_recv().is_err());
+    }
+    #[test]
+    fn filter_tracks_and_playlists() {
+        let mut app = App::new(Config::default(), Queue::default());
+        app.view = View::Liked;
+        app.rows = Rows::Tracks(vec![
+            Track {
+                id: "1".into(),
+                name: "Bohemian Rhapsody".into(),
+                artists: "Queen".into(),
+                duration_ms: 354000,
+                playable: true,
+            },
+            Track {
+                id: "2".into(),
+                name: "Yellow".into(),
+                artists: "Coldplay".into(),
+                duration_ms: 269000,
+                playable: true,
+            },
+            Track {
+                id: "3".into(),
+                name: "Under Pressure".into(),
+                artists: "Queen, David Bowie".into(),
+                duration_ms: 248000,
+                playable: true,
+            },
+        ]);
+
+        assert_eq!(app.len(), 3);
+        assert!(!app.is_filtered());
+
+        // Filter by artist
+        app.filter = "queen".into();
+        assert!(app.is_filtered());
+        assert_eq!(app.len(), 2);
+        assert_eq!(app.filtered_indices(), vec![0, 2]);
+
+        // Filter by title
+        app.filter = "yellow".into();
+        assert_eq!(app.len(), 1);
+        assert_eq!(app.filtered_indices(), vec![1]);
+
+        // Filter by multiple terms across title and artist
+        app.filter = "bowie pressure".into();
+        assert_eq!(app.len(), 1);
+        assert_eq!(app.filtered_indices(), vec![2]);
+
+        // Non-matching filter
+        app.filter = "nonexistent".into();
+        assert_eq!(app.len(), 0);
+        assert_eq!(app.filtered_indices(), Vec::<usize>::new());
+
+        // Empty filter
+        app.filter.clear();
+        assert!(!app.is_filtered());
+        assert_eq!(app.len(), 3);
+
+        // Test Playlists filtering
+        app.view = View::Playlists;
+        app.rows = Rows::Playlists(vec![
+            crate::model::Playlist {
+                id: "p1".into(),
+                name: "Rock Classics".into(),
+                owner: "Spotify".into(),
+            },
+            crate::model::Playlist {
+                id: "p2".into(),
+                name: "Chill Lofi Beats".into(),
+                owner: "ChilledCow".into(),
+            },
+        ]);
+
+        app.filter = "chilled".into();
+        assert!(app.is_filtered());
+        assert_eq!(app.len(), 1);
+        assert_eq!(app.filtered_indices(), vec![1]);
+
+        app.filter = "classics".into();
+        assert_eq!(app.len(), 1);
+        assert_eq!(app.filtered_indices(), vec![0]);
     }
 }

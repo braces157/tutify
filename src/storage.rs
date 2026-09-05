@@ -74,9 +74,18 @@ impl Storage {
         q.validate()?;
         Ok(q)
     }
+    pub fn cache(&self) -> Result<std::collections::HashMap<String, crate::model::Track>> {
+        read_or_default(&self.root.join("cache.json"))
+    }
     pub fn save(&self, config: &Config, queue: &Queue) -> Result<()> {
         atomic_json(&self.root.join("config.json"), config)?;
         atomic_json(&self.root.join("queue.json"), queue)
+    }
+    pub fn save_cache(
+        &self,
+        cache: &std::collections::HashMap<String, crate::model::Track>,
+    ) -> Result<()> {
+        atomic_json(&self.root.join("cache.json"), cache)
     }
     pub fn save_config(&self, config: &Config) -> Result<()> {
         atomic_json(&self.root.join("config.json"), config)
