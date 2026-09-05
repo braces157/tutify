@@ -189,7 +189,7 @@ fn navigation(frame: &mut Frame<'_>, app: &App, area: Rect) {
 
 fn center(frame: &mut Frame<'_>, app: &App, area: Rect) {
     if app.view == View::Help {
-        let text = "MAKE IT YOURS\n\n/          Search songs or paste a Spotify track link\n1-5 / Tab  Switch views / focus navigation\nUp/Down    Move selection (also j/k)\nEnter      Play list / open playlist\nSpace      Pause, resume, or retry failed playback\nn / p      Next / previous (restart after 3 seconds)\nLeft/Right Seek backward / forward 10 seconds\n+ / -      Volume up / down 5%\ns          Shuffle, preserving the current track\nr          Repeat off / queue / track\na          Append selected track without interrupting\nDelete     Remove selected item in Queue\nPgDn       Load the next catalog page\nF5         Refresh / retry network or metadata\nBackspace  Return from playlist to playlist index\nq / Ctrl-C Quit and save; Esc closes Help\n\nEnter builds a queue from the loaded list pages.\nRestart always restores paused. Metadata stays in RAM.\nPlaylist items may require ownership/collaboration.\n\nLogin issue? Exit and run tuitify auth --force.\nStreaming issue? tuitify auth --streaming --force.\nNo audio? Check Windows default output and Premium.";
+        let text = "MAKE IT YOURS\n\n/          Search songs or paste a Spotify track link\n1-5 / Tab  Switch views / focus navigation\nUp/Down    Move selection (also j/k)\nEnter      Play list / open playlist\nSpace      Pause, resume, or retry failed playback\nn / p      Next / previous (restart after 3 seconds)\nLeft/Right Seek backward / forward 10 seconds\nHome/End   Jump to the start / end of the track\n+ / -      Volume up / down 5%\n[/]        Volume down / up 1% (fine control)\nm          Mute / restore the previous volume\ns          Shuffle, preserving the current track\nr          Repeat off / queue / track\na          Append selected track without interrupting\nDelete     Remove selected item in Queue\nPgDn       Load the next catalog page\nF5         Refresh / retry network or metadata\nBackspace  Return from playlist to playlist index\nq / Ctrl-C Quit and save; Esc closes Help\n\nEnter builds a queue from the loaded list pages.\nRestart always restores paused. Metadata stays in RAM.\nPlaylist items may require ownership/collaboration.\n\nLogin issue? Exit and run tuitify auth --force.\nStreaming issue? tuitify auth --streaming --force.\nNo audio? Check Windows default output and Premium.";
         frame.render_widget(
             Paragraph::new(text)
                 .block(block(" HELP ", !app.sidebar))
@@ -368,8 +368,12 @@ fn playback(frame: &mut Frame<'_>, app: &App, area: Rect) {
     if area.width >= 70 {
         frame.render_widget(
             Paragraph::new(format!(
-                "VOL {}%  S:{}  R:{:?}",
-                app.config.volume,
+                "VOL {}  S:{}  R:{:?}",
+                if app.config.volume == 0 {
+                    "MUTED".to_owned()
+                } else {
+                    format!("{}%", app.config.volume)
+                },
                 if app.config.shuffle { "ON" } else { "OFF" },
                 app.config.repeat
             ))
@@ -379,21 +383,37 @@ fn playback(frame: &mut Frame<'_>, app: &App, area: Rect) {
         );
     }
     let duration = track.as_ref().map(|t| t.duration_ms).unwrap_or(0);
+    let elapsed = app.queue.position_ms.min(duration);
     let ratio = if duration == 0 {
         0.0
     } else {
-        (app.queue.position_ms as f64 / duration as f64).clamp(0.0, 1.0)
+        elapsed as f64 / duration as f64
     };
-    let label = format!(
-        "{} / {}{}",
-        time(app.queue.position_ms),
-        time(duration),
-        if area.width < 70 {
-            format!("  vol {}%", app.config.volume)
-        } else {
-            String::new()
-        }
-    );
+    let label = if duration == 0 {
+        format!(
+            "{} / --:--{}",
+            time(elapsed),
+            if area.width < 70 {
+                format!("  vol {}%", app.config.volume)
+            } else {
+                String::new()
+            }
+        )
+    } else {
+        let percent = (elapsed as u64 * 100 / duration as u64).min(100);
+        format!(
+            "{} / {}  {}%  -{}{}",
+            time(elapsed),
+            time(duration),
+            percent,
+            time(duration.saturating_sub(elapsed)),
+            if area.width < 70 {
+                format!("  vol {}%", app.config.volume)
+            } else {
+                String::new()
+            }
+        )
+    };
     frame.render_widget(
         Gauge::default().ratio(ratio).label(label).gauge_style(
             Style::default()
@@ -439,6 +459,28 @@ mod tests {
                 }
             }
         }
+    }
+    #[test]
+    fn render_playback_timestamp_and_muted_volume() {
+        let mut app = App::new(Config::default(), Queue::default());
+        let mut track = Track::unknown(&"0".repeat(22));
+        track.name = "Timestamp check".into();
+        track.duration_ms = 210_000;
+        app.queue.replace(vec![track.id.clone()], 0, false);
+        app.queue.position_ms = 23_000;
+        app.cache.insert(track.id.clone(), track);
+        app.config.volume = 0;
+        let mut terminal = Terminal::new(TestBackend::new(120, 35)).unwrap();
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        let text = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|c| c.symbol())
+            .collect::<String>();
+        assert!(text.contains("0:23 / 3:30  10%  -3:07"));
+        assert!(text.contains("VOL MUTED"));
     }
     #[test]
     #[ignore = "Requires a real terminal; exercises alternate screen and a caught panic"]

@@ -1,8 +1,9 @@
 # Tuitify
 
 A personal Windows terminal player that streams Spotify audio directly through
-librespot and Rodio/WASAPI. Spotify desktop can stay closed. Requires your Spotify
-Premium account and a Spotify Developer app for catalog access.
+librespot and Rodio/WASAPI. Spotify desktop can stay closed. Requires a Spotify
+account; Premium is required for playback. Catalog access uses Spotatui's shared PKCE
+client by default and can be switched to a personal Spotify Developer app.
 
 ## Run on Windows
 
@@ -14,35 +15,45 @@ Consolas or Cascadia Mono; icon fonts are not required.
 .\tuitify.exe
 ```
 
-For the first login:
+For the first login, run `tuitify`. Tuitify follows Spotatui's PKCE flow and uses its
+shared catalog client by default, so no client secret or Developer app is required.
+The browser opens automatically and the callback listener is ready before it does.
+After the catalog authorization, Tuitify opens the second authorization. Use the
+**same Spotify account**.
+
+If you prefer your own Web API app (for a private app allow-list or separate quota):
 
 1. Open the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard).
 2. Create an app for personal use, select Web API, and register this exact redirect:
    `http://127.0.0.1:8989/callback`.
-3. Copy the **client ID**, not the client secret. Your account must be permitted to
-   use the app. In development mode, the app owner needs an active Premium account;
-   new apps ordinarily permit five users. See Spotify's current dashboard/rules.
-4. Run `tuitify`. On first launch, paste your client ID when prompted and finish
-   browser authorization. No client secret or Spotify password is entered into Tuitify.
-5. Tuitify automatically opens the second authorization. Use the **same Spotify account**.
-   This second PKCE login uses librespot's streaming client identity and
-   `http://127.0.0.1:8989/login`. Spotify labels this authorization **Spotify for
-   Desktop**. It does not launch or require the desktop application. You do not
-   register this second redirect in your Developer app.
+3. Run `tuitify auth --client-id YOUR_SPOTIFY_CLIENT_ID`. Paste the **client ID**, not
+   the client secret. In development mode, the app owner needs an active Premium
+   account and the Spotify account must be allowed to use the app.
+4. Finish the browser authorization. Tuitify automatically opens the second
+   authorization. Use the same Spotify account there as well.
+
+The shared catalog client uses `http://127.0.0.1:8989/login`; you do not register
+that redirect in your own app. No Spotify password is entered into Tuitify.
+
+The second PKCE login uses Spotatui/librespot's streaming client identity and
+`http://127.0.0.1:8989/login`. Spotify labels this authorization **Spotify for
+Desktop**. It does not launch or require the desktop application. You do not
+register this second redirect in your Developer app.
 
 The player opens automatically when setup finishes. Later launches reuse saved
 credentials without browser prompts or extra profile checks. If you complete only
 the first login, the next launch resumes at the missing second step.
 
-`tuitify auth` runs the same guided setup without opening the player. You can supply
-`--client-id YOUR_SPOTIFY_CLIENT_ID` to avoid the prompt. Repeating `auth` reuses saved
-logins. Use `tuitify auth --force` to replace them, or `tuitify auth --streaming --force`
-to replace only the streaming login. These explicit replacements clear the queue.
+`tuitify auth` runs the same guided setup without opening the player. Add
+`--client-id YOUR_SPOTIFY_CLIENT_ID` to select a personal catalog app. Repeating
+`auth` reuses saved logins. Use `tuitify auth --force` to replace them, or
+`tuitify auth --streaming --force` to replace only the streaming login. These explicit
+replacements clear the queue.
 
 **Why two logins?** Live validation found that the personal Developer app token
 could authenticate a streaming session but Spotify rejected its audio-metadata
-request. Librespot's streaming authorization resolved this. Your own client ID is
-still used for every Web API catalog request. Both logins use PKCE, random state,
+request. Librespot's streaming authorization resolved this. The selected catalog
+client ID is used for every Web API catalog request. Both logins use PKCE, random state,
 and Windows Credential Manager. This is an implementation change from the
 original single-login assumption.
 
@@ -74,7 +85,10 @@ To use `tuitify` without the `.exe` path, add its folder to your user PATH.
 | Space | Pause/resume; retry failed playback from the saved position |
 | `n` / `p` | Next / previous; previous restarts after three seconds |
 | Left / Right | Seek backward / forward ten seconds |
+| Home / End | Jump to the start / end of the track |
 | `+` / `-` | Adjust volume by five percent (`=` also increases) |
+| `[` / `]` | Adjust volume by one percent for fine control |
+| `m` | Mute or restore the previous volume |
 | `s` | Toggle shuffle, preserving the current occurrence |
 | `r` | Cycle repeat off → queue → track |
 | `a` | Append selected track without interrupting playback |
@@ -85,6 +99,11 @@ To use `tuitify` without the `.exe` path, add its folder to your user PATH.
 | `?` / F1 | Help |
 | `q` / Ctrl+C | Save and quit |
 | Esc | Cancel search editing, close Help, otherwise quit |
+
+The playback bar continuously shows elapsed time, total duration, percentage
+complete, and remaining time. Left/Right seeks while the track is loaded; Home
+and End jump to exact boundaries. Volume changes are reflected immediately in
+the `VOL` indicator, and `m` temporarily mutes without losing the previous level.
 
 While entering a search, ordinary keys (including Space and `q`) enter text.
 Submit with Enter before using playback shortcuts. Clipboard paste is supported.

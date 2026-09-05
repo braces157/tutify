@@ -9,10 +9,18 @@ account identifiers, tokens, library contents, or listening logs.
 - Personal Developer app PKCE login completed; tokens saved in Windows Credential
   Manager. A single app token connected to the Spotify session but failed audio
   metadata retrieval. A separate librespot PKCE streaming login fixed playback.
+- The catalog flow now follows Spotatui's shared PKCE client and `/login` redirect
+  by default; `--client-id` keeps the personal-app `/callback` flow available.
+- Streaming login verifies the account after the librespot handshake, when the
+  canonical username is populated, instead of querying the streaming token through
+  the Web API.
 - Spotify desktop processes were closed before the successful playback probe.
   The user explicitly confirmed that audio was audible through Windows output.
 - Probe pause/resume and ten-second seek produced the corresponding player
   events. Volume commands were exercised.
+- TUI playback controls now expose one-percent volume steps, mute/restore,
+  start/end seeking, and a progress bar with elapsed, total, percentage, and
+  remaining time.
 - TUI search returned ten results; playing a search result worked.
 - Liked songs and playlists loaded. Playing from liked songs and an owned
   playlist worked through the same streaming worker.
@@ -39,7 +47,7 @@ Retry-After seconds and HTTP dates, ten-result search pagination, playlist `/ite
 response parsing, metadata-only restrictions, 403/503 errors, 401 refresh, URL
 validation, and all views at 120x35, 80x24, 48x18, 32x10, and 20x6.
 
-Final results: 29 offline tests passed; formatting and Clippy with warnings denied
+Final results: 31 offline tests passed; formatting and Clippy with warnings denied
 passed; the optimized Windows release build succeeded. Both opt-in acceptance
 tests (streaming and terminal cleanup) passed separately. Run the commands in
 README.md to reproduce checks. These two tests are ignored by default because

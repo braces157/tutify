@@ -71,6 +71,9 @@ pub struct App {
     pub browse: Browse,
     pub generation: u64,
     pub loaded: bool,
+    /// Volume saved before the last mute action. This is session-only so a
+    /// restart still uses the user's persisted volume setting.
+    muted_volume: Option<u8>,
     request: u64,
     pub quit: bool,
 }
@@ -97,6 +100,7 @@ impl App {
             browse: Browse::Search(String::new()),
             generation: 0,
             loaded: false,
+            muted_volume: None,
             request: 0,
             quit: false,
         }
@@ -182,7 +186,9 @@ impl App {
             } if generation == self.generation => {
                 self.state = State::Playing;
                 self.queue.position_ms = position_ms;
-                self.status = "Playing | Space pause | a enqueue | n/p next/previous".into();
+                self.status =
+                    "Playing | Space pause | Left/Right seek | +/- volume | n/p next/previous"
+                        .into();
             }
             Event::Paused {
                 generation,
@@ -190,7 +196,7 @@ impl App {
             } if generation == self.generation => {
                 self.state = State::Paused;
                 self.queue.position_ms = position_ms;
-                self.status = "Paused | Space resumes".into();
+                self.status = "Paused | Space resumes | Left/Right seek | +/- volume".into();
             }
             Event::Position {
                 generation,
@@ -335,6 +341,10 @@ impl Tasks {
     }
 }
 
+fn format_time(ms: u32) -> String {
+    format!("{}:{:02}", ms / 60_000, ms / 1_000 % 60)
+}
+
 fn key(app: &mut App, key: KeyEvent, tasks: &mut Tasks, tx: &mpsc::UnboundedSender<Command>) {
     if key.kind == KeyEventKind::Release {
         return;
@@ -471,29 +481,73 @@ fn key(app: &mut App, key: KeyEvent, tasks: &mut Tasks, tx: &mpsc::UnboundedSend
             }
         }
         KeyCode::Char('p') if app.queue.previous() => app.load(tx),
-        KeyCode::Left | KeyCode::Right => {
-            let position = if key.code == KeyCode::Left {
-                app.queue.position_ms.saturating_sub(10_000)
-            } else {
-                app.queue.position_ms.saturating_add(10_000)
+        KeyCode::Home | KeyCode::End | KeyCode::Left | KeyCode::Right => {
+            let Some(track) = app.current_track() else {
+                app.status = "Choose a track before seeking.".into();
+                return;
             };
-            let duration = app
-                .current_track()
-                .map(|t| t.duration_ms)
-                .filter(|d| *d > 0)
-                .unwrap_or(u32::MAX);
+            let duration = track.duration_ms;
+            if duration == 0 {
+                app.status = "Track duration is not available yet.".into();
+                return;
+            }
+            let position = match key.code {
+                KeyCode::Home => 0,
+                KeyCode::End => duration.saturating_sub(1),
+                KeyCode::Left => app.queue.position_ms.saturating_sub(10_000),
+                KeyCode::Right => app.queue.position_ms.saturating_add(10_000),
+                _ => unreachable!(),
+            };
             app.queue.position_ms = position.min(duration.saturating_sub(1));
             if app.loaded {
                 app.send(tx, Command::Seek(app.queue.position_ms));
             }
+            app.status = format!(
+                "Seeked to {}. Left/Right seek 10s | Home/End jump",
+                format_time(app.queue.position_ms)
+            );
         }
         KeyCode::Char('+') | KeyCode::Char('=') => {
             app.config.volume = (app.config.volume + 5).min(100);
+            app.muted_volume = None;
             app.send(tx, Command::Volume(app.config.volume));
+            app.status = format!("Volume {}%", app.config.volume);
         }
         KeyCode::Char('-') => {
             app.config.volume = app.config.volume.saturating_sub(5);
+            if app.config.volume > 0 {
+                app.muted_volume = None;
+            }
             app.send(tx, Command::Volume(app.config.volume));
+            app.status = format!("Volume {}%", app.config.volume);
+        }
+        KeyCode::Char(']') => {
+            app.config.volume = (app.config.volume + 1).min(100);
+            app.muted_volume = None;
+            app.send(tx, Command::Volume(app.config.volume));
+            app.status = format!("Volume {}% (fine)", app.config.volume);
+        }
+        KeyCode::Char('[') => {
+            app.config.volume = app.config.volume.saturating_sub(1);
+            if app.config.volume > 0 {
+                app.muted_volume = None;
+            }
+            app.send(tx, Command::Volume(app.config.volume));
+            app.status = format!("Volume {}% (fine)", app.config.volume);
+        }
+        KeyCode::Char('m') => {
+            if app.config.volume == 0 {
+                app.config.volume = app.muted_volume.take().unwrap_or(50);
+            } else {
+                app.muted_volume = Some(app.config.volume);
+                app.config.volume = 0;
+            }
+            app.send(tx, Command::Volume(app.config.volume));
+            app.status = if app.config.volume == 0 {
+                "Muted. Press m to restore volume".into()
+            } else {
+                format!("Volume {}%", app.config.volume)
+            };
         }
         KeyCode::Char('s') => {
             app.config.shuffle = !app.config.shuffle;

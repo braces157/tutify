@@ -15,9 +15,19 @@ use tokio::{
 };
 
 pub const REDIRECT: &str = "http://127.0.0.1:8989/callback";
+/// Shared catalog client used by Spotatui's PKCE flow. It keeps first-run
+/// setup usable without asking every user to register a Developer app. Users
+/// who need their own quota or app access can override it with `--client-id`.
+pub const SHARED_CLIENT_ID: &str = "d420a117a32841c2b3474932e49fb54b";
+/// Spotify's desktop/keymaster client is the client ID used by Spotatui and
+/// other librespot-based players. Spotify grants this client the streaming
+/// product scope that a user-created Web API app may not receive.
+pub const STREAMING_CLIENT_ID: &str = "65b708073fc0480ea92a077233ca87bd";
+pub const STREAMING_REDIRECT: &str = "http://127.0.0.1:8989/login";
 const TOKEN_URL: &str = "https://accounts.spotify.com/api/token";
 const SCOPES: &str =
     "user-read-private user-library-read playlist-read-private playlist-read-collaborative";
+const STREAMING_SCOPES: &str = "streaming user-read-playback-state user-modify-playback-state user-read-currently-playing user-library-read user-read-private";
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Tokens {
@@ -171,6 +181,41 @@ fn random_secret() -> String {
     URL_SAFE_NO_PAD.encode(bytes)
 }
 
+fn oauth_settings(client_id: &str, streaming: bool) -> (&str, &str, &str, &str) {
+    if streaming {
+        (
+            STREAMING_CLIENT_ID,
+            STREAMING_REDIRECT,
+            "/login",
+            STREAMING_SCOPES,
+        )
+    } else if client_id == SHARED_CLIENT_ID {
+        (SHARED_CLIENT_ID, STREAMING_REDIRECT, "/login", SCOPES)
+    } else {
+        (client_id, REDIRECT, "/callback", SCOPES)
+    }
+}
+
+async fn bind_callback_listener() -> Result<TcpListener> {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        match TcpListener::bind("127.0.0.1:8989").await {
+            Ok(listener) => return Ok(listener),
+            Err(error)
+                if error.kind() == std::io::ErrorKind::AddrInUse && Instant::now() < deadline =>
+            {
+                // The previous browser callback can keep the port in use for
+                // a short moment while Windows closes the connection.
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+            Err(error) => {
+                return Err(error)
+                    .context("Port 8989 is busy; close the other login process and retry");
+            }
+        }
+    }
+}
+
 /// Strict callback validation; no token/code/error description is ever included in diagnostics.
 pub fn validate_callback(target: &str, expected_state: &str) -> Result<String> {
     validate_callback_path(target, expected_state, "/callback")
@@ -209,39 +254,25 @@ pub async fn login(store: &Storage, client_id: Option<String>, streaming: bool) 
     }
     if config.client_id.is_empty() {
         println!(
-            "Create a Spotify Developer app and register {REDIRECT}\nPaste its client ID (never a client secret):"
+            "Using the shared Spotify catalog client. To use your own app instead, rerun with --client-id YOUR_CLIENT_ID.\n"
         );
-        let mut id = String::new();
-        std::io::stdin().read_line(&mut id)?;
-        config.client_id = id.trim().into();
+        config.client_id = SHARED_CLIENT_ID.to_owned();
     }
     if config.client_id.len() != 32 || !config.client_id.bytes().all(|b| b.is_ascii_hexdigit()) {
         bail!("Client ID must be 32 hexadecimal characters");
     }
-    let oauth_id = if streaming {
-        librespot_core::config::SessionConfig::default().client_id
-    } else {
-        config.client_id.clone()
-    };
-    let redirect = if streaming {
-        "http://127.0.0.1:8989/login"
-    } else {
-        REDIRECT
-    };
-    let callback_path = if streaming { "/login" } else { "/callback" };
-    let scopes = if streaming {
-        "streaming user-read-private"
-    } else {
-        SCOPES
-    };
-    let listener = TcpListener::bind("127.0.0.1:8989")
-        .await
-        .context("Port 8989 is busy; close the other login process and retry")?;
+    // Both Spotatui's shared client and librespot's streaming client have
+    // /login registered. A personal catalog app uses /callback, which the
+    // user registers in the Developer dashboard.
+    let (oauth_id, redirect, callback_path, scopes) = oauth_settings(&config.client_id, streaming);
+    // Bind before launching the browser so an immediate redirect cannot race
+    // listener startup.
+    let listener = bind_callback_listener().await?;
     let verifier = random_secret();
     let state = random_secret();
     let mut url = url::Url::parse("https://accounts.spotify.com/authorize")?;
     url.query_pairs_mut().extend_pairs([
-        ("client_id", oauth_id.as_str()),
+        ("client_id", oauth_id),
         ("response_type", "code"),
         ("redirect_uri", redirect),
         ("scope", scopes),
@@ -252,7 +283,11 @@ pub async fn login(store: &Storage, client_id: Option<String>, streaming: bool) 
     println!(
         "Complete Spotify login in your browser. Waiting up to five minutes.\nIf the browser did not open, visit:\n{url}"
     );
-    let _ = webbrowser::open(url.as_str());
+    if let Err(error) = webbrowser::open(url.as_str()) {
+        println!(
+            "Could not open the browser automatically ({error}); open the URL above manually."
+        );
+    }
     let (code, mut callback) = tokio::time::timeout(Duration::from_secs(300), async {
         loop {
             let (mut stream, _) = listener.accept().await?;
@@ -294,10 +329,10 @@ pub async fn login(store: &Storage, client_id: Option<String>, streaming: bool) 
                     .await;
                 continue;
             }
-            let result = if streaming {
-                validate_callback_path(target, &state, callback_path)
-            } else {
+            let result = if callback_path == "/callback" {
                 validate_callback(target, &state)
+            } else {
+                validate_callback_path(target, &state, callback_path)
             };
             match result {
                 Ok(code) => return Ok((code, stream)),
@@ -313,7 +348,7 @@ pub async fn login(store: &Storage, client_id: Option<String>, streaming: bool) 
     .context("Login timed out; run tuitify auth again")??;
     println!("Browser authorization received. Exchanging the code with Spotify...");
     let result = finish_login(
-        store, &config, streaming, &oauth_id, redirect, &code, &verifier,
+        store, &config, streaming, oauth_id, redirect, &code, &verifier,
     )
     .await;
     send_callback_result(&mut callback, &result, streaming).await;
@@ -380,8 +415,13 @@ async fn finish_login(
         .context("Cannot reach Spotify login; check your network and run auth again")?;
     let token = decode_token(response).await?;
     println!("Authorization exchanged. Verifying the Spotify account...");
+    let account_id = if streaming {
+        streaming_account_id(&token.access_token).await?
+    } else {
+        profile_id(&token.access_token).await?
+    };
     let tokens = Tokens {
-        account_id: profile_id(&token.access_token).await?,
+        account_id,
         access_token: token.access_token,
         refresh_token: token
             .refresh_token
@@ -441,6 +481,49 @@ async fn decode_token(response: reqwest::Response) -> Result<TokenResponse> {
 
 async fn profile_id(token: &str) -> Result<String> {
     profile_id_at(token, "https://api.spotify.com/v1/me").await
+}
+
+/// Librespot's welcome packet returns the authenticated canonical username.
+/// Streaming authorization must not use the shared streaming client's Web API
+/// quota, because Spotify may reject that metadata request for this client.
+async fn streaming_account_id(token: &str) -> Result<String> {
+    use librespot_core::{authentication::Credentials, config::SessionConfig, session::Session};
+    let session = Session::new(
+        SessionConfig {
+            client_id: STREAMING_CLIENT_ID.to_owned(),
+            ..SessionConfig::default()
+        },
+        None,
+    );
+    let connection = tokio::time::timeout(
+        Duration::from_secs(35),
+        session.connect(Credentials::with_access_token(token), false),
+    )
+    .await;
+    // Always tear down the short-lived verification session, including when
+    // the connection times out or Spotify rejects the token.
+    match connection {
+        Ok(Ok(())) => (),
+        Ok(Err(_)) => {
+            session.shutdown();
+            bail!("Spotify streaming authorization failed; check your account and retry setup");
+        }
+        Err(_) => {
+            session.shutdown();
+            bail!(
+                "Streaming account verification timed out; check your connection and retry setup"
+            );
+        }
+    }
+    // `Session::username` is populated by `connect`; reading it before the
+    // future completes races the authentication handshake and returns an empty
+    // ID on a fresh session.
+    let id = session.username();
+    session.shutdown();
+    if id.is_empty() || id == "UNKNOWN" {
+        bail!("Spotify streaming did not return an account ID; retry setup");
+    }
+    Ok(id)
 }
 
 async fn profile_id_at(token: &str, endpoint: &str) -> Result<String> {
@@ -543,7 +626,7 @@ impl TokenManager {
                     .context("Streaming login damaged; run tuitify auth --streaming")?,
             )),
             client: http_client()?,
-            client_id: librespot_core::config::SessionConfig::default().client_id,
+            client_id: STREAMING_CLIENT_ID.to_owned(),
             endpoint: TOKEN_URL.into(),
             persist: true,
             streaming: true,
@@ -781,6 +864,10 @@ mod tests {
             validate_callback("/callback?state=abc&code=xyz", "abc").unwrap(),
             "xyz"
         );
+        assert_eq!(
+            validate_callback_path("/login?state=abc&code=xyz", "abc", "/login").unwrap(),
+            "xyz"
+        );
         for target in [
             "/callback?code=x",
             "/callback?state=wrong&code=x",
@@ -791,6 +878,24 @@ mod tests {
         ] {
             assert!(validate_callback(target, "abc").is_err());
         }
+    }
+    #[test]
+    fn oauth_settings_match_spotatui_redirects_and_scopes() {
+        let (_, redirect, path, scopes) = oauth_settings(SHARED_CLIENT_ID, false);
+        assert_eq!(redirect, STREAMING_REDIRECT);
+        assert_eq!(path, "/login");
+        assert!(scopes.contains("playlist-read-private"));
+
+        let (_, redirect, path, scopes) = oauth_settings("0123456789abcdef0123456789abcdef", false);
+        assert_eq!(redirect, REDIRECT);
+        assert_eq!(path, "/callback");
+        assert_eq!(scopes, SCOPES);
+
+        let (client, redirect, path, scopes) = oauth_settings("ignored", true);
+        assert_eq!(client, STREAMING_CLIENT_ID);
+        assert_eq!(redirect, STREAMING_REDIRECT);
+        assert_eq!(path, "/login");
+        assert!(scopes.contains("streaming"));
     }
     #[tokio::test]
     async fn refresh_is_serialized_and_preserves_refresh_token() {

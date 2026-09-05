@@ -24,6 +24,8 @@ struct Cli {
 enum Command {
     /// Guided setup; reuse saved logins and open any missing browser login steps.
     Auth {
+        /// Use a personal Spotify Developer app for catalog requests instead
+        /// of the built-in shared PKCE client.
         #[arg(long)]
         client_id: Option<String>,
         #[arg(long)]

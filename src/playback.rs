@@ -94,6 +94,7 @@ async fn connect(
     let token = tokens.access().await?;
     let session = Session::new(
         SessionConfig {
+            client_id: crate::auth::STREAMING_CLIENT_ID.to_owned(),
             autoplay: Some(false),
             ..SessionConfig::default()
         },
