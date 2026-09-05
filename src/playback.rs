@@ -107,7 +107,7 @@ async fn connect(
     if !matches!(&connection, Ok(Ok(()))) {
         session.shutdown();
         anyhow::bail!(
-            "Spotify streaming connection failed. Check network and Premium membership; retry with Space. If it persists, run tuitify auth. Librespot may be incompatible with Spotify's current service."
+            "Spotify streaming connection failed. Check network and Premium membership; retry with Space. If it persists, run tuitify auth --streaming --force. Librespot may be incompatible with Spotify's current service."
         );
     }
     let mixer = SoftMixer::open(MixerConfig::default())?;
@@ -187,7 +187,7 @@ async fn worker(
                     PlayerEvent::Paused { position_ms, .. } => { loading_since = None; playing = false; Some(Event::Paused { generation, position_ms }) },
                     PlayerEvent::PositionChanged { position_ms, .. } | PlayerEvent::PositionCorrection { position_ms, .. } | PlayerEvent::Seeked { position_ms, .. } => { last_progress = Instant::now(); Some(Event::Position { generation, position_ms }) },
                     PlayerEvent::EndOfTrack { .. } => { active = None; playing = false; Some(Event::Completed(generation)) },
-                    PlayerEvent::Unavailable { .. } => { loading_since = None; active = None; playing = false; Some(Event::TrackError { generation, message: format!("{}. Choose another track or Space to retry; persistent errors may need tuitify auth --streaming or a librespot update.", crate::diagnostics::take().unwrap_or_else(|| "Track unavailable or network interrupted".into())) }) },
+                    PlayerEvent::Unavailable { .. } => { loading_since = None; active = None; playing = false; Some(Event::TrackError { generation, message: format!("{}. Choose another track or Space to retry; persistent errors may need tuitify auth --streaming --force or a librespot update.", crate::diagnostics::take().unwrap_or_else(|| "Track unavailable or network interrupted".into())) }) },
                     _ => None,
                 };
                 if let Some(out) = out { let _ = tx.send(out); }

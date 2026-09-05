@@ -22,12 +22,15 @@ struct Cli {
 }
 #[derive(Subcommand)]
 enum Command {
-    /// Browser login using your own Spotify Developer app; no secret required.
+    /// Guided setup; reuse saved logins and open any missing browser login steps.
     Auth {
         #[arg(long)]
         client_id: Option<String>,
         #[arg(long)]
         streaming: bool,
+        /// Replace saved logins, for example after authorization is revoked.
+        #[arg(long)]
+        force: bool,
     },
     /// Remove saved credentials and the account queue.
     Logout,
@@ -45,7 +48,12 @@ async fn main() -> Result<()> {
         Some(Command::Auth {
             client_id,
             streaming,
-        }) => auth::login(&store, client_id, streaming).await,
+            force,
+        }) => {
+            auth::setup(&store, client_id, force, streaming).await?;
+            println!("Setup complete. Run tuitify to open the player.");
+            Ok(())
+        }
         Some(Command::Logout) => {
             auth::delete_tokens()?;
             store.clear_queue()?;
@@ -61,6 +69,9 @@ async fn main() -> Result<()> {
             let config = store.config()?;
             playback::probe(auth::TokenManager::load_streaming()?, config.client_id, id).await
         }
-        None => app::run(store).await,
+        None => {
+            auth::setup(&store, None, false, false).await?;
+            app::run(store).await
+        }
     }
 }

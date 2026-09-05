@@ -52,6 +52,97 @@ fn save_tokens(tokens: &Tokens, streaming: bool) -> Result<()> {
         .set_password(&serde_json::to_string(tokens)?)
         .context("Cannot save tokens in Windows Credential Manager")
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LoginStep {
+    Catalog,
+    Streaming,
+}
+
+fn setup_steps(
+    catalog_saved: bool,
+    streaming_saved: bool,
+    client_changed: bool,
+    force: bool,
+    streaming_only: bool,
+) -> Vec<LoginStep> {
+    let catalog_needed = !catalog_saved || client_changed || (force && !streaming_only);
+    let mut steps = Vec::new();
+    if catalog_needed {
+        steps.push(LoginStep::Catalog);
+    }
+    // A new catalog login invalidates the previous account's streaming login.
+    if catalog_needed || !streaming_saved || force {
+        steps.push(LoginStep::Streaming);
+    }
+    steps
+}
+
+fn credential_saved(result: std::result::Result<String, keyring::Error>) -> Result<bool> {
+    match result {
+        Ok(value) => Ok(serde_json::from_str::<Tokens>(&value).is_ok_and(|tokens| {
+            !tokens.access_token.is_empty() && !tokens.refresh_token.is_empty()
+        })),
+        Err(keyring::Error::NoEntry) => Ok(false),
+        Err(error) => Err(error)
+            .context("Cannot read Windows Credential Manager; saved logins have not been changed"),
+    }
+}
+
+/// Check locally first: expired access tokens still have reusable refresh tokens.
+/// Re-running setup never contacts Spotify when both credentials are present.
+pub async fn setup(
+    store: &Storage,
+    client_id: Option<String>,
+    force: bool,
+    streaming_only: bool,
+) -> Result<()> {
+    let config = store.config()?;
+    let requested_id = client_id.map(|id| id.trim().to_owned());
+    let client_changed = requested_id
+        .as_ref()
+        .is_some_and(|id| id != &config.client_id);
+    let catalog_saved = !config.client_id.is_empty() && credential_saved(entry()?.get_password())?;
+    let streaming_saved = credential_saved(stream_entry()?.get_password())?;
+    let steps = setup_steps(
+        catalog_saved,
+        streaming_saved,
+        client_changed,
+        force,
+        streaming_only,
+    );
+    if steps.is_empty() {
+        return Ok(());
+    }
+    println!(
+        "Tuitify setup: {} browser login step(s) remaining. Use the same Spotify account for both logins.",
+        steps.len()
+    );
+    for (index, step) in steps.iter().enumerate() {
+        let streaming = *step == LoginStep::Streaming;
+        println!(
+            "\nLogin {} of {}: {}",
+            index + 1,
+            steps.len(),
+            if streaming {
+                "standalone audio (Spotify for Desktop)"
+            } else {
+                "search, playlists, and liked songs"
+            }
+        );
+        login(
+            store,
+            if streaming {
+                None
+            } else {
+                requested_id.clone()
+            },
+            streaming,
+        )
+        .await?;
+    }
+    Ok(())
+}
 pub fn delete_tokens() -> Result<()> {
     for entry in [entry()?, stream_entry()?] {
         match entry.delete_credential() {
@@ -234,9 +325,9 @@ fn callback_message(result: &Result<()>, streaming: bool) -> (String, String) {
         Ok(()) => (
             "200 OK".into(),
             if streaming {
-                "Spotify streaming login saved successfully. Close this tab and run tuitify in your terminal to open the player.".into()
+                "Spotify streaming login saved successfully. Close this tab and return to the terminal to continue.".into()
             } else {
-                "Spotify catalog login saved successfully. Close this tab and run tuitify auth --streaming in your terminal. After that login succeeds, run tuitify to open the player.".into()
+                "Spotify catalog login saved successfully. Close this tab and return to the terminal. Tuitify will automatically open the remaining browser login step.".into()
             },
         ),
         Err(error) => (
@@ -321,14 +412,7 @@ async fn finish_login(
         }
     }
     save_tokens(&tokens, streaming)?;
-    println!(
-        "Login saved in Windows Credential Manager. {}",
-        if streaming {
-            "Run tuitify to open the player."
-        } else {
-            "Next run tuitify auth --streaming to authorize standalone audio."
-        }
-    );
+    println!("Login saved in Windows Credential Manager.");
     Ok(())
 }
 
@@ -338,7 +422,7 @@ async fn decode_token(response: reqwest::Response) -> Result<TokenResponse> {
             .json()
             .await
             .context("Invalid Spotify token response")?),
-        400 | 401 => bail!("Spotify login expired or was revoked; run tuitify auth"),
+        400 | 401 => bail!("Spotify login expired or was revoked; run tuitify auth --force"),
         429 => bail!(
             "Spotify login is rate-limited (HTTP 429). Wait at least {} seconds before retrying; this does not indicate a Premium problem.",
             retry_delay(
@@ -508,9 +592,9 @@ impl TokenManager {
         }
         let token = decode_token(response).await.with_context(|| {
             if self.streaming {
-                "Streaming login failed; use tuitify auth --streaming if revoked"
+                "Streaming login failed; use tuitify auth --streaming --force if revoked"
             } else {
-                "Catalog login failed; run tuitify auth if revoked"
+                "Catalog login failed; run tuitify auth --force if revoked"
             }
         })?;
         let updated = Tokens {
@@ -554,12 +638,64 @@ mod tests {
         matchers::{body_string_contains, method, path},
     };
     #[test]
+    fn setup_only_opens_missing_logins() {
+        use LoginStep::*;
+        assert_eq!(
+            setup_steps(false, false, false, false, false),
+            vec![Catalog, Streaming]
+        );
+        assert_eq!(
+            setup_steps(true, false, false, false, false),
+            vec![Streaming]
+        );
+        assert!(setup_steps(true, true, false, false, false).is_empty());
+        assert_eq!(
+            setup_steps(false, true, false, false, false),
+            vec![Catalog, Streaming]
+        );
+    }
+    #[test]
+    fn setup_client_change_and_force_invalidate_the_right_credentials() {
+        use LoginStep::*;
+        assert_eq!(
+            setup_steps(true, true, true, false, false),
+            vec![Catalog, Streaming]
+        );
+        assert_eq!(
+            setup_steps(true, true, false, true, false),
+            vec![Catalog, Streaming]
+        );
+        assert_eq!(setup_steps(true, true, false, true, true), vec![Streaming]);
+        assert_eq!(
+            setup_steps(false, true, false, false, true),
+            vec![Catalog, Streaming]
+        );
+        assert!(setup_steps(true, true, false, false, true).is_empty());
+    }
+    #[test]
+    fn saved_refresh_token_skips_browser_even_when_access_token_expired() {
+        let tokens = Tokens {
+            access_token: "expired".into(),
+            refresh_token: "reusable".into(),
+            expires_at: 0,
+            account_id: "account".into(),
+        };
+        assert!(credential_saved(Ok(serde_json::to_string(&tokens).unwrap())).unwrap());
+        assert!(!credential_saved(Err(keyring::Error::NoEntry)).unwrap());
+        assert!(!credential_saved(Ok("broken json".into())).unwrap());
+        let empty = Tokens {
+            refresh_token: String::new(),
+            ..tokens
+        };
+        assert!(!credential_saved(Ok(serde_json::to_string(&empty).unwrap())).unwrap());
+    }
+    #[test]
     fn callback_reports_final_success_or_failure() {
         let (status, body) = callback_message(&Ok(()), false);
         assert_eq!(status, "200 OK");
-        assert!(body.contains("auth --streaming"));
+        assert!(body.contains("automatically open the remaining"));
         let (_, body) = callback_message(&Ok(()), true);
-        assert!(body.contains("run tuitify in your terminal"));
+        assert!(body.contains("return to the terminal"));
         let (status, body) =
             callback_message(&Err(anyhow::anyhow!("HTTP 429: wait 120 seconds")), false);
         assert_ne!(status, "200 OK");

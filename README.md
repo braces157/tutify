@@ -11,8 +11,6 @@ folder. The executable needs no Rust installation. Use a standard font such as
 Consolas or Cascadia Mono; icon fonts are not required.
 
 ```powershell
-.\tuitify.exe auth --client-id YOUR_SPOTIFY_CLIENT_ID
-.\tuitify.exe auth --streaming
 .\tuitify.exe
 ```
 
@@ -24,13 +22,22 @@ For the first login:
 3. Copy the **client ID**, not the client secret. Your account must be permitted to
    use the app. In development mode, the app owner needs an active Premium account;
    new apps ordinarily permit five users. See Spotify's current dashboard/rules.
-4. Run the first command and finish browser authorization. No client secret or
-   Spotify password is entered into Tuitify.
-5. Run `auth --streaming` and use the **same Spotify account** in the browser.
+4. Run `tuitify`. On first launch, paste your client ID when prompted and finish
+   browser authorization. No client secret or Spotify password is entered into Tuitify.
+5. Tuitify automatically opens the second authorization. Use the **same Spotify account**.
    This second PKCE login uses librespot's streaming client identity and
    `http://127.0.0.1:8989/login`. Spotify labels this authorization **Spotify for
    Desktop**. It does not launch or require the desktop application. You do not
    register this second redirect in your Developer app.
+
+The player opens automatically when setup finishes. Later launches reuse saved
+credentials without browser prompts or extra profile checks. If you complete only
+the first login, the next launch resumes at the missing second step.
+
+`tuitify auth` runs the same guided setup without opening the player. You can supply
+`--client-id YOUR_SPOTIFY_CLIENT_ID` to avoid the prompt. Repeating `auth` reuses saved
+logins. Use `tuitify auth --force` to replace them, or `tuitify auth --streaming --force`
+to replace only the streaming login. These explicit replacements clear the queue.
 
 **Why two logins?** Live validation found that the personal Developer app token
 could authenticate a streaming session but Spotify rejected its audio-metadata
@@ -42,8 +49,8 @@ original single-login assumption.
 The callback listener binds only to `127.0.0.1:8989`, starts before the browser
 opens, and times out after five minutes. After authorization, the terminal reports
 token exchange and account verification progress. The callback page waits for the
-actual result: it confirms saved credentials or displays the setup error. Login
-does not launch the player; run `tuitify` after both logins succeed. If the browser
+actual result: it confirms saved credentials or displays the setup error. Return
+to the original terminal to continue setup. If the browser
 shows a blank or blocked callback page, the terminal's **Login saved** message
 confirms success. Close any other process using port 8989.
 
@@ -148,8 +155,8 @@ leftover uncommitted temporary write does not replace the previous valid snapsho
 
 ## Troubleshooting
 
-- **Login expired/revoked:** exit, run `auth` and then `auth --streaming`; for a
-  streaming-only failure, use `auth --streaming`.
+- **Login revoked:** exit and run `tuitify auth --force`; for a streaming-only
+  failure, use `tuitify auth --streaming --force`. Expired access tokens refresh automatically.
 - **No audio:** select a working default output in Windows Sound settings, check
   Premium and volume, then retry with Space. No device error terminates the app.
 - **Network loss:** browsing errors leave the queue intact. Press F5 to retry.

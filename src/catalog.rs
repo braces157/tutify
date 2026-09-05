@@ -71,7 +71,7 @@ impl Catalog {
                 401 if attempt == 0 => {
                     token = self.tokens.refresh_rejected(&token).await?;
                 }
-                401 => bail!("Spotify login expired; exit and run tuitify auth"),
+                401 => bail!("Spotify login expired; exit and run tuitify auth --force"),
                 403 => bail!(
                     "Spotify denied access. Playlist items require ownership or collaboration in development mode. Also check app user access, scopes, and the app owner's Premium subscription."
                 ),
