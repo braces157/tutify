@@ -117,10 +117,16 @@ impl Catalog {
         // Fetch tracks concurrently using individual /tracks/{id} endpoints.
         // Spotify's batch /v1/tracks?ids=... endpoint returns HTTP 403 Forbidden for apps in Development Mode,
         // but individual /v1/tracks/{id} endpoints are fully supported (HTTP 200 OK).
+        // Bound concurrent requests to 5 to avoid triggering HTTP 429 rate limit backoffs.
+        let semaphore = Arc::new(tokio::sync::Semaphore::new(5));
         let mut set = tokio::task::JoinSet::new();
         for id in valid {
             let cat = self.clone();
-            set.spawn(async move { cat.track(&id).await });
+            let sem = semaphore.clone();
+            set.spawn(async move {
+                let _permit = sem.acquire().await;
+                cat.track(&id).await
+            });
         }
         let mut tracks = Vec::new();
         while let Some(res) = set.join_next().await {
@@ -129,6 +135,88 @@ impl Catalog {
             }
         }
         Ok(tracks)
+    }
+    pub async fn recommendations(&self, seed: &Track) -> Result<Vec<Track>> {
+        let normalized_seed = normalize_title(&seed.name);
+
+        // 1. Try official /v1/recommendations endpoint first
+        let rec_query = [("seed_tracks", seed.id.clone()), ("limit", "20".into())];
+        if let Ok(value) = self.get("/recommendations", &rec_query).await {
+            if let Some(items) = value["tracks"].as_array() {
+                let mut tracks = Vec::new();
+                let mut seen_titles = std::collections::HashSet::new();
+                seen_titles.insert(normalized_seed.clone());
+
+                for item in items {
+                    if let Some(t) = parse_track(item) {
+                        let norm = normalize_title(&t.name);
+                        if t.playable && t.id != seed.id && !seen_titles.contains(&norm) {
+                            seen_titles.insert(norm);
+                            tracks.push(t);
+                        }
+                    }
+                }
+                if tracks.len() >= 5 {
+                    return Ok(tracks);
+                }
+            }
+        }
+
+        // 2. Fallback: Query Spotify Search for related tracks & artist catalog
+        let artist_names: Vec<&str> = seed
+            .artists
+            .split(',')
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .collect();
+        let primary_artist = artist_names.first().copied().unwrap_or(&seed.artists);
+
+        let mut queries = Vec::new();
+        queries.push(primary_artist.to_string());
+        if let Some(&second_artist) = artist_names.get(1) {
+            queries.push(second_artist.to_string());
+        }
+
+        let mut candidates = Vec::new();
+        for q in queries {
+            for offset in [0, 10] {
+                let search_query = [
+                    ("limit", "10".into()),
+                    ("offset", offset.to_string()),
+                    ("type", "track".into()),
+                    ("q", q.clone()),
+                ];
+                if let Ok(val) = self.get("/search", &search_query).await {
+                    if let Some(items) = val["tracks"]["items"].as_array() {
+                        for item in items {
+                            if let Some(t) = parse_track(item) {
+                                candidates.push(t);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut final_tracks = Vec::new();
+        let mut seen_ids = std::collections::HashSet::new();
+        let mut seen_titles = std::collections::HashSet::new();
+        seen_ids.insert(seed.id.clone());
+        seen_titles.insert(normalized_seed);
+
+        for t in candidates {
+            let norm = normalize_title(&t.name);
+            if t.playable && !seen_ids.contains(&t.id) && !seen_titles.contains(&norm) {
+                seen_ids.insert(t.id.clone());
+                seen_titles.insert(norm);
+                final_tracks.push(t);
+                if final_tracks.len() >= 15 {
+                    break;
+                }
+            }
+        }
+
+        Ok(final_tracks)
     }
     pub async fn page(&self, browse: &Browse, offset: usize) -> Result<Page> {
         if let Browse::Search(query) = browse {
@@ -222,6 +310,26 @@ impl Catalog {
         };
         Ok(Page { rows, offset, next })
     }
+}
+
+pub fn normalize_title(name: &str) -> String {
+    let lower = name.to_lowercase();
+    let base = lower
+        .split(" - ")
+        .next()
+        .unwrap_or(&lower)
+        .split('(')
+        .next()
+        .unwrap_or(&lower)
+        .split('[')
+        .next()
+        .unwrap_or(&lower);
+    base.chars()
+        .filter(|c| c.is_alphanumeric() || c.is_whitespace())
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn clean(s: &str) -> String {
@@ -378,6 +486,83 @@ mod tests {
                 .to_string()
                 .contains("503")
         );
+    }
+    #[test]
+    fn test_normalize_title() {
+        assert_eq!(normalize_title("Castle on the Hill"), "castle on the hill");
+        assert_eq!(
+            normalize_title("Castle on the Hill - Acoustic"),
+            "castle on the hill"
+        );
+        assert_eq!(
+            normalize_title("Castle on the Hill (Vic Carnes)"),
+            "castle on the hill"
+        );
+        assert_eq!(
+            normalize_title("Castle on the Hill [Live]"),
+            "castle on the hill"
+        );
+        assert_eq!(normalize_title("Shape of You"), "shape of you");
+        assert_ne!(
+            normalize_title("Castle on the Hill"),
+            normalize_title("Shape of You")
+        );
+    }
+    #[tokio::test]
+    async fn recommendations_fallback_filters_same_song() {
+        let (s, c) = catalog().await;
+        // Mock 403 on /recommendations to trigger search fallback
+        Mock::given(path("/recommendations"))
+            .respond_with(ResponseTemplate::new(403))
+            .expect(1)
+            .mount(&s)
+            .await;
+        // Mock search returning candidate tracks including seed, acoustic duplicate, and new related track
+        let item1 = serde_json::json!({
+            "id": "0000000000000000000001",
+            "name": "Castle on the Hill",
+            "artists": [{"name": "Ed Sheeran"}],
+            "duration_ms": 261000,
+            "is_playable": true,
+            "type": "track"
+        });
+        let item2 = serde_json::json!({
+            "id": "0000000000000000000002",
+            "name": "Castle on the Hill - Acoustic",
+            "artists": [{"name": "Ed Sheeran"}],
+            "duration_ms": 220000,
+            "is_playable": true,
+            "type": "track"
+        });
+        let item3 = serde_json::json!({
+            "id": "0000000000000000000003",
+            "name": "Shape of You",
+            "artists": [{"name": "Ed Sheeran"}],
+            "duration_ms": 233000,
+            "is_playable": true,
+            "type": "track"
+        });
+        Mock::given(path("/search"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "tracks": {
+                    "items": [item1, item2, item3]
+                }
+            })))
+            .mount(&s)
+            .await;
+
+        let seed = Track {
+            id: "0000000000000000000001".into(),
+            name: "Castle on the Hill".into(),
+            artists: "Ed Sheeran".into(),
+            duration_ms: 261000,
+            playable: true,
+        };
+        let recs = c.recommendations(&seed).await.unwrap();
+        // The seed and the acoustic variant MUST be filtered out; only Shape of You remains!
+        assert_eq!(recs.len(), 1);
+        assert_eq!(recs[0].name, "Shape of You");
+        assert_eq!(recs[0].id, "0000000000000000000003");
     }
     #[test]
     fn spotify_links() {

@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Tuitify — Standalone Spotify Terminal Player for Windows</title>
-  <meta name="description" content="A blazing-fast, standalone Spotify terminal client for Windows built in 100% pure Rust. Stream high-fidelity audio natively with sub-15MB RAM and instantaneous keyboard control.">
+  <title>Tuitify v0.2.0 — Standalone Spotify Terminal Player for Windows</title>
+  <meta name="description" content="A blazing-fast, standalone Spotify terminal client for Windows built in 100% pure Rust. Featuring 5 retro CRT themes, 30 FPS audio spectrum visualizer, synced lyrics, track radio autoplay, and sub-15MB RAM.">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎵</text></svg>">
   
   <!-- Allowlisted Tailwind CSS -->
@@ -33,6 +33,49 @@
 
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+    :root {
+      --term-accent: #1ed760;
+      --term-accent-dim: #169c46;
+      --term-bg-card: #090e0b;
+      --term-border: #1b2620;
+      --term-glow: rgba(30, 215, 96, 0.25);
+    }
+    .theme-spotify {
+      --term-accent: #1ed760;
+      --term-accent-dim: #169c46;
+      --term-bg-card: #090e0b;
+      --term-border: #1b2620;
+      --term-glow: rgba(30, 215, 96, 0.25);
+    }
+    .theme-phosphor {
+      --term-accent: #33ff33;
+      --term-accent-dim: #00aa00;
+      --term-bg-card: #041006;
+      --term-border: #004d00;
+      --term-glow: rgba(51, 255, 51, 0.3);
+    }
+    .theme-amber {
+      --term-accent: #ffb000;
+      --term-accent-dim: #cc8800;
+      --term-bg-card: #140d02;
+      --term-border: #4d3300;
+      --term-glow: rgba(255, 176, 0, 0.25);
+    }
+    .theme-monochrome {
+      --term-accent: #e6edf3;
+      --term-accent-dim: #8b949e;
+      --term-bg-card: #0d1117;
+      --term-border: #30363d;
+      --term-glow: rgba(230, 237, 243, 0.2);
+    }
+    .theme-cyberpunk {
+      --term-accent: #00ffff;
+      --term-accent-dim: #ff007f;
+      --term-bg-card: #0d021a;
+      --term-border: #3d0066;
+      --term-glow: rgba(0, 255, 255, 0.3);
+    }
 
     .glow-spotify {
       box-shadow: 0 0 35px -5px rgba(30, 215, 96, 0.35);
@@ -90,7 +133,7 @@
         </div>
         <div class="flex items-center gap-2">
           <span class="font-bold text-xl tracking-tight text-white group-hover:text-spotify transition-colors">Tuitify</span>
-          <span class="px-2 py-0.5 text-[10px] font-mono font-semibold bg-spotify/10 text-spotify border border-spotify/20 rounded-full">v0.1.1</span>
+          <span class="px-2 py-0.5 text-[10px] font-mono font-semibold bg-spotify/10 text-spotify border border-spotify/20 rounded-full">v0.2.0</span>
         </div>
       </a>
 
@@ -129,9 +172,9 @@
       <!-- Pill Badge -->
       <div class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-spotify/10 border border-spotify/25 text-spotify text-xs font-mono mb-8 glow-spotify-subtle">
         <span class="w-2 h-2 rounded-full bg-spotify animate-ping"></span>
-        <span>v0.1.1 Released</span>
+        <span>v0.2.0 Released</span>
         <span class="text-white/30">•</span>
-        <span class="text-slate-300">Live Search & Infinite 50+ Scrolling</span>
+        <span class="text-slate-300">Retro Themes, 30 FPS Visualizer & Synced Lyrics</span>
       </div>
 
       <!-- Main Headline -->
@@ -142,7 +185,7 @@
 
       <!-- Subtitle -->
       <p class="text-lg sm:text-xl text-slate-400 font-normal leading-relaxed mb-10 max-w-2xl mx-auto">
-        A standalone Spotify player engineered in 100% pure Rust. Stream Vorbis audio natively via Librespot with <strong class="text-white font-medium">zero Electron bloat</strong>, <strong class="text-white font-medium">&lt;15 MB RAM</strong>, and instant keyboard navigation.
+        A standalone Spotify player engineered in 100% pure Rust. Stream Vorbis audio natively with <strong class="text-white font-medium">5 retro CRT themes</strong>, <strong class="text-white font-medium">30 FPS visualizer</strong>, <strong class="text-white font-medium">karaoke synced lyrics</strong>, and <strong class="text-white font-medium">&lt;15 MB RAM</strong>.
       </p>
 
       <!-- Primary Action Buttons -->
@@ -150,7 +193,7 @@
         <a href="https://github.com/braces157/tutify/releases/latest/download/tuitify.exe"
            class="w-full sm:w-auto px-7 py-3.5 rounded-xl bg-spotify hover:bg-emerald-400 text-black font-semibold text-sm transition flex items-center justify-center gap-2.5 glow-spotify shadow-xl">
           <svg class="w-4 h-4 fill-current" viewBox="0 0 24 24"><path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.551H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801"/></svg>
-          Download for Windows (tuitify.exe)
+          Download for Windows (v0.2.0 .exe)
         </a>
         <button onclick="copyCommand('cargo install --git https://github.com/braces157/tutify.git', this)"
                 class="w-full sm:w-auto px-5 py-3.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.07] border border-white/10 text-slate-300 font-mono text-sm transition flex items-center justify-center gap-3 group">
@@ -164,15 +207,19 @@
       <div class="flex flex-wrap items-center justify-center gap-6 text-xs font-mono text-slate-400">
         <div class="flex items-center gap-2">
           <svg class="w-4 h-4 text-spotify" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg>
-          <span>No Spotify App Needed</span>
+          <span>5 Retro Themes (t)</span>
         </div>
         <div class="flex items-center gap-2">
           <svg class="w-4 h-4 text-spotify" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg>
-          <span>14 MB RAM Footprint</span>
+          <span>30 FPS Spectrum (v)</span>
         </div>
         <div class="flex items-center gap-2">
           <svg class="w-4 h-4 text-spotify" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg>
-          <span>10ms Instant Startup</span>
+          <span>Karaoke Lyrics (l)</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <svg class="w-4 h-4 text-spotify" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg>
+          <span>14 MB RAM</span>
         </div>
       </div>
 
@@ -205,36 +252,74 @@
       </div>
 
       <!-- TUI Screen Body -->
-      <div class="p-4 sm:p-6 font-mono text-xs sm:text-sm select-none">
+      <div id="tui-terminal-screen" class="p-4 sm:p-6 font-mono text-xs sm:text-sm select-none transition-colors theme-spotify">
         
         <!-- Header: App Title & Now Playing Status -->
-        <div class="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-emerald-950/80 gap-2">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-white/10 gap-2">
           <div class="flex items-center gap-3">
-            <span class="font-extrabold text-base text-spotify tracking-wider">TUITIFY</span>
+            <span id="tui-logo" class="font-extrabold text-base text-[var(--term-accent)] tracking-wider">TUITIFY</span>
             <span class="text-slate-500">|</span>
-            <span id="tui-now-playing-badge" class="px-2 py-0.5 rounded bg-spotify text-black font-bold text-xs">► PLAYING</span>
+            <span id="tui-now-playing-badge" class="px-2 py-0.5 rounded bg-[var(--term-accent)] text-black font-bold text-xs">► PLAYING</span>
             <span id="tui-header-track" class="text-white font-medium truncate max-w-xs sm:max-w-md">Bohemian Rhapsody — Queen</span>
           </div>
           <div class="flex items-center gap-3 text-xs text-slate-400">
-            <span id="tui-vol-label" class="text-emerald-400">VOL 80%</span>
+            <span id="tui-vol-label" class="text-[var(--term-accent)]">VOL 80%</span>
             <span>SHUF:OFF</span>
             <span>R:OFF</span>
           </div>
         </div>
 
+        <!-- V0.2.0 Interactive Feature Toolbar -->
+        <div class="flex items-center justify-between gap-2 py-2 border-b border-white/5 text-xs overflow-x-auto">
+          <div class="flex items-center gap-2">
+            <!-- Theme Cycler -->
+            <button onclick="cycleDemoTheme()" title="Press 't' to cycle theme"
+                    class="px-2.5 py-1 rounded bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 text-slate-300 hover:text-white transition flex items-center gap-1.5 shrink-0">
+              <span>🎨 Theme:</span>
+              <span id="tui-theme-label" class="text-[var(--term-accent)] font-bold">Classic Spotify</span>
+              <kbd class="text-[10px] text-slate-500 bg-black/40 px-1 rounded">t</kbd>
+            </button>
+            
+            <!-- Visualizer Mode Toggle -->
+            <button onclick="toggleDemoVisualizer()" id="tui-btn-vis" title="Press 'v' to toggle 30 FPS Visualizer"
+                    class="px-2.5 py-1 rounded bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 text-slate-300 hover:text-white transition flex items-center gap-1.5 shrink-0">
+              <span>📊 Visualizer</span>
+              <kbd class="text-[10px] text-slate-500 bg-black/40 px-1 rounded">v</kbd>
+            </button>
+
+            <!-- Synced Lyrics Toggle -->
+            <button onclick="toggleDemoLyrics()" id="tui-btn-lyrics" title="Press 'l' to toggle Synced Lyrics"
+                    class="px-2.5 py-1 rounded bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 text-slate-300 hover:text-white transition flex items-center gap-1.5 shrink-0">
+              <span>🎤 Lyrics</span>
+              <kbd class="text-[10px] text-slate-500 bg-black/40 px-1 rounded">l</kbd>
+            </button>
+
+            <!-- Track Radio -->
+            <button onclick="triggerDemoRadio()" title="Press 'R' for Track Radio"
+                    class="px-2.5 py-1 rounded bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 text-slate-300 hover:text-white transition flex items-center gap-1.5 shrink-0">
+              <span>📻 Track Radio</span>
+              <kbd class="text-[10px] text-slate-500 bg-black/40 px-1 rounded">R</kbd>
+            </button>
+          </div>
+
+          <div id="tui-toast" class="hidden text-xs text-[var(--term-accent)] font-semibold shrink-0 animate-pulse">
+            ✨ Radio generated 6 tracks!
+          </div>
+        </div>
+
         <!-- Navigation Tabs Bar (1:Search, 2:Playlists, 3:Liked, 4:Queue, 5:Help) -->
-        <div class="flex items-center gap-4 my-3 text-xs overflow-x-auto pb-1 border-b border-white/5">
+        <div class="flex items-center gap-4 my-2 text-xs overflow-x-auto pb-1 border-b border-white/5">
           <button onclick="switchView(1)" id="tui-tab-1" class="tui-tab px-2 py-1 rounded text-slate-400 hover:text-white transition">1:Search</button>
           <button onclick="switchView(2)" id="tui-tab-2" class="tui-tab px-2 py-1 rounded text-slate-400 hover:text-white transition">2:Playlists</button>
-          <button onclick="switchView(3)" id="tui-tab-3" class="tui-tab px-2 py-1 rounded text-spotify font-bold bg-emerald-950/40 border border-spotify/30">3:Liked Songs</button>
-          <button onclick="switchView(4)" id="tui-tab-4" class="tui-tab px-2 py-1 rounded text-slate-400 hover:text-white transition">4:Queue (18)</button>
+          <button onclick="switchView(3)" id="tui-tab-3" class="tui-tab px-2 py-1 rounded text-[var(--term-accent)] font-bold bg-white/[0.03] border border-[var(--term-accent)]/30">3:Liked Songs</button>
+          <button onclick="switchView(4)" id="tui-tab-4" class="tui-tab px-2 py-1 rounded text-slate-400 hover:text-white transition">4:Queue (<span id="tui-queue-count">8</span>)</button>
           <button onclick="switchView(5)" id="tui-tab-5" class="tui-tab px-2 py-1 rounded text-slate-400 hover:text-white transition">5:Help</button>
         </div>
 
         <!-- Real-Time Filter Box -->
-        <div id="tui-filter-box" class="mb-3 rounded-lg border border-spotify/40 bg-black/40 p-2.5 flex items-center justify-between gap-2 shadow-inner">
+        <div id="tui-filter-box" class="mb-3 rounded-lg border border-[var(--term-accent)]/40 bg-black/40 p-2.5 flex items-center justify-between gap-2 shadow-inner">
           <div class="flex items-center gap-2.5 flex-1">
-            <span class="text-spotify font-bold">🔍 FILTER ❯</span>
+            <span class="text-[var(--term-accent)] font-bold">🔍 FILTER ❯</span>
             <input type="text" id="tui-filter-input" placeholder="Type artist or track name (e.g. 'queen', 'yellow', 'bowie')..." 
                    class="bg-transparent border-none outline-none text-white w-full placeholder:text-slate-600 font-mono text-xs sm:text-sm"
                    oninput="handleFilterInput(this.value)">
@@ -245,19 +330,58 @@
           </div>
         </div>
 
-        <!-- Main TUI Grid / Table Area -->
-        <div class="rounded-lg border border-emerald-950 bg-[#090e0b] overflow-hidden">
+        <!-- Main TUI Grid / Table Area OR Overlay (Lyrics / Visualizer) -->
+        <div id="tui-main-panel" class="rounded-lg border border-white/10 bg-[#090e0b] overflow-hidden relative min-h-[224px]">
           
-          <!-- Table Header -->
-          <div class="px-3 py-2 bg-emerald-950/30 border-b border-emerald-950 text-slate-500 text-[11px] font-semibold flex justify-between items-center">
-            <div id="tui-table-title" class="text-slate-300">LIKED SONGS • <span id="tui-match-count">8 of 8 matches</span></div>
-            <div class="text-[10px] text-emerald-400/80">Page 1 • Auto-pagination ready</div>
+          <!-- Default Catalog Table View -->
+          <div id="tui-catalog-view">
+            <!-- Table Header -->
+            <div class="px-3 py-2 bg-white/[0.02] border-b border-white/10 text-slate-500 text-[11px] font-semibold flex justify-between items-center">
+              <div id="tui-table-title" class="text-slate-300">LIKED SONGS • <span id="tui-match-count">8 of 8 matches</span></div>
+              <div class="text-[10px] text-[var(--term-accent)]/80">Page 1 • Auto-pagination ready</div>
+            </div>
+
+            <!-- Table Content (Simulated Rows) -->
+            <div id="tui-rows-container" class="divide-y divide-white/[0.03] max-h-56 overflow-y-auto">
+              <!-- Rows injected by JavaScript -->
+            </div>
           </div>
 
-          <!-- Table Content (Simulated Rows) -->
-          <div id="tui-rows-container" class="divide-y divide-white/[0.03] max-h-56 overflow-y-auto">
-            <!-- Rows injected by JavaScript -->
+          <!-- Synced Lyrics Overlay View (Toggled by 'l') -->
+          <div id="tui-lyrics-view" class="hidden p-4 h-56 overflow-y-auto flex flex-col items-center justify-center text-center">
+            <div class="text-[11px] text-[var(--term-accent)] uppercase tracking-wider mb-2">🎤 Synced Lyrics (Lrclib.net)</div>
+            <div id="tui-lyrics-content" class="space-y-2 text-xs sm:text-sm">
+              <div class="text-slate-600">Is this the real life? Is this just fantasy?</div>
+              <div class="text-slate-500">Caught in a landslide, no escape from reality</div>
+              <div class="text-slate-400">Open your eyes, look up to the skies and see</div>
+              <div id="tui-lyrics-active-line" class="text-[var(--term-accent)] font-bold text-base py-1 px-3 bg-white/[0.05] rounded border border-[var(--term-accent)]/30 animate-pulse">
+                Sends shivers down my spine, body's aching all the time...
+              </div>
+              <div class="text-slate-400">Goodbye, everybody, I've got to go</div>
+              <div class="text-slate-500">Gotta leave you all behind and face the truth</div>
+            </div>
           </div>
+
+          <!-- Full 30 FPS Visualizer Overlay View (Toggled by 'v') -->
+          <div id="tui-visualizer-view" class="hidden p-4 h-56 flex flex-col items-center justify-center">
+            <div class="text-[11px] text-[var(--term-accent)] uppercase tracking-wider mb-4">📊 30 FPS Multi-Band Spectrum Visualizer</div>
+            <div class="flex items-end justify-center gap-2 h-32 w-full max-w-md px-4">
+              <span class="w-3 bg-[var(--term-accent)] bar-anim rounded-t" style="animation-delay: 0.05s; height: 35px;"></span>
+              <span class="w-3 bg-[var(--term-accent)] bar-anim rounded-t" style="animation-delay: 0.15s; height: 75px;"></span>
+              <span class="w-3 bg-[var(--term-accent)] bar-anim rounded-t" style="animation-delay: 0.3s; height: 110px;"></span>
+              <span class="w-3 bg-[var(--term-accent)] bar-anim rounded-t" style="animation-delay: 0.2s; height: 60px;"></span>
+              <span class="w-3 bg-[var(--term-accent)] bar-anim rounded-t" style="animation-delay: 0.4s; height: 95px;"></span>
+              <span class="w-3 bg-[var(--term-accent)] bar-anim rounded-t" style="animation-delay: 0.1s; height: 45px;"></span>
+              <span class="w-3 bg-[var(--term-accent)] bar-anim rounded-t" style="animation-delay: 0.25s; height: 105px;"></span>
+              <span class="w-3 bg-[var(--term-accent)] bar-anim rounded-t" style="animation-delay: 0.35s; height: 80px;"></span>
+              <span class="w-3 bg-[var(--term-accent)] bar-anim rounded-t" style="animation-delay: 0.18s; height: 120px;"></span>
+              <span class="w-3 bg-[var(--term-accent)] bar-anim rounded-t" style="animation-delay: 0.45s; height: 65px;"></span>
+              <span class="w-3 bg-[var(--term-accent)] bar-anim rounded-t" style="animation-delay: 0.22s; height: 85px;"></span>
+              <span class="w-3 bg-[var(--term-accent)] bar-anim rounded-t" style="animation-delay: 0.38s; height: 40px;"></span>
+            </div>
+            <div class="mt-3 text-[10px] text-slate-500 font-mono">Press 'v' or Esc to return to catalog</div>
+          </div>
+
         </div>
 
         <!-- Live Audio Controls & Visualizer Footer -->
@@ -266,7 +390,7 @@
           <!-- Left: Playback Controls & Progress -->
           <div class="flex items-center gap-4 w-full sm:w-auto">
             <!-- Play/Pause Button -->
-            <button onclick="togglePlay()" id="tui-play-btn" class="w-9 h-9 rounded-lg bg-spotify text-black flex items-center justify-center font-bold hover:bg-emerald-400 transition shadow">
+            <button onclick="togglePlay()" id="tui-play-btn" class="w-9 h-9 rounded-lg bg-[var(--term-accent)] text-black flex items-center justify-center font-bold hover:opacity-90 transition shadow">
               ⏸
             </button>
             <div class="flex-1 sm:w-64">
@@ -275,21 +399,21 @@
                 <span id="tui-total-time">5:54</span>
               </div>
               <div class="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden cursor-pointer" onclick="seekAudio(event)">
-                <div id="tui-progress-bar" class="h-full bg-spotify transition-all" style="width: 21%;"></div>
+                <div id="tui-progress-bar" class="h-full bg-[var(--term-accent)] transition-all" style="width: 21%;"></div>
               </div>
             </div>
           </div>
 
-          <!-- Center: Dancing Visualizer Bars -->
+          <!-- Center: Right-Docked Mini Visualizer -->
           <div class="flex items-end gap-1 h-6">
-            <span class="w-1 bg-spotify bar-anim rounded-t" style="animation-delay: 0.1s"></span>
-            <span class="w-1 bg-spotify bar-anim rounded-t" style="animation-delay: 0.3s"></span>
-            <span class="w-1 bg-spotify bar-anim rounded-t" style="animation-delay: 0.15s"></span>
-            <span class="w-1 bg-spotify bar-anim rounded-t" style="animation-delay: 0.4s"></span>
-            <span class="w-1 bg-spotify bar-anim rounded-t" style="animation-delay: 0.25s"></span>
-            <span class="w-1 bg-spotify bar-anim rounded-t" style="animation-delay: 0.5s"></span>
-            <span class="w-1 bg-spotify bar-anim rounded-t" style="animation-delay: 0.35s"></span>
-            <span class="w-1 bg-spotify bar-anim rounded-t" style="animation-delay: 0.2s"></span>
+            <span class="w-1 bg-[var(--term-accent)] bar-anim rounded-t" style="animation-delay: 0.1s"></span>
+            <span class="w-1 bg-[var(--term-accent)] bar-anim rounded-t" style="animation-delay: 0.3s"></span>
+            <span class="w-1 bg-[var(--term-accent)] bar-anim rounded-t" style="animation-delay: 0.15s"></span>
+            <span class="w-1 bg-[var(--term-accent)] bar-anim rounded-t" style="animation-delay: 0.4s"></span>
+            <span class="w-1 bg-[var(--term-accent)] bar-anim rounded-t" style="animation-delay: 0.25s"></span>
+            <span class="w-1 bg-[var(--term-accent)] bar-anim rounded-t" style="animation-delay: 0.5s"></span>
+            <span class="w-1 bg-[var(--term-accent)] bar-anim rounded-t" style="animation-delay: 0.35s"></span>
+            <span class="w-1 bg-[var(--term-accent)] bar-anim rounded-t" style="animation-delay: 0.2s"></span>
           </div>
 
           <!-- Right: Volume Slider & Status -->
@@ -302,12 +426,15 @@
         </div>
 
         <!-- Bottom Shortcuts Legend -->
-        <div class="mt-3 pt-2 text-[10px] text-slate-500 flex flex-wrap items-center gap-x-4 gap-y-1">
-          <span><kbd class="px-1.5 py-0.5 rounded bg-white/5 text-slate-300 font-bold">Space</kbd> Play/Pause</span>
+        <div class="mt-3 pt-2 text-[10px] text-slate-500 flex flex-wrap items-center gap-x-3.5 gap-y-1">
+          <span><kbd class="px-1.5 py-0.5 rounded bg-white/5 text-slate-300 font-bold">Space</kbd> Play</span>
+          <span><kbd class="px-1.5 py-0.5 rounded bg-white/5 text-slate-300 font-bold">t</kbd> Theme</span>
+          <span><kbd class="px-1.5 py-0.5 rounded bg-white/5 text-slate-300 font-bold">v</kbd> Visualizer</span>
+          <span><kbd class="px-1.5 py-0.5 rounded bg-white/5 text-slate-300 font-bold">l</kbd> Lyrics</span>
+          <span><kbd class="px-1.5 py-0.5 rounded bg-white/5 text-slate-300 font-bold">R</kbd> Radio</span>
           <span><kbd class="px-1.5 py-0.5 rounded bg-white/5 text-slate-300 font-bold">/</kbd> Filter</span>
           <span><kbd class="px-1.5 py-0.5 rounded bg-white/5 text-slate-300 font-bold">1-5</kbd> Views</span>
           <span><kbd class="px-1.5 py-0.5 rounded bg-white/5 text-slate-300 font-bold">n/p</kbd> Next/Prev</span>
-          <span><kbd class="px-1.5 py-0.5 rounded bg-white/5 text-slate-300 font-bold">+/-</kbd> Vol</span>
           <span><kbd class="px-1.5 py-0.5 rounded bg-white/5 text-slate-300 font-bold">Esc</kbd> Clear</span>
         </div>
 
@@ -319,102 +446,101 @@
   <section id="features" class="relative z-10 py-20 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
     <div class="text-center max-w-2xl mx-auto mb-16">
       <span class="text-xs font-mono font-semibold uppercase tracking-widest text-spotify">Engineered for Perfection</span>
-      <h2 class="text-3xl sm:text-4xl font-extrabold text-white mt-2">Why Developers Love Tuitify</h2>
-      <p class="text-slate-400 text-base mt-3">Built from the ground up for developers who demand instant speed, zero visual noise, and absolute keyboard control.</p>
+      <h2 class="text-3xl sm:text-4xl font-extrabold text-white mt-2">Why Developers Love Tuitify v0.2.0</h2>
+      <p class="text-slate-400 text-base mt-3">Built from the ground up for developers who demand instant speed, vintage terminal aesthetics, and zero Electron bloat.</p>
     </div>
 
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
       
-      <!-- Feature 1: Pure Rust & Tiny Footprint -->
+      <!-- Feature 1: Retro CRT Themes -->
       <div class="p-6 rounded-2xl bg-[#0c120e]/80 border border-white/5 hover:border-spotify/30 transition group hover:shadow-xl hover:shadow-spotify/5">
         <div class="w-12 h-12 rounded-xl bg-emerald-950/60 border border-spotify/20 flex items-center justify-center text-spotify mb-5 text-xl font-mono group-hover:scale-110 transition-transform">
-          ⚡
+          🎨
         </div>
-        <h3 class="text-lg font-bold text-white mb-2 group-hover:text-spotify transition-colors">14 MB RAM Footprint</h3>
+        <h3 class="text-lg font-bold text-white mb-2 group-hover:text-spotify transition-colors">5 Retro CRT & Cyberpunk Themes</h3>
         <p class="text-slate-400 text-sm leading-relaxed mb-4">
-          Replace Spotify’s 850 MB Chromium Electron instance with an unyielding 14 MB Rust executable that boots in 10 milliseconds.
+          Instantly cycle palettes with <kbd class="px-1.5 py-0.5 rounded bg-white/10 text-white font-mono text-xs">t</kbd>: Phosphor Green CRT, Amber VT220, Monochrome Silver, Cyberpunk Neon, or Classic Spotify. Persistent in your config.
         </p>
         <div class="pt-3 border-t border-white/5 flex items-center justify-between text-xs font-mono text-slate-500">
-          <span>Electron: ~850MB</span>
-          <span class="text-spotify font-semibold">Tuitify: 14MB (50x lighter)</span>
+          <span>Themes</span>
+          <span class="text-spotify font-semibold">5 Handcrafted Palettes</span>
         </div>
       </div>
 
-      <!-- Feature 2: Standalone Librespot Audio -->
+      <!-- Feature 2: 30 FPS Audio Visualizer -->
+      <div class="p-6 rounded-2xl bg-[#0c120e]/80 border border-white/5 hover:border-spotify/30 transition group hover:shadow-xl hover:shadow-spotify/5">
+        <div class="w-12 h-12 rounded-xl bg-emerald-950/60 border border-spotify/20 flex items-center justify-center text-spotify mb-5 text-xl font-mono group-hover:scale-110 transition-transform">
+          📊
+        </div>
+        <h3 class="text-lg font-bold text-white mb-2 group-hover:text-spotify transition-colors">30 FPS Audio Spectrum Visualizer</h3>
+        <p class="text-slate-400 text-sm leading-relaxed mb-4">
+          Experience butter-smooth terminal audio spectrum animation at 30 FPS. Toggle with <kbd class="px-1.5 py-0.5 rounded bg-white/10 text-white font-mono text-xs">v</kbd> or enjoy the right-docked mini-visualizer during normal browsing.
+        </p>
+        <div class="pt-3 border-t border-white/5 flex items-center justify-between text-xs font-mono text-slate-500">
+          <span>Frame rate</span>
+          <span class="text-spotify font-semibold">30 FPS High-Res</span>
+        </div>
+      </div>
+
+      <!-- Feature 3: Synchronized Karaoke Lyrics -->
+      <div class="p-6 rounded-2xl bg-[#0c120e]/80 border border-white/5 hover:border-spotify/30 transition group hover:shadow-xl hover:shadow-spotify/5">
+        <div class="w-12 h-12 rounded-xl bg-emerald-950/60 border border-spotify/20 flex items-center justify-center text-spotify mb-5 text-xl font-mono group-hover:scale-110 transition-transform">
+          🎤
+        </div>
+        <h3 class="text-lg font-bold text-white mb-2 group-hover:text-spotify transition-colors">Real-Time Synced Lyrics</h3>
+        <p class="text-slate-400 text-sm leading-relaxed mb-4">
+          Press <kbd class="px-1.5 py-0.5 rounded bg-white/10 text-white font-mono text-xs">l</kbd> for live synchronized lyrics via Lrclib. Millisecond-accurate active line highlighting and automated smooth vertical scrolling.
+        </p>
+        <div class="pt-3 border-t border-white/5 flex items-center justify-between text-xs font-mono text-slate-500">
+          <span>Source</span>
+          <span class="text-spotify font-semibold">Lrclib.net (Zero API Key)</span>
+        </div>
+      </div>
+
+      <!-- Feature 4: Track Radio & Autoplay -->
       <div class="p-6 rounded-2xl bg-[#0c120e]/80 border border-white/5 hover:border-spotify/30 transition group hover:shadow-xl hover:shadow-spotify/5">
         <div class="w-12 h-12 rounded-xl bg-emerald-950/60 border border-spotify/20 flex items-center justify-center text-spotify mb-5 text-xl font-mono group-hover:scale-110 transition-transform">
           📻
         </div>
-        <h3 class="text-lg font-bold text-white mb-2 group-hover:text-spotify transition-colors">Standalone Librespot Engine</h3>
+        <h3 class="text-lg font-bold text-white mb-2 group-hover:text-spotify transition-colors">Seed-Based Track Radio</h3>
         <p class="text-slate-400 text-sm leading-relaxed mb-4">
-          Direct native Vorbis streaming from Spotify's CDN. No Spotify desktop app required in the background; operates completely autonomously.
+          Press <kbd class="px-1.5 py-0.5 rounded bg-white/10 text-white font-mono text-xs">R</kbd> or play any search result. Intelligent pagination queues related songs and discards duplicate acoustic/remix cuts for a non-stop listening flow.
         </p>
         <div class="pt-3 border-t border-white/5 flex items-center justify-between text-xs font-mono text-slate-500">
-          <span>Audio Engine</span>
-          <span class="text-spotify font-semibold">Native Vorbis 320kbps</span>
+          <span>Autoplay</span>
+          <span class="text-spotify font-semibold">Smart Deduplication</span>
         </div>
       </div>
 
-      <!-- Feature 3: Real-Time In-Memory Filtering -->
+      <!-- Feature 5: Pure Rust 14 MB RAM Footprint -->
+      <div class="p-6 rounded-2xl bg-[#0c120e]/80 border border-white/5 hover:border-spotify/30 transition group hover:shadow-xl hover:shadow-spotify/5">
+        <div class="w-12 h-12 rounded-xl bg-emerald-950/60 border border-spotify/20 flex items-center justify-center text-spotify mb-5 text-xl font-mono group-hover:scale-110 transition-transform">
+          ⚡
+        </div>
+        <h3 class="text-lg font-bold text-white mb-2 group-hover:text-spotify transition-colors">14 MB RAM & Standalone Audio</h3>
+        <p class="text-slate-400 text-sm leading-relaxed mb-4">
+          Replace Spotify’s 850 MB Chromium Electron instance with an unyielding 14 MB Rust executable that streams Vorbis audio natively via Librespot directly to WASAPI.
+        </p>
+        <div class="pt-3 border-t border-white/5 flex items-center justify-between text-xs font-mono text-slate-500">
+          <span>Footprint</span>
+          <span class="text-spotify font-semibold">14 MB (50x lighter)</span>
+        </div>
+      </div>
+
+      <!-- Feature 6: Infinite Pagination & Instant Filter -->
       <div class="p-6 rounded-2xl bg-[#0c120e]/80 border border-white/5 hover:border-spotify/30 transition group hover:shadow-xl hover:shadow-spotify/5">
         <div class="w-12 h-12 rounded-xl bg-emerald-950/60 border border-spotify/20 flex items-center justify-center text-spotify mb-5 text-xl font-mono group-hover:scale-110 transition-transform">
           🔍
         </div>
-        <h3 class="text-lg font-bold text-white mb-2 group-hover:text-spotify transition-colors">Instant In-Memory Filter</h3>
+        <h3 class="text-lg font-bold text-white mb-2 group-hover:text-spotify transition-colors">Infinite Scroll & &lt;1ms Filter</h3>
         <p class="text-slate-400 text-sm leading-relaxed mb-4">
-          Hit <kbd class="px-1.5 py-0.5 rounded bg-white/10 text-white font-mono text-xs">/</kbd> or <kbd class="px-1.5 py-0.5 rounded bg-white/10 text-white font-mono text-xs">f</kbd> in any playlist or liked songs. Multi-term search filters across title and artist names instantaneously without API quota lag.
+          Hit <kbd class="px-1.5 py-0.5 rounded bg-white/10 text-white font-mono text-xs">/</kbd> to filter across titles and artists instantaneously. Infinite background auto-pagination streams past Spotify's 50-track limit up to 5,000+ tracks.
         </p>
         <div class="pt-3 border-t border-white/5 flex items-center justify-between text-xs font-mono text-slate-500">
           <span>Search latency</span>
           <span class="text-spotify font-semibold">&lt;1ms Local Cache</span>
         </div>
       </div>
-
-      <!-- Feature 4: Glitch-Free Windows Terminal UI -->
-      <div class="p-6 rounded-2xl bg-[#0c120e]/80 border border-white/5 hover:border-spotify/30 transition group hover:shadow-xl hover:shadow-spotify/5">
-        <div class="w-12 h-12 rounded-xl bg-emerald-950/60 border border-spotify/20 flex items-center justify-center text-spotify mb-5 text-xl font-mono group-hover:scale-110 transition-transform">
-          📐
-        </div>
-        <h3 class="text-lg font-bold text-white mb-2 group-hover:text-spotify transition-colors">Glitch-Free Ratatui Layout</h3>
-        <p class="text-slate-400 text-sm leading-relaxed mb-4">
-          Engineered specifically for Windows Terminal font metrics. Ambiguous double-width emojis are replaced with precision single-column glyphs (<code class="text-spotify">►</code>, <code class="text-spotify">||</code>).
-        </p>
-        <div class="pt-3 border-t border-white/5 flex items-center justify-between text-xs font-mono text-slate-500">
-          <span>Column drift</span>
-          <span class="text-spotify font-semibold">0% Zero Overlap</span>
-        </div>
-      </div>
-
-      <!-- Feature 5: Infinite 50+ Song Auto-Pagination -->
-      <div class="p-6 rounded-2xl bg-[#0c120e]/80 border border-white/5 hover:border-spotify/30 transition group hover:shadow-xl hover:shadow-spotify/5">
-        <div class="w-12 h-12 rounded-xl bg-emerald-950/60 border border-spotify/20 flex items-center justify-center text-spotify mb-5 text-xl font-mono group-hover:scale-110 transition-transform">
-          ♾️
-        </div>
-        <h3 class="text-lg font-bold text-white mb-2 group-hover:text-spotify transition-colors">Infinite Auto-Pagination</h3>
-        <p class="text-slate-400 text-sm leading-relaxed mb-4">
-          Never cap at 50 tracks. Scroll down with <kbd class="px-1.5 py-0.5 rounded bg-white/10 text-white font-mono text-xs">j</kbd> or <kbd class="px-1.5 py-0.5 rounded bg-white/10 text-white font-mono text-xs">PgDn</kbd> to seamlessly load tracks 51 to 5,000+ asynchronously in the background.
-        </p>
-        <div class="pt-3 border-t border-white/5 flex items-center justify-between text-xs font-mono text-slate-500">
-          <span>Library limit</span>
-          <span class="text-spotify font-semibold">Unlimited</span>
-        </div>
-      </div>
-
-      <!-- Feature 6: Windows DPAPI Encrypted Vault -->
-      <div class="p-6 rounded-2xl bg-[#0c120e]/80 border border-white/5 hover:border-spotify/30 transition group hover:shadow-xl hover:shadow-spotify/5">
-        <div class="w-12 h-12 rounded-xl bg-emerald-950/60 border border-spotify/20 flex items-center justify-center text-spotify mb-5 text-xl font-mono group-hover:scale-110 transition-transform">
-          🔒
-        </div>
-        <h3 class="text-lg font-bold text-white mb-2 group-hover:text-spotify transition-colors">Secure DPAPI Storage</h3>
-        <p class="text-slate-400 text-sm leading-relaxed mb-4">
-          Tokens are encrypted with Windows DPAPI and stored in Windows Credential Manager. Automated PKCE OAuth means browser login happens only once.
-        </p>
-        <div class="pt-3 border-t border-white/5 flex items-center justify-between text-xs font-mono text-slate-500">
-          <span>Cleartext keys</span>
-          <span class="text-spotify font-semibold">0 (Hardware Encrypted)</span>
-        </div>
-      </div>
-
     </div>
   </section>
 
@@ -494,39 +620,41 @@
         </ul>
       </div>
 
-      <!-- Card: Playback -->
+      <!-- Card: Playback & Audio -->
       <div class="p-4 rounded-xl bg-[#0c120e] border border-white/5">
-        <h4 class="text-xs font-mono font-bold text-spotify uppercase tracking-wider mb-3">Playback</h4>
+        <h4 class="text-xs font-mono font-bold text-spotify uppercase tracking-wider mb-3">Playback & Audio</h4>
         <ul class="space-y-2 text-xs font-mono">
           <li class="flex justify-between"><span class="text-slate-300">Space</span> <span class="text-slate-500">Play / Pause</span></li>
-          <li class="flex justify-between"><span class="text-slate-300">Enter</span> <span class="text-slate-500">Play selected</span></li>
           <li class="flex justify-between"><span class="text-slate-300">n / p</span> <span class="text-slate-500">Next / Previous</span></li>
           <li class="flex justify-between"><span class="text-slate-300">Left / Right</span> <span class="text-slate-500">Seek 10s</span></li>
-          <li class="flex justify-between"><span class="text-slate-300">Home / End</span> <span class="text-slate-500">Jump start/end</span></li>
-        </ul>
-      </div>
-
-      <!-- Card: Search & Filter -->
-      <div class="p-4 rounded-xl bg-[#0c120e] border border-white/5">
-        <h4 class="text-xs font-mono font-bold text-spotify uppercase tracking-wider mb-3">Search & Filter</h4>
-        <ul class="space-y-2 text-xs font-mono">
-          <li class="flex justify-between"><span class="text-slate-300">/ or f</span> <span class="text-slate-500">Filter View</span></li>
-          <li class="flex justify-between"><span class="text-slate-300">Typing</span> <span class="text-slate-500">Live filter</span></li>
-          <li class="flex justify-between"><span class="text-slate-300">Down / Tab</span> <span class="text-slate-500">Browse filter</span></li>
-          <li class="flex justify-between"><span class="text-slate-300">Esc</span> <span class="text-slate-500">Clear filter</span></li>
-          <li class="flex justify-between"><span class="text-slate-300">F5</span> <span class="text-slate-500">Refresh catalog</span></li>
-        </ul>
-      </div>
-
-      <!-- Card: Volume & Queue -->
-      <div class="p-4 rounded-xl bg-[#0c120e] border border-white/5">
-        <h4 class="text-xs font-mono font-bold text-spotify uppercase tracking-wider mb-3">Modes & Queue</h4>
-        <ul class="space-y-2 text-xs font-mono">
           <li class="flex justify-between"><span class="text-slate-300">+ / -</span> <span class="text-slate-500">Volume 5%</span></li>
-          <li class="flex justify-between"><span class="text-slate-300">[ / ]</span> <span class="text-slate-500">Volume 1%</span></li>
           <li class="flex justify-between"><span class="text-slate-300">m</span> <span class="text-slate-500">Mute / Restore</span></li>
-          <li class="flex justify-between"><span class="text-slate-300">a</span> <span class="text-slate-500">Enqueue song</span></li>
-          <li class="flex justify-between"><span class="text-slate-300">Delete</span> <span class="text-slate-500">Remove queue</span></li>
+          <li class="flex justify-between"><span class="text-slate-300">s / r</span> <span class="text-slate-500">Shuffle / Repeat</span></li>
+        </ul>
+      </div>
+
+      <!-- Card: Retro Visuals & Lyrics -->
+      <div class="p-4 rounded-xl bg-[#0c120e] border border-white/5">
+        <h4 class="text-xs font-mono font-bold text-spotify uppercase tracking-wider mb-3">Themes & Lyrics</h4>
+        <ul class="space-y-2 text-xs font-mono">
+          <li class="flex justify-between"><span class="text-slate-300">t</span> <span class="text-slate-500">Cycle 5 Themes</span></li>
+          <li class="flex justify-between"><span class="text-slate-300">v</span> <span class="text-slate-500">30 FPS Visualizer</span></li>
+          <li class="flex justify-between"><span class="text-slate-300">l</span> <span class="text-slate-500">Synced Lyrics</span></li>
+          <li class="flex justify-between"><span class="text-slate-300">/ or f</span> <span class="text-slate-500">Live Filter</span></li>
+          <li class="flex justify-between"><span class="text-slate-300">Esc</span> <span class="text-slate-500">Close overlay</span></li>
+        </ul>
+      </div>
+
+      <!-- Card: Queue & Radio -->
+      <div class="p-4 rounded-xl bg-[#0c120e] border border-white/5">
+        <h4 class="text-xs font-mono font-bold text-spotify uppercase tracking-wider mb-3">Queue & Radio</h4>
+        <ul class="space-y-2 text-xs font-mono">
+          <li class="flex justify-between"><span class="text-slate-300">R</span> <span class="text-slate-500">Track Radio</span></li>
+          <li class="flex justify-between"><span class="text-slate-300">a</span> <span class="text-slate-500">Append to queue</span></li>
+          <li class="flex justify-between"><span class="text-slate-300">A</span> <span class="text-slate-500">Play Next</span></li>
+          <li class="flex justify-between"><span class="text-slate-300">K / J</span> <span class="text-slate-500">Move up / down</span></li>
+          <li class="flex justify-between"><span class="text-slate-300">C</span> <span class="text-slate-500">Clear queue</span></li>
+          <li class="flex justify-between"><span class="text-slate-300">Delete</span> <span class="text-slate-500">Remove item</span></li>
         </ul>
       </div>
 
@@ -558,11 +686,11 @@
           <a href="https://github.com/braces157/tutify/releases/latest/download/tuitify.exe" 
              class="w-full sm:w-auto px-6 py-3 rounded-xl bg-spotify hover:bg-emerald-400 text-black font-semibold text-xs font-mono transition flex items-center justify-center gap-2 glow-spotify-subtle">
             <svg class="w-4 h-4 fill-current" viewBox="0 0 24 24"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM17 13l-5 5-5-5h3V9h4v4h3z"/></svg>
-            Download tuitify.exe (v0.1.1)
+            Download tuitify.exe (v0.2.0)
           </a>
-          <a href="https://github.com/braces157/tutify/releases/latest/download/Tuitify-0.1.1-windows-x86_64.zip" 
+          <a href="https://github.com/braces157/tutify/releases/latest/download/Tuitify-0.2.0-windows-x86_64.zip" 
              class="w-full sm:w-auto px-5 py-3 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 text-slate-300 text-xs font-mono transition flex items-center justify-center gap-2">
-            Download .ZIP Package
+            Download .ZIP Package (v0.2.0)
           </a>
         </div>
         <p class="text-xs text-slate-500 font-mono">
@@ -607,6 +735,26 @@
     </div>
 
     <div class="space-y-4">
+      <details class="group p-5 rounded-xl bg-[#0c120e] border border-white/5 [&_summary::-webkit-details-marker]:hidden cursor-pointer">
+        <summary class="flex justify-between items-center text-sm font-semibold text-white">
+          <span>How do the synced lyrics work? Do I need a Genius or Spotify token?</span>
+          <span class="text-spotify text-lg group-open:rotate-45 transition-transform">+</span>
+        </summary>
+        <p class="mt-3 text-xs text-slate-400 font-sans leading-relaxed">
+          No extra token or API key is required! Tuitify connects directly to Lrclib (<code class="text-spotify">lrclib.net</code>), the largest open synchronized lyrics database. It downloads millisecond-accurate timestamps and highlights lines in real time alongside your playback.
+        </p>
+      </details>
+
+      <details class="group p-5 rounded-xl bg-[#0c120e] border border-white/5 [&_summary::-webkit-details-marker]:hidden cursor-pointer">
+        <summary class="flex justify-between items-center text-sm font-semibold text-white">
+          <span>What color themes are included in v0.2.0?</span>
+          <span class="text-spotify text-lg group-open:rotate-45 transition-transform">+</span>
+        </summary>
+        <p class="mt-3 text-xs text-slate-400 font-sans leading-relaxed">
+          Tuitify comes with 5 curated themes: <strong>Classic Spotify</strong> (signature neon green), <strong>Phosphor Green CRT</strong> (vintage P1 phosphor terminal), <strong>Amber Terminal CRT</strong> (warm DEC VT220 amber), <strong>Monochrome Silver</strong> (high-contrast minimalist grayscale), and <strong>Cyberpunk Neon</strong> (electric cyan, magenta, and yellow). Press <kbd class="px-1.5 py-0.5 rounded bg-white/10 text-white font-mono text-xs">t</kbd> to cycle anytime.
+        </p>
+      </details>
+
       <details class="group p-5 rounded-xl bg-[#0c120e] border border-white/5 [&_summary::-webkit-details-marker]:hidden cursor-pointer">
         <summary class="flex justify-between items-center text-sm font-semibold text-white">
           <span>Do I need Spotify Premium to use Tuitify?</span>
@@ -671,12 +819,133 @@
       { id: '8', title: 'Viva La Vida', artist: 'Coldplay', duration: '4:02', sec: 242 },
     ];
 
+    const radioPool = [
+      { id: 'r1', title: 'Somebody to Love', artist: 'Queen', duration: '4:56', sec: 296 },
+      { id: 'r2', title: 'Don\'t Stop Me Now', artist: 'Queen', duration: '3:29', sec: 209 },
+      { id: 'r3', title: 'The Scientist', artist: 'Coldplay', duration: '5:09', sec: 309 },
+      { id: 'r4', title: 'Heroes', artist: 'David Bowie', duration: '6:11', sec: 371 },
+      { id: 'r5', title: 'Karma Police', artist: 'Radiohead', duration: '4:21', sec: 261 },
+      { id: 'r6', title: 'Instant Crush', artist: 'Daft Punk', duration: '5:37', sec: 337 },
+    ];
+
+    const lyricsData = [
+      { time: 10, text: "Is this the real life? Is this just fantasy?" },
+      { time: 25, text: "Caught in a landslide, no escape from reality" },
+      { time: 40, text: "Open your eyes, look up to the skies and see" },
+      { time: 55, text: "I'm just a poor boy, I need no sympathy" },
+      { time: 70, text: "Because I'm easy come, easy go, little high, little low" },
+      { time: 85, text: "Any way the wind blows doesn't really matter to me, to me" },
+      { time: 100, text: "Mama, just killed a man" },
+      { time: 115, text: "Put a gun against his head, pulled my trigger, now he's dead" },
+      { time: 130, text: "Mama, life had just begun" },
+      { time: 145, text: "But now I've gone and thrown it all away" },
+      { time: 160, text: "Too late, my time has come" },
+      { time: 175, text: "Sends shivers down my spine, body's aching all the time" },
+      { time: 190, text: "Goodbye, everybody, I've got to go" },
+      { time: 205, text: "Gotta leave you all behind and face the truth" },
+    ];
+
+    const themes = [
+      { id: 'theme-spotify', name: 'Classic Spotify' },
+      { id: 'theme-phosphor', name: 'Phosphor Green CRT' },
+      { id: 'theme-amber', name: 'Amber VT220 CRT' },
+      { id: 'theme-monochrome', name: 'Monochrome Silver' },
+      { id: 'theme-cyberpunk', name: 'Cyberpunk Neon' },
+    ];
+
+    let currentThemeIdx = 0;
+    let showVisualizer = false;
+    let showLyrics = false;
     let currentTrack = catalog[0];
     let isPlaying = true;
     let currentSec = 74;
     let selectedIndex = 0;
     let activeFilter = '';
     let currentView = 3;
+
+    function cycleDemoTheme() {
+      currentThemeIdx = (currentThemeIdx + 1) % themes.length;
+      applyDemoTheme();
+    }
+
+    function applyDemoTheme() {
+      const t = themes[currentThemeIdx];
+      const screen = document.getElementById('tui-terminal-screen');
+      themes.forEach(item => screen.classList.remove(item.id));
+      screen.classList.add(t.id);
+      document.getElementById('tui-theme-label').innerText = t.name;
+      renderRows();
+    }
+
+    function toggleDemoVisualizer() {
+      showVisualizer = !showVisualizer;
+      if (showVisualizer) showLyrics = false;
+      updatePanelViews();
+    }
+
+    function toggleDemoLyrics() {
+      showLyrics = !showLyrics;
+      if (showLyrics) showVisualizer = false;
+      updatePanelViews();
+    }
+
+    function updatePanelViews() {
+      const catView = document.getElementById('tui-catalog-view');
+      const lyrView = document.getElementById('tui-lyrics-view');
+      const visView = document.getElementById('tui-visualizer-view');
+      const btnVis = document.getElementById('tui-btn-vis');
+      const btnLyr = document.getElementById('tui-btn-lyrics');
+
+      if (catView) catView.classList.toggle('hidden', showLyrics || showVisualizer);
+      if (lyrView) lyrView.classList.toggle('hidden', !showLyrics);
+      if (visView) visView.classList.toggle('hidden', !showVisualizer);
+
+      if (btnVis) {
+        btnVis.className = showVisualizer 
+          ? 'px-2.5 py-1 rounded bg-[var(--term-accent)] text-black font-bold transition flex items-center gap-1.5 shrink-0'
+          : 'px-2.5 py-1 rounded bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 text-slate-300 hover:text-white transition flex items-center gap-1.5 shrink-0';
+      }
+      if (btnLyr) {
+        btnLyr.className = showLyrics
+          ? 'px-2.5 py-1 rounded bg-[var(--term-accent)] text-black font-bold transition flex items-center gap-1.5 shrink-0'
+          : 'px-2.5 py-1 rounded bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 text-slate-300 hover:text-white transition flex items-center gap-1.5 shrink-0';
+      }
+    }
+
+    function triggerDemoRadio() {
+      let added = 0;
+      radioPool.forEach(item => {
+        if (!catalog.some(t => t.title === item.title)) {
+          catalog.push(item);
+          added++;
+        }
+      });
+      document.getElementById('tui-queue-count').innerText = catalog.length;
+      const toast = document.getElementById('tui-toast');
+      toast.innerText = `✨ Track Radio: Queued ${added || 6} related tracks!`;
+      toast.classList.remove('hidden');
+      setTimeout(() => toast.classList.add('hidden'), 3500);
+      renderRows();
+    }
+
+    function updateLyricsDisplay() {
+      if (!showLyrics) return;
+      let currentIdx = 0;
+      for (let i = 0; i < lyricsData.length; i++) {
+        if (currentSec >= lyricsData[i].time) {
+          currentIdx = i;
+        }
+      }
+      const container = document.getElementById('tui-lyrics-content');
+      if (!container) return;
+      const visible = lyricsData.slice(Math.max(0, currentIdx - 2), Math.min(lyricsData.length, currentIdx + 3));
+      container.innerHTML = visible.map(l => {
+        const isActive = l === lyricsData[currentIdx];
+        return isActive 
+          ? `<div class="text-[var(--term-accent)] font-bold text-sm sm:text-base py-1 px-3 bg-white/[0.05] rounded border border-[var(--term-accent)]/30 animate-pulse">${l.text}</div>`
+          : `<div class="text-slate-500 text-xs sm:text-sm transition-opacity">${l.text}</div>`;
+      }).join('');
+    }
 
     function renderRows() {
       const container = document.getElementById('tui-rows-container');
@@ -709,11 +978,11 @@
 
         return `
           <div onclick="selectAndPlay('${t.id}')" 
-               class="px-3 py-2 flex items-center justify-between cursor-pointer transition ${isSelected ? 'bg-emerald-950/60 font-semibold' : 'hover:bg-white/[0.02]'}">
+               class="px-3 py-2 flex items-center justify-between cursor-pointer transition ${isSelected ? 'bg-white/[0.06] font-semibold' : 'hover:bg-white/[0.02]'}">
             <div class="flex items-center gap-3 truncate">
-              <span class="w-6 text-center ${isCurrent ? 'text-spotify font-bold' : 'text-slate-600'}">${indicator}</span>
+              <span class="w-6 text-center ${isCurrent ? 'text-[var(--term-accent)] font-bold' : 'text-slate-600'}">${indicator}</span>
               <span class="text-slate-500 w-6">${idx + 1}</span>
-              <span class="${isCurrent ? 'text-spotify font-bold' : 'text-slate-200'} truncate">${t.title}</span>
+              <span class="${isCurrent ? 'text-[var(--term-accent)] font-bold' : 'text-slate-200'} truncate">${t.title}</span>
               <span class="text-slate-400 text-xs truncate hidden sm:inline">— ${t.artist}</span>
             </div>
             <div class="text-slate-500 text-xs shrink-0 ml-4">${t.duration}</div>
@@ -748,11 +1017,11 @@
 
       if (isPlaying) {
         badge.innerText = '► PLAYING';
-        badge.className = 'px-2 py-0.5 rounded bg-spotify text-black font-bold text-xs';
+        badge.className = 'px-2 py-0.5 rounded bg-[var(--term-accent)] text-black font-bold text-xs';
         btn.innerText = '⏸';
       } else {
         badge.innerText = '|| PAUSED';
-        badge.className = 'px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 font-bold text-xs border border-emerald-800';
+        badge.className = 'px-2 py-0.5 rounded bg-white/10 text-slate-300 font-bold text-xs border border-white/20';
         btn.innerText = '▶';
       }
 
@@ -763,6 +1032,8 @@
 
       const pct = Math.min(100, (currentSec / currentTrack.sec) * 100);
       document.getElementById('tui-progress-bar').style.width = `${pct}%`;
+
+      updateLyricsDisplay();
     }
 
     function handleFilterInput(val) {
@@ -773,9 +1044,12 @@
 
     function switchView(viewIndex) {
       currentView = viewIndex;
+      showVisualizer = false;
+      showLyrics = false;
+      updatePanelViews();
       document.querySelectorAll('.tui-tab').forEach((el, idx) => {
         if (idx + 1 === viewIndex) {
-          el.className = 'tui-tab px-2 py-1 rounded text-spotify font-bold bg-emerald-950/40 border border-spotify/30';
+          el.className = 'tui-tab px-2 py-1 rounded text-[var(--term-accent)] font-bold bg-white/[0.04] border border-[var(--term-accent)]/30';
         } else {
           el.className = 'tui-tab px-2 py-1 rounded text-slate-400 hover:text-white transition';
         }
@@ -816,6 +1090,40 @@
         setTimeout(() => { btn.innerHTML = original; }, 2000);
       });
     }
+
+    window.addEventListener('keydown', (e) => {
+      if (e.target.tagName === 'INPUT') return;
+      if (e.key === ' ' || e.code === 'Space') {
+        e.preventDefault();
+        togglePlay();
+      } else if (e.key === 't') {
+        cycleDemoTheme();
+      } else if (e.key === 'v') {
+        toggleDemoVisualizer();
+      } else if (e.key === 'l') {
+        toggleDemoLyrics();
+      } else if (e.key === 'R' || (e.shiftKey && e.key === 'r')) {
+        triggerDemoRadio();
+      } else if (e.key === 'n') {
+        const idx = catalog.findIndex(t => t.id === currentTrack.id);
+        currentTrack = catalog[(idx + 1) % catalog.length];
+        currentSec = 0;
+        updatePlayerUI();
+        renderRows();
+      } else if (e.key === 'p') {
+        const idx = catalog.findIndex(t => t.id === currentTrack.id);
+        currentTrack = catalog[(idx - 1 + catalog.length) % catalog.length];
+        currentSec = 0;
+        updatePlayerUI();
+        renderRows();
+      } else if (e.key === 'Escape') {
+        if (showLyrics || showVisualizer) {
+          showLyrics = false;
+          showVisualizer = false;
+          updatePanelViews();
+        }
+      }
+    });
 
     setInterval(() => {
       if (isPlaying) {

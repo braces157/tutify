@@ -2,6 +2,7 @@ mod app;
 mod auth;
 mod catalog;
 mod diagnostics;
+mod lyrics;
 mod model;
 mod playback;
 mod queue;

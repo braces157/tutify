@@ -79,6 +79,13 @@ pub struct App {
     pub filter: String,
     pub filtering: bool,
     pub quit: bool,
+    pub cache_dirty: bool,
+    pub show_lyrics: bool,
+    pub show_visualizer: bool,
+    pub lyrics: Option<crate::lyrics::Lyrics>,
+    pub lyrics_loading: bool,
+    pub lyrics_track_id: Option<String>,
+    pub animation_frame: u32,
 }
 
 impl App {
@@ -108,6 +115,13 @@ impl App {
             muted_volume: None,
             request: 0,
             quit: false,
+            cache_dirty: false,
+            show_lyrics: false,
+            show_visualizer: false,
+            lyrics: None,
+            lyrics_loading: false,
+            lyrics_track_id: None,
+            animation_frame: 0,
         }
     }
     pub fn is_filtered(&self) -> bool {
@@ -191,6 +205,25 @@ impl App {
                 .cloned()
                 .unwrap_or_else(|| Track::unknown(id))
         })
+    }
+    pub fn window_title(&self) -> String {
+        if let Some(track) = self.current_track() {
+            let symbol = match self.state {
+                State::Playing => "",
+                State::Paused => "|| ",
+                State::Loading => "... ",
+                State::Failed => "! ",
+            };
+            if track.name.is_empty() {
+                "Tuitify".to_string()
+            } else if track.artists.is_empty() {
+                format!("{symbol}Tuitify • {}", track.name)
+            } else {
+                format!("{symbol}Tuitify • {} - {}", track.name, track.artists)
+            }
+        } else {
+            "Tuitify".to_string()
+        }
     }
     fn selected_track(&self) -> Option<Track> {
         if self.view == View::Queue {
@@ -296,12 +329,18 @@ enum Background {
     Metadata(Track),
     MetadataError(String),
     SaveError(String),
+    Lyrics(String, Option<crate::lyrics::Lyrics>),
+    EnqueuePlaylist(Result<Vec<Track>>),
+    Recommendations(String, Result<Vec<Track>>),
 }
 struct Tasks {
     catalog: Catalog,
+    http: reqwest::Client,
     tx: mpsc::UnboundedSender<Background>,
     browse: Option<tokio::task::JoinHandle<()>>,
     metadata: Option<tokio::task::JoinHandle<()>>,
+    lyrics: Option<tokio::task::JoinHandle<()>>,
+    recommendations: Option<tokio::task::JoinHandle<()>>,
     requested: HashSet<String>,
 }
 impl Drop for Tasks {
@@ -312,9 +351,65 @@ impl Drop for Tasks {
         if let Some(t) = &self.metadata {
             t.abort();
         }
+        if let Some(t) = &self.lyrics {
+            t.abort();
+        }
+        if let Some(t) = &self.recommendations {
+            t.abort();
+        }
     }
 }
 impl Tasks {
+    fn fetch_recommendations(&mut self, track: &Track) {
+        if let Some(t) = self.recommendations.take() {
+            t.abort();
+        }
+        let track = track.clone();
+        let catalog = self.catalog.clone();
+        let tx = self.tx.clone();
+        self.recommendations = Some(tokio::spawn(async move {
+            let res = catalog.recommendations(&track).await;
+            let _ = tx.send(Background::Recommendations(track.id, res));
+        }));
+    }
+    fn fetch_lyrics(&mut self, track: &Track) {
+        if let Some(t) = self.lyrics.take() {
+            t.abort();
+        }
+        let id = track.id.clone();
+        let name = track.name.clone();
+        let artists = track.artists.clone();
+        let duration = track.duration_ms;
+        let client = self.http.clone();
+        let tx = self.tx.clone();
+        self.lyrics = Some(tokio::spawn(async move {
+            let lyr = crate::lyrics::fetch(&client, &name, &artists, duration)
+                .await
+                .ok();
+            let _ = tx.send(Background::Lyrics(id, lyr));
+        }));
+    }
+    fn enqueue_playlist(&mut self, app: &mut App, playlist_id: String, name: String) {
+        let catalog = self.catalog.clone();
+        let tx = self.tx.clone();
+        app.status = format!("Enqueuing tracks from playlist '{name}'...");
+        tokio::spawn(async move {
+            let res = catalog.page(&Browse::Playlist(playlist_id), 0).await;
+            match res {
+                Ok(page) => match page.rows {
+                    Rows::Tracks(tracks) => {
+                        let _ = tx.send(Background::EnqueuePlaylist(Ok(tracks)));
+                    }
+                    _ => {
+                        let _ = tx.send(Background::EnqueuePlaylist(Ok(vec![])));
+                    }
+                },
+                Err(e) => {
+                    let _ = tx.send(Background::EnqueuePlaylist(Err(e)));
+                }
+            }
+        });
+    }
     fn request(&mut self, app: &mut App, offset: usize) {
         if let Some(task) = self.browse.take() {
             task.abort();
@@ -479,6 +574,14 @@ fn key(app: &mut App, key: KeyEvent, tasks: &mut Tasks, tx: &mpsc::UnboundedSend
     }
     match key.code {
         KeyCode::Char('q') => app.quit = true,
+        KeyCode::Esc if app.show_lyrics => {
+            app.show_lyrics = false;
+            app.status = "Exited lyrics view".into();
+        }
+        KeyCode::Esc if app.show_visualizer => {
+            app.show_visualizer = false;
+            app.status = "Exited visualizer".into();
+        }
         KeyCode::Esc if !app.filter.is_empty() => {
             app.filter.clear();
             app.filtering = false;
@@ -500,7 +603,6 @@ fn key(app: &mut App, key: KeyEvent, tasks: &mut Tasks, tx: &mpsc::UnboundedSend
             } else {
                 tasks.view(app, View::Search);
                 app.editing = true;
-                app.query.clear();
             }
         }
         KeyCode::Char('f') if matches!(app.view, View::Liked | View::Playlists) => {
@@ -598,6 +700,14 @@ fn key(app: &mut App, key: KeyEvent, tasks: &mut Tasks, tx: &mpsc::UnboundedSend
                 }
                 if app.view == View::Queue {
                     app.queue.select(app.queue.selected);
+                } else if app.view == View::Search {
+                    let selected_track = track.clone();
+                    app.queue.replace(vec![selected_track.id.clone()], 0, false);
+                    tasks.fetch_recommendations(&selected_track);
+                    app.status = format!(
+                        "Playing {} • Loading recommended tracks...",
+                        selected_track.name
+                    );
                 } else if let Rows::Tracks(tracks) = &app.rows {
                     let (track_ids, index) = if app.is_filtered() {
                         let filtered = app.filtered_indices();
@@ -732,7 +842,46 @@ fn key(app: &mut App, key: KeyEvent, tasks: &mut Tasks, tx: &mpsc::UnboundedSend
             app.config.repeat = app.config.repeat.cycle();
             app.status = format!("Repeat: {:?}", app.config.repeat);
         }
+        KeyCode::Char('t') => {
+            let current = ui::Theme::from_str(&app.config.theme);
+            let next = current.next();
+            app.config.theme = next.as_str().to_string();
+            app.status = format!("Theme: {}", next.name());
+        }
+        KeyCode::Char('l') => {
+            app.show_lyrics = !app.show_lyrics;
+            if app.show_lyrics {
+                app.show_visualizer = false;
+                app.status = "Lyrics active (press l or Esc to exit)".into();
+            } else {
+                app.status = "Exited lyrics".into();
+            }
+        }
+        KeyCode::Char('v') => {
+            app.show_visualizer = !app.show_visualizer;
+            if app.show_visualizer {
+                app.show_lyrics = false;
+                app.status = "Retro visualizer active (press v or Esc to exit)".into();
+            } else {
+                app.status = "Exited visualizer".into();
+            }
+        }
         KeyCode::Char('a') if app.view != View::Help => {
+            if let Rows::Playlists(playlists) = &app.rows {
+                if app.view == View::Playlists {
+                    let actual_idx = if app.is_filtered() {
+                        app.filtered_indices().get(app.selected).copied()
+                    } else {
+                        Some(app.selected)
+                    };
+                    if let Some(idx) = actual_idx {
+                        if let Some(p) = playlists.get(idx).cloned() {
+                            tasks.enqueue_playlist(app, p.id, p.name);
+                            return;
+                        }
+                    }
+                }
+            }
             if let Some(track) = app.selected_track() {
                 if track.playable {
                     app.queue.enqueue(track.id);
@@ -742,7 +891,61 @@ fn key(app: &mut App, key: KeyEvent, tasks: &mut Tasks, tx: &mpsc::UnboundedSend
                 }
             }
         }
-        KeyCode::Delete if app.view == View::Queue => {
+        KeyCode::Char('A') if app.view != View::Help => {
+            if let Some(track) = app.selected_track() {
+                if track.playable {
+                    app.queue.insert_next(track.id);
+                    app.status = format!("Playing next: {}", track.name);
+                } else {
+                    app.status = "Unavailable track cannot be queued.".into();
+                }
+            }
+        }
+        KeyCode::Char('R') if app.view != View::Help => {
+            if let Some(track) = app.selected_track() {
+                if track.playable {
+                    let selected_track = track.clone();
+                    app.queue.replace(vec![selected_track.id.clone()], 0, false);
+                    app.load(tx);
+                    tasks.fetch_recommendations(&selected_track);
+                    app.status = format!(
+                        "Track Radio: {} • Loading recommended tracks...",
+                        selected_track.name
+                    );
+                } else {
+                    app.status = "Unavailable track cannot start Radio.".into();
+                }
+            }
+        }
+        KeyCode::Char('C') if app.view == View::Queue => {
+            if app.queue.clear() {
+                app.stop(tx);
+            }
+            app.status = "Queue cleared.".into();
+        }
+        KeyCode::Char('K') if app.view == View::Queue && app.queue.selected > 0 => {
+            let from = app.queue.selected;
+            let to = from - 1;
+            app.queue.move_item(from, to);
+            app.status = "Moved track up in queue".into();
+        }
+        KeyCode::Char('J')
+            if app.view == View::Queue
+                && !app.queue.ids.is_empty()
+                && app.queue.selected + 1 < app.queue.ids.len() =>
+        {
+            let from = app.queue.selected;
+            let to = from + 1;
+            app.queue.move_item(from, to);
+            app.status = "Moved track down in queue".into();
+        }
+        KeyCode::Char('.') | KeyCode::Char('c') if app.view == View::Queue => {
+            if let Some(c) = app.queue.cursor {
+                app.queue.selected = c;
+                app.status = "Jumped to currently playing track.".into();
+            }
+        }
+        KeyCode::Delete | KeyCode::Char('d') | KeyCode::Char('x') if app.view == View::Queue => {
             if app.queue.remove(app.queue.selected) {
                 app.stop(tx);
             }
@@ -766,11 +969,15 @@ pub async fn run(store: Storage) -> Result<()> {
         app.cache = cached;
     }
     let (bg_tx, mut bg_rx) = mpsc::unbounded_channel();
+    let http = crate::auth::http_client()?;
     let mut tasks = Tasks {
         catalog,
+        http,
         tx: bg_tx.clone(),
         browse: None,
         metadata: None,
+        lyrics: None,
+        recommendations: None,
         requested: HashSet::new(),
     };
     let (save_tx, mut save_rx) = watch::channel((app.config.clone(), app.queue.clone()));
@@ -788,12 +995,27 @@ pub async fn run(store: Storage) -> Result<()> {
         }
     });
     let mut terminal = ui::TerminalGuard::enter()?;
+    let mut current_window_title = String::new();
     let mut keys = EventStream::new();
-    let mut tick = tokio::time::interval(std::time::Duration::from_millis(100));
+    let mut tick = tokio::time::interval(std::time::Duration::from_millis(33));
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut save_tick = tokio::time::interval(std::time::Duration::from_secs(2));
     let mut playback_open = true;
     let result: Result<()> = async {
         loop {
+            if let Some(track) = app.current_track() {
+                if app.lyrics_track_id.as_deref() != Some(&track.id) && !track.name.is_empty() {
+                    app.lyrics_track_id = Some(track.id.clone());
+                    app.lyrics = None;
+                    app.lyrics_loading = true;
+                    tasks.fetch_lyrics(&track);
+                }
+            }
+            let desired_title = app.window_title();
+            if desired_title != current_window_title {
+                ui::set_title(&desired_title);
+                current_window_title = desired_title;
+            }
             terminal.terminal.draw(|frame| ui::draw(frame,&app))?;
             tokio::select! {
                 key_event = keys.next() => match key_event {
@@ -814,7 +1036,7 @@ pub async fn run(store: Storage) -> Result<()> {
                                 app.next = page.next;
                                 if let Rows::Tracks(tracks) = &page.rows {
                                     for track in tracks { app.cache.insert(track.id.clone(),track.clone()); }
-                                    let _ = store.save_cache(&app.cache);
+                                    app.cache_dirty = true;
                                 }
                                 if page.offset == 0 { app.rows = page.rows; app.selected = 0; }
                                 else { match (&mut app.rows,page.rows) { (Rows::Tracks(a),Rows::Tracks(b))=>a.extend(b), (Rows::Playlists(a),Rows::Playlists(b))=>a.extend(b), _=>() } }
@@ -825,7 +1047,67 @@ pub async fn run(store: Storage) -> Result<()> {
                     },
                     Some(Background::Metadata(track)) => {
                         app.cache.insert(track.id.clone(),track);
-                        let _ = store.save_cache(&app.cache);
+                        app.cache_dirty = true;
+                        if app.cache.len() > 3000 {
+                            let queue_ids: HashSet<String> = app.queue.ids.iter().cloned().collect();
+                            let excess = app.cache.len().saturating_sub(2500);
+                            let keys_to_remove: Vec<String> = app.cache.keys()
+                                .filter(|k| !queue_ids.contains(*k))
+                                .take(excess)
+                                .cloned()
+                                .collect();
+                            for k in keys_to_remove {
+                                app.cache.remove(&k);
+                            }
+                        }
+                    },
+                    Some(Background::Lyrics(id, lyr)) if app.lyrics_track_id.as_deref() == Some(&id) => {
+                        app.lyrics = lyr;
+                        app.lyrics_loading = false;
+                    },
+                    Some(Background::EnqueuePlaylist(res)) => {
+                        match res {
+                            Ok(tracks) => {
+                                let count = tracks.len();
+                                for t in tracks {
+                                    if t.playable {
+                                        app.cache.insert(t.id.clone(), t.clone());
+                                        app.queue.enqueue(t.id);
+                                    }
+                                }
+                                app.cache_dirty = true;
+                                app.status = format!("Enqueued {count} tracks from playlist.");
+                            }
+                            Err(e) => {
+                                app.status = format!("Could not enqueue playlist: {e:#}");
+                            }
+                        }
+                    },
+                    Some(Background::Recommendations(_seed_id, res)) => {
+                        match res {
+                            Ok(tracks) => {
+                                let mut added = 0;
+                                for t in tracks {
+                                    if t.playable {
+                                        app.cache.insert(t.id.clone(), t.clone());
+                                        if !app.queue.ids.contains(&t.id) {
+                                            app.queue.enqueue(t.id);
+                                            added += 1;
+                                        }
+                                    }
+                                }
+                                if added > 0 {
+                                    app.cache_dirty = true;
+                                    if app.config.shuffle {
+                                        app.queue.set_shuffle(true);
+                                    }
+                                    app.status = format!("Track Radio: added {added} recommended tracks.");
+                                }
+                            }
+                            Err(e) => {
+                                app.status = format!("Could not load recommendations: {e:#}");
+                            }
+                        }
                     },
                     Some(Background::MetadataError(e)) => {
                         app.status = e;
@@ -834,10 +1116,25 @@ pub async fn run(store: Storage) -> Result<()> {
                     Some(Background::SaveError(e)) => app.status = e,
                     _ => (),
                 },
-                _ = tick.tick() => tasks.metadata(&app),
+                _ = tick.tick() => {
+                    app.animation_frame = app.animation_frame.wrapping_add(1);
+                    if app.state == State::Playing {
+                        if let Some(t) = app.current_track() {
+                            if t.duration_ms > 0 {
+                                app.queue.position_ms = (app.queue.position_ms + 33).min(t.duration_ms);
+                            }
+                        }
+                    }
+                    if app.animation_frame % 3 == 0 {
+                        tasks.metadata(&app);
+                    }
+                },
                 _ = save_tick.tick() => {
                     save_tx.send_replace((app.config.clone(),app.queue.clone()));
-                    let _ = store.save_cache(&app.cache);
+                    if app.cache_dirty {
+                        let _ = store.save_cache(&app.cache);
+                        app.cache_dirty = false;
+                    }
                 },
                 _ = tokio::signal::ctrl_c() => break,
             }
@@ -847,7 +1144,9 @@ pub async fn run(store: Storage) -> Result<()> {
     }.await;
     app.send(&playback.commands, Command::Stop);
     save_tx.send_replace((app.config.clone(), app.queue.clone()));
-    let _ = store.save_cache(&app.cache);
+    if app.cache_dirty {
+        let _ = store.save_cache(&app.cache);
+    }
     drop(save_tx);
     let saved = persistence.await;
     drop(terminal);
@@ -982,5 +1281,32 @@ mod tests {
         app.filter = "classics".into();
         assert_eq!(app.len(), 1);
         assert_eq!(app.filtered_indices(), vec![0]);
+    }
+    #[test]
+    fn window_title_formats() {
+        let mut app = App::new(Config::default(), Queue::default());
+        assert_eq!(app.window_title(), "Tuitify");
+
+        let track = Track {
+            id: "t1".into(),
+            name: "牵丝戏".into(),
+            artists: "银临, Aki阿杰".into(),
+            duration_ms: 239000,
+            playable: true,
+        };
+        app.cache.insert("t1".into(), track);
+        app.queue.replace(vec!["t1".into()], 0, false);
+
+        app.state = State::Playing;
+        assert_eq!(app.window_title(), "Tuitify • 牵丝戏 - 银临, Aki阿杰");
+
+        app.state = State::Paused;
+        assert_eq!(app.window_title(), "|| Tuitify • 牵丝戏 - 银临, Aki阿杰");
+
+        app.state = State::Loading;
+        assert_eq!(app.window_title(), "... Tuitify • 牵丝戏 - 银临, Aki阿杰");
+
+        app.state = State::Failed;
+        assert_eq!(app.window_title(), "! Tuitify • 牵丝戏 - 银临, Aki阿杰");
     }
 }
