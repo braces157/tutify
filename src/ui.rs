@@ -7,7 +7,9 @@ use anyhow::Result;
 use crossterm::{
     event::{DisableBracketedPaste, EnableBracketedPaste},
     execute,
-    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
+    terminal::{
+        EnterAlternateScreen, LeaveAlternateScreen, SetTitle, disable_raw_mode, enable_raw_mode,
+    },
 };
 use ratatui::{
     prelude::*,
@@ -22,7 +24,6 @@ const GREEN: Color = Color::Rgb(30, 215, 96);
 const BG: Color = Color::Rgb(14, 17, 16);
 const MUTED: Color = Color::Rgb(143, 155, 147);
 const FG: Color = Color::Rgb(227, 234, 229);
-const BORDER_INACTIVE: Color = Color::Rgb(40, 52, 45);
 const HIGHLIGHT_BG: Color = Color::Rgb(24, 45, 32);
 const ACCENT_DIM: Color = Color::Rgb(85, 160, 110);
 
@@ -35,7 +36,8 @@ fn restore() {
         stdout(),
         DisableBracketedPaste,
         LeaveAlternateScreen,
-        crossterm::cursor::Show
+        crossterm::cursor::Show,
+        crossterm::style::Print("\x1b[23;0t")
     );
 }
 impl TerminalGuard {
@@ -46,7 +48,13 @@ impl TerminalGuard {
             previous(info);
         }));
         enable_raw_mode()?;
-        if let Err(e) = execute!(stdout(), EnterAlternateScreen, EnableBracketedPaste) {
+        if let Err(e) = execute!(
+            stdout(),
+            crossterm::style::Print("\x1b[22;0t"),
+            EnterAlternateScreen,
+            EnableBracketedPaste,
+            SetTitle("Tuitify")
+        ) {
             restore();
             return Err(e.into());
         }
@@ -65,15 +73,131 @@ impl Drop for TerminalGuard {
     }
 }
 
+pub fn set_title(title: &str) {
+    let _ = execute!(stdout(), SetTitle(title));
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Theme {
+    Spotify,
+    Amber,
+    Matrix,
+    Cyberpunk,
+    Monochrome,
+}
+
+impl Theme {
+    pub fn from_str(s: &str) -> Self {
+        match s.to_lowercase().as_str() {
+            "amber" => Self::Amber,
+            "matrix" => Self::Matrix,
+            "cyberpunk" => Self::Cyberpunk,
+            "monochrome" => Self::Monochrome,
+            _ => Self::Spotify,
+        }
+    }
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Spotify => "Spotify Green",
+            Self::Amber => "Amber CRT",
+            Self::Matrix => "Matrix Green",
+            Self::Cyberpunk => "Cyberpunk Cyan",
+            Self::Monochrome => "Monochrome",
+        }
+    }
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Spotify => "spotify",
+            Self::Amber => "amber",
+            Self::Matrix => "matrix",
+            Self::Cyberpunk => "cyberpunk",
+            Self::Monochrome => "monochrome",
+        }
+    }
+    pub fn next(self) -> Self {
+        match self {
+            Self::Spotify => Self::Amber,
+            Self::Amber => Self::Matrix,
+            Self::Matrix => Self::Cyberpunk,
+            Self::Cyberpunk => Self::Monochrome,
+            Self::Monochrome => Self::Spotify,
+        }
+    }
+    pub fn primary(self) -> Color {
+        match self {
+            Self::Spotify => Color::Rgb(30, 215, 96),
+            Self::Amber => Color::Rgb(255, 176, 0),
+            Self::Matrix => Color::Rgb(0, 255, 102),
+            Self::Cyberpunk => Color::Rgb(0, 229, 255),
+            Self::Monochrome => Color::Rgb(240, 240, 240),
+        }
+    }
+    pub fn highlight_bg(self) -> Color {
+        match self {
+            Self::Spotify => Color::Rgb(24, 45, 32),
+            Self::Amber => Color::Rgb(50, 35, 10),
+            Self::Matrix => Color::Rgb(10, 40, 20),
+            Self::Cyberpunk => Color::Rgb(30, 20, 50),
+            Self::Monochrome => Color::Rgb(40, 40, 40),
+        }
+    }
+    pub fn border_inactive(self) -> Color {
+        match self {
+            Self::Spotify => Color::Rgb(40, 52, 45),
+            Self::Amber => Color::Rgb(60, 45, 25),
+            Self::Matrix => Color::Rgb(20, 50, 30),
+            Self::Cyberpunk => Color::Rgb(40, 35, 65),
+            Self::Monochrome => Color::Rgb(55, 55, 55),
+        }
+    }
+    pub fn accent_dim(self) -> Color {
+        match self {
+            Self::Spotify => Color::Rgb(85, 160, 110),
+            Self::Amber => Color::Rgb(180, 120, 20),
+            Self::Matrix => Color::Rgb(40, 170, 75),
+            Self::Cyberpunk => Color::Rgb(255, 0, 127),
+            Self::Monochrome => Color::Rgb(160, 160, 160),
+        }
+    }
+}
+
+pub fn generate_bars(frame: u32, count: usize, is_playing: bool) -> String {
+    if !is_playing {
+        return " ".repeat(count);
+    }
+    const BLOCKS: [char; 8] = [' ', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+    let mut s = String::with_capacity(count * 4);
+    let t = frame as f64 * 0.16;
+    for i in 0..count {
+        let x = i as f64;
+        let freq = 1.15 + (x * 0.18);
+        let wave = (t * freq + x * 0.9).sin() * 0.42
+            + (t * 0.65 - x * 0.45).cos() * 0.36
+            + (t * 2.3 + x * 1.4).sin() * 0.22;
+        let norm = ((wave + 1.0) * 0.5).clamp(0.0, 0.999);
+        let idx = (norm * 8.0) as usize;
+        s.push(BLOCKS[idx.min(7)]);
+    }
+    s
+}
+
 fn block(title: impl Into<Line<'static>>, focused: bool) -> Block<'static> {
+    block_themed(title, focused, Theme::Spotify)
+}
+
+fn block_themed(title: impl Into<Line<'static>>, focused: bool, theme: Theme) -> Block<'static> {
     Block::default()
         .title(title)
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(Style::default().fg(if focused { GREEN } else { BORDER_INACTIVE }))
+        .border_style(Style::default().fg(if focused {
+            theme.primary()
+        } else {
+            theme.border_inactive()
+        }))
         .title_style(
             Style::default()
-                .fg(if focused { GREEN } else { MUTED })
+                .fg(if focused { theme.primary() } else { MUTED })
                 .bold(),
         )
 }
@@ -100,21 +224,29 @@ pub fn draw(frame: &mut Frame<'_>, app: &App) {
     ])
     .split(area);
 
+    let theme = Theme::from_str(&app.config.theme);
     let header_line = if area.width >= 65 {
         Line::from(vec![
             Span::styled(
                 " TUITIFY ",
-                Style::default().fg(Color::Rgb(14, 17, 16)).bg(GREEN).bold(),
+                Style::default()
+                    .fg(Color::Rgb(14, 17, 16))
+                    .bg(theme.primary())
+                    .bold(),
+            ),
+            Span::styled(
+                format!(" [{}]", theme.name()),
+                Style::default().fg(theme.primary()).bold(),
             ),
             Span::styled("  YOUR MUSIC, IN THE TERMINAL", Style::default().fg(MUTED)),
             Span::styled(
-                "   [? help]  [q quit]",
-                Style::default().fg(Color::Rgb(80, 110, 95)),
+                "   [? help]  [q quit]  [t theme]",
+                Style::default().fg(theme.accent_dim()),
             ),
         ])
     } else {
         Line::from(vec![
-            Span::styled(" TUITIFY", Style::default().fg(GREEN).bold()),
+            Span::styled(" TUITIFY", Style::default().fg(theme.primary()).bold()),
             Span::styled("  ? help", Style::default().fg(MUTED)),
         ])
     };
@@ -361,6 +493,7 @@ pub fn draw(frame: &mut Frame<'_>, app: &App) {
 }
 
 fn navigation(frame: &mut Frame<'_>, app: &App, area: Rect) {
+    let theme = Theme::from_str(&app.config.theme);
     let items = View::ALL
         .iter()
         .enumerate()
@@ -388,13 +521,19 @@ fn navigation(frame: &mut Frame<'_>, app: &App, area: Rect) {
         app.view.index()
     }));
     let (hl_style, hl_sym) = if app.sidebar {
-        (Style::default().fg(GREEN).bg(HIGHLIGHT_BG).bold(), "► ")
+        (
+            Style::default()
+                .fg(theme.primary())
+                .bg(theme.highlight_bg())
+                .bold(),
+            "► ",
+        )
     } else {
-        (Style::default().fg(GREEN).bold(), "  ")
+        (Style::default().fg(theme.primary()).bold(), "  ")
     };
     frame.render_stateful_widget(
         List::new(items)
-            .block(block(" LIBRARY ", app.sidebar))
+            .block(block_themed(" LIBRARY ", app.sidebar, theme))
             .highlight_style(hl_style)
             .highlight_symbol(hl_sym),
         area,
@@ -402,7 +541,170 @@ fn navigation(frame: &mut Frame<'_>, app: &App, area: Rect) {
     );
 }
 
+fn visualizer(frame: &mut Frame<'_>, app: &App, area: Rect) {
+    let theme = Theme::from_str(&app.config.theme);
+    let outer = block_themed(" RETRO AUDIO SPECTRUM [v exit] ", true, theme);
+    let inner = outer.inner(area);
+    frame.render_widget(outer, area);
+
+    let parts = Layout::vertical([
+        Constraint::Length(2),
+        Constraint::Min(4),
+        Constraint::Length(2),
+    ])
+    .split(inner);
+
+    let track = app.current_track();
+    let track_info = if let Some(t) = &track {
+        format!("{} - {}", t.name, t.artists)
+    } else {
+        "No track playing".to_string()
+    };
+    let status_line = Line::from(vec![
+        Span::styled(
+            if app.state == State::Playing {
+                " ► PLAYING: "
+            } else {
+                " || PAUSED: "
+            },
+            Style::default().fg(theme.primary()).bold(),
+        ),
+        Span::styled(track_info, Style::default().fg(FG).bold()),
+        Span::styled(
+            "   [STEREO 44.1kHz • 320kbps Hi-Fi]",
+            Style::default().fg(theme.accent_dim()).italic(),
+        ),
+    ]);
+    frame.render_widget(Paragraph::new(status_line), parts[0]);
+
+    let height = parts[1].height as usize;
+    let width = parts[1].width as usize;
+    if height >= 2 && width >= 10 {
+        let is_playing = app.state == State::Playing;
+        let bar_count = (width / 3).clamp(8, 32);
+        let t = app.animation_frame as f64 * 0.16;
+
+        let mut lines = Vec::new();
+        for row in (1..=height).rev() {
+            let mut spans = Vec::new();
+            spans.push(Span::raw("  "));
+            for col in 0..bar_count {
+                let x = col as f64;
+                let val = if is_playing {
+                    let freq = 1.1 + (x * 0.12);
+                    let wave = (t * freq + x * 0.7).sin() * 0.42
+                        + (t * 0.6 - x * 0.35).cos() * 0.35
+                        + (t * 2.3 + x * 1.4).sin() * 0.23;
+                    ((wave + 1.0) * 0.5 * (height as f64)).round() as usize
+                } else {
+                    0
+                };
+                if val >= row {
+                    let color = if row > height * 3 / 4 {
+                        Color::Red
+                    } else if row > height / 2 {
+                        Color::Yellow
+                    } else {
+                        theme.primary()
+                    };
+                    spans.push(Span::styled("█ ", Style::default().fg(color).bold()));
+                } else if val + 1 == row && is_playing {
+                    spans.push(Span::styled("▄ ", Style::default().fg(theme.accent_dim())));
+                } else {
+                    spans.push(Span::styled("  ", Style::default()));
+                }
+            }
+            lines.push(Line::from(spans));
+        }
+        frame.render_widget(Paragraph::new(lines), parts[1]);
+    }
+
+    let labels = Line::from(vec![Span::styled(
+        "  32Hz 64Hz 125Hz 250Hz 500Hz 1kHz 2kHz 4kHz 8kHz 16kHz",
+        Style::default().fg(MUTED),
+    )]);
+    frame.render_widget(Paragraph::new(labels), parts[2]);
+}
+
+fn lyrics(frame: &mut Frame<'_>, app: &App, area: Rect) {
+    let theme = Theme::from_str(&app.config.theme);
+    let track = app.current_track();
+    let title = if let Some(t) = &track {
+        format!(" LYRICS • {} [l exit] ", t.name)
+    } else {
+        " LYRICS [l exit] ".to_string()
+    };
+    let outer = block_themed(title, true, theme);
+    let inner = outer.inner(area);
+    frame.render_widget(outer, area);
+
+    if app.lyrics_loading {
+        let p = Paragraph::new("\n  ⟳ Loading synchronized lyrics from Lrclib...")
+            .style(Style::default().fg(theme.primary()).italic());
+        frame.render_widget(p, inner);
+        return;
+    }
+
+    let Some(lyr) = &app.lyrics else {
+        let p = Paragraph::new("\n  No lyrics available for this track.\n\n  • Press l to return to library view\n  • Songs with available lyrics will sync automatically")
+            .style(Style::default().fg(MUTED));
+        frame.render_widget(p, inner);
+        return;
+    };
+
+    if !lyr.lines.is_empty() {
+        let current_idx = lyr.current_line_index(app.queue.position_ms).unwrap_or(0);
+        let height = inner.height as usize;
+        let half = height / 2;
+        let start = current_idx.saturating_sub(half);
+        let visible = lyr.lines.iter().enumerate().skip(start).take(height);
+
+        let items: Vec<Line<'static>> = visible
+            .map(|(i, l)| {
+                if i == current_idx {
+                    Line::from(vec![
+                        Span::styled("► ", Style::default().fg(theme.primary()).bold()),
+                        Span::styled(
+                            l.text.clone(),
+                            Style::default().fg(FG).bg(theme.highlight_bg()).bold(),
+                        ),
+                    ])
+                } else if i < current_idx {
+                    Line::from(vec![
+                        Span::raw("  "),
+                        Span::styled(l.text.clone(), Style::default().fg(MUTED)),
+                    ])
+                } else {
+                    Line::from(vec![
+                        Span::raw("  "),
+                        Span::styled(l.text.clone(), Style::default().fg(FG)),
+                    ])
+                }
+            })
+            .collect();
+        frame.render_widget(Paragraph::new(items), inner);
+    } else if let Some(plain) = &lyr.plain {
+        let p = Paragraph::new(plain.as_str())
+            .wrap(Wrap { trim: true })
+            .style(Style::default().fg(FG));
+        frame.render_widget(p, inner);
+    } else {
+        let p = Paragraph::new("\n  No lyrics found for this track. Press l to return.")
+            .style(Style::default().fg(MUTED));
+        frame.render_widget(p, inner);
+    }
+}
+
 fn center(frame: &mut Frame<'_>, app: &App, area: Rect) {
+    let theme = Theme::from_str(&app.config.theme);
+    if app.show_visualizer {
+        visualizer(frame, app, area);
+        return;
+    }
+    if app.show_lyrics {
+        lyrics(frame, app, area);
+        return;
+    }
     if app.view == View::Help {
         let text = "MAKE IT YOURS\n\n\
         NAVIGATION\n\
@@ -410,7 +712,7 @@ fn center(frame: &mut Frame<'_>, app: &App, area: Rect) {
         Up/Down, j/k   Move cursor in current view\n\
         Enter          Play track or open playlist\n\
         Backspace      Return from playlist to playlists index\n\
-        Esc            Close Help / return to Search\n\n\
+        Esc            Close Help / exit Lyrics or Visualizer\n\n\
         PLAYBACK CONTROLS\n\
         Space          Play, pause, or retry failed playback\n\
         n / p          Next / previous track (restarts after 3s)\n\
@@ -420,11 +722,20 @@ fn center(frame: &mut Frame<'_>, app: &App, area: Rect) {
         + / -          Volume up / down 5%\n\
         [ / ]          Fine volume control 1%\n\
         m              Mute / restore previous volume\n\n\
-        PLAYBACK MODES & QUEUE\n\
+        QUEUE & PLAYLISTS\n\
+        a              Append selected track to Queue (or enqueue entire playlist)\n\
+        A (Shift-A)    Play Next (insert directly after current track)\n\
+        R (Shift-R)    Start Track Radio (play track & queue related recommendations)\n\
+        K / J          Move selected track Up / Down in Queue\n\
+        d / x / Delete Remove selected item from Queue\n\
+        C (Shift-C)    Clear entire Queue\n\
+        . or c         Jump to currently playing track in Queue\n\
         s              Toggle shuffle (preserves current track)\n\
-        r              Cycle repeat: Off -> Queue -> Track\n\
-        a              Append selected track to Queue\n\
-        Delete         Remove selected item from Queue\n\n\
+        r              Cycle repeat: Off -> Queue -> Track\n\n\
+        RETRO FEATURES & THEMES\n\
+        t              Cycle Retro Theme (Spotify, Amber CRT, Matrix, Cyberpunk, Monochrome)\n\
+        v              Toggle Retro ASCII Audio Spectrum Visualizer\n\
+        l              Toggle Synced Real-Time Lyrics View (Lrclib)\n\n\
         CATALOG & NETWORK\n\
         / or f         Filter current view (Liked/Playlists) or Search catalog\n\
         PgDn           Load next catalog page\n\
@@ -436,7 +747,7 @@ fn center(frame: &mut Frame<'_>, app: &App, area: Rect) {
         No audio? Check Windows default output device and Spotify Premium.";
         frame.render_widget(
             Paragraph::new(text)
-                .block(block(" HELP & SHORTCUTS ", !app.sidebar))
+                .block(block_themed(" HELP & SHORTCUTS ", !app.sidebar, theme))
                 .wrap(Wrap { trim: false })
                 .scroll((app.selected.min(30) as u16, 0)),
             area,
@@ -858,7 +1169,8 @@ fn queue(frame: &mut Frame<'_>, app: &App, area: Rect, main: bool) {
 }
 
 fn playback(frame: &mut Frame<'_>, app: &App, area: Rect) {
-    let outer = block(" NOW PLAYING ", false);
+    let theme = Theme::from_str(&app.config.theme);
+    let outer = block_themed(" NOW PLAYING ", false, theme);
     let inner = outer.inner(area);
     frame.render_widget(outer, area);
     let parts = Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).split(inner);
@@ -867,11 +1179,17 @@ fn playback(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let (badge_text, badge_style) = match app.state {
         State::Paused => (
             " || PAUSED ",
-            Style::default().fg(GREEN).bg(Color::Rgb(25, 45, 32)).bold(),
+            Style::default()
+                .fg(theme.primary())
+                .bg(theme.highlight_bg())
+                .bold(),
         ),
         State::Playing => (
             " ► PLAYING ",
-            Style::default().fg(Color::Rgb(14, 17, 16)).bg(GREEN).bold(),
+            Style::default()
+                .fg(Color::Rgb(14, 17, 16))
+                .bg(theme.primary())
+                .bold(),
         ),
         State::Loading => (
             " ... LOAD ",
@@ -889,11 +1207,18 @@ fn playback(frame: &mut Frame<'_>, app: &App, area: Rect) {
         ),
     };
 
-    let row = Layout::horizontal([
-        Constraint::Min(12),
-        Constraint::Length(if area.width >= 70 { 36 } else { 0 }),
-    ])
-    .split(parts[0]);
+    let (ctrl_width, bar_count) = if area.width >= 90 {
+        (48, 10)
+    } else if area.width >= 70 {
+        (38, 6)
+    } else if area.width >= 50 && app.state == State::Playing {
+        (8, 6)
+    } else {
+        (0, 0)
+    };
+
+    let row =
+        Layout::horizontal([Constraint::Min(12), Constraint::Length(ctrl_width)]).split(parts[0]);
 
     let mut track_spans = vec![Span::styled(badge_text, badge_style)];
     if let Some(t) = &track {
@@ -915,33 +1240,48 @@ fn playback(frame: &mut Frame<'_>, app: &App, area: Rect) {
     }
     frame.render_widget(Paragraph::new(Line::from(track_spans)), row[0]);
 
-    if area.width >= 70 {
-        let vol_str = if app.config.volume == 0 {
-            "VOL MUTED".to_owned()
-        } else {
-            format!("VOL {}%", app.config.volume)
-        };
-        let s_str = if app.config.shuffle {
-            "SHUF:ON"
-        } else {
-            "SHUF:OFF"
-        };
-        let r_str = match app.config.repeat {
-            Repeat::Off => "R:Off",
-            Repeat::Queue => "R:Queue",
-            Repeat::Track => "R:Track",
-        };
-        let ctrl_spans = vec![
-            Span::styled(vol_str, Style::default().fg(FG).bold()),
-            Span::styled("   ", Style::default()),
-            Span::styled(
+    if ctrl_width > 0 {
+        let mut ctrl_spans = Vec::new();
+        if app.state == State::Playing && bar_count > 0 {
+            let mini_bars = generate_bars(app.animation_frame, bar_count, true);
+            ctrl_spans.push(Span::styled(
+                mini_bars,
+                Style::default().fg(theme.primary()).bold(),
+            ));
+            if area.width >= 70 {
+                ctrl_spans.push(Span::styled("   ", Style::default()));
+            }
+        }
+        if area.width >= 70 {
+            let vol_str = if app.config.volume == 0 {
+                "VOL MUTED".to_owned()
+            } else {
+                format!("VOL {}%", app.config.volume)
+            };
+            let s_str = if app.config.shuffle {
+                "SHUF:ON"
+            } else {
+                "SHUF:OFF"
+            };
+            let r_str = match app.config.repeat {
+                Repeat::Off => "R:Off",
+                Repeat::Queue => "R:Queue",
+                Repeat::Track => "R:Track",
+            };
+            ctrl_spans.push(Span::styled(vol_str, Style::default().fg(FG).bold()));
+            ctrl_spans.push(Span::styled("   ", Style::default()));
+            ctrl_spans.push(Span::styled(
                 s_str,
-                Style::default().fg(if app.config.shuffle { GREEN } else { MUTED }),
-            ),
-            Span::styled("   ", Style::default()),
-            Span::styled(r_str, Style::default().fg(FG).bold()),
-            Span::styled(" ", Style::default()),
-        ];
+                Style::default().fg(if app.config.shuffle {
+                    theme.primary()
+                } else {
+                    MUTED
+                }),
+            ));
+            ctrl_spans.push(Span::styled("   ", Style::default()));
+            ctrl_spans.push(Span::styled(r_str, Style::default().fg(FG).bold()));
+            ctrl_spans.push(Span::styled(" ", Style::default()));
+        }
         frame.render_widget(
             Paragraph::new(Line::from(ctrl_spans)).alignment(Alignment::Right),
             row[1],
@@ -988,7 +1328,11 @@ fn playback(frame: &mut Frame<'_>, app: &App, area: Rect) {
                 Style::default().fg(Color::White).bold(),
             ))
             .use_unicode(true)
-            .gauge_style(Style::default().fg(GREEN).bg(Color::Rgb(28, 40, 32))),
+            .gauge_style(
+                Style::default()
+                    .fg(theme.primary())
+                    .bg(theme.highlight_bg()),
+            ),
         parts[1],
     );
 }
@@ -1050,6 +1394,38 @@ mod tests {
             .collect::<String>();
         assert!(text.contains("0:23 / 3:30  10%  -3:07"));
         assert!(text.contains("VOL MUTED"));
+    }
+    #[test]
+    fn render_visualizer_bars_and_smooth_animation() {
+        let mut app = App::new(Config::default(), Queue::default());
+        let mut track = Track::unknown(&"0".repeat(22));
+        track.name = "Moon Landing Plan".into();
+        track.artists = "tuki.".into();
+        track.duration_ms = 242_000;
+        app.queue.replace(vec![track.id.clone()], 0, false);
+        app.queue.position_ms = 157_000;
+        app.cache.insert(track.id.clone(), track);
+        app.state = State::Playing;
+        app.animation_frame = 42;
+
+        let mut terminal = Terminal::new(TestBackend::new(120, 35)).unwrap();
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        let text = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|c| c.symbol())
+            .collect::<String>();
+
+        assert!(text.contains("Moon Landing Plan"));
+        assert!(text.contains("tuki."));
+        assert!(text.contains("2:37 / 4:02  64%  -1:25"));
+        assert!(text.contains("VOL 50%"));
+        let has_eq_bar = [' ', '▂', '▃', '▄', '▅', '▆', '▇', '█']
+            .iter()
+            .any(|&c| text.contains(c));
+        assert!(has_eq_bar);
     }
     #[test]
     fn render_modern_ui_elements() {

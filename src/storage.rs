@@ -18,6 +18,7 @@ pub struct Config {
     pub volume: u8,
     pub shuffle: bool,
     pub repeat: Repeat,
+    pub theme: String,
 }
 
 impl Default for Config {
@@ -28,6 +29,7 @@ impl Default for Config {
             volume: 50,
             shuffle: false,
             repeat: Repeat::Off,
+            theme: "spotify".into(),
         }
     }
 }

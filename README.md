@@ -7,7 +7,7 @@ client by default and can be switched to a personal Spotify Developer app.
 
 ## Run on Windows
 
-Extract `Tuitify-0.1.0-windows-x86_64.zip` and open Windows Terminal in the extracted
+Extract `Tuitify-0.2.0-windows-x86_64.zip` and open Windows Terminal in the extracted
 folder. The executable needs no Rust installation. Use a standard font such as
 Consolas or Cascadia Mono; icon fonts are not required.
 
@@ -80,7 +80,7 @@ To use `tuitify` without the `.exe` path, add its folder to your user PATH.
 | `1`–`5` | Search, Playlists, Liked Songs, Queue, Help |
 | `Tab`, `Shift+Tab` | Switch focus between navigation and content |
 | Up/Down or `k`/`j` | Move selection; scroll Help |
-| `/` | Start a new search; names, Spotify track URLs, and track URIs work |
+| `/` or `f` | Start search or filter current list (names, URLs, URIs) |
 | Enter | Submit search, open a playlist, or play the selected track |
 | Space | Pause/resume; retry failed playback from the saved position |
 | `n` / `p` | Next / previous; previous restarts after three seconds |
@@ -91,14 +91,22 @@ To use `tuitify` without the `.exe` path, add its folder to your user PATH.
 | `m` | Mute or restore the previous volume |
 | `s` | Toggle shuffle, preserving the current occurrence |
 | `r` | Cycle repeat off → queue → track |
-| `a` | Append selected track without interrupting playback |
-| Delete | Remove the selected Queue entry |
-| Page Down | Fetch and append another catalog page |
+| `t` | Cycle retro color themes (Classic, Phosphor Green, Amber, Mono, Cyberpunk) |
+| `v` | Toggle 30 FPS high-resolution audio spectrum visualizer |
+| `l` | Toggle live synchronized lyrics (Lrclib auto-scroll) |
+| `R` | Track Radio: queue related recommendations for selected song |
+| `a` | Append selected track to end of queue without interrupting playback |
+| `A` | Play Next: insert selected track directly after current track |
+| `K` / `J` | Move selected track up / down in Queue |
+| `C` | Clear the entire queue |
+| `.` / `c` | Jump cursor to currently playing track in Queue |
+| Delete / `d` / `x` | Remove the selected Queue entry |
+| Page Down | Fetch and append another catalog page (infinite pagination) |
 | F5 | Refresh or retry catalog/queue metadata |
 | Backspace | Return from playlist contents to playlists |
 | `?` / F1 | Help |
 | `q` / Ctrl+C | Save and quit |
-| Esc | Cancel search editing, close Help, otherwise quit |
+| Esc | Close overlay (lyrics/visualizer), clear filter, or quit |
 
 The playback bar continuously shows elapsed time, total duration, percentage
 complete, and remaining time. Left/Right seeks while the track is loaded; Home

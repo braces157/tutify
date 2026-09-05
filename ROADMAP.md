@@ -3,6 +3,10 @@
 V1 ships search, playlists, liked songs, standalone playback, local queue controls,
 and settings/queue persistence.
 
+V0.2.0 delivers 5 retro CRT themes, high-resolution 30 FPS audio spectrum visualizer,
+real-time synchronized lyrics (Lrclib), seed-based Track Radio autoplay recommendations,
+and expanded queue manipulation (Play Next, reorder up/down, clear queue).
+
 Deferred by user choice: persistent listening history, AI suggestions, and song
 tier lists. If an AI phase is pursued, the preferred integration is a cloud API
 using the user's own key. Do not add listening collection or send Spotify data to

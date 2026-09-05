@@ -132,6 +132,43 @@ impl Queue {
         self.selected = self.selected.min(self.order.len().saturating_sub(1));
         removed_current
     }
+    pub fn insert_next(&mut self, id: String) {
+        if self.order.is_empty() || self.cursor.is_none() {
+            self.enqueue(id);
+            return;
+        }
+        let new_idx = self.ids.len();
+        self.ids.push(id);
+        let insert_at = self.cursor.unwrap() + 1;
+        self.order.insert(insert_at, new_idx);
+        if self.selected >= insert_at {
+            self.selected += 1;
+        }
+    }
+    pub fn clear(&mut self) -> bool {
+        let had_playing = self.cursor.is_some();
+        self.ids.clear();
+        self.order.clear();
+        self.cursor = None;
+        self.selected = 0;
+        self.position_ms = 0;
+        had_playing
+    }
+    pub fn move_item(&mut self, from: usize, to: usize) -> bool {
+        if from >= self.order.len() || to >= self.order.len() || from == to {
+            return false;
+        }
+        let item = self.order.remove(from);
+        self.order.insert(to, item);
+        self.cursor = match self.cursor {
+            Some(c) if c == from => Some(to),
+            Some(c) if from < to && c > from && c <= to => Some(c - 1),
+            Some(c) if to < from && c >= to && c < from => Some(c + 1),
+            other => other,
+        };
+        self.selected = to;
+        true
+    }
 }
 
 #[cfg(test)]
@@ -190,5 +227,38 @@ mod tests {
         let mut q = queue();
         q.order[0] = 2;
         assert!(q.validate().is_err());
+    }
+    #[test]
+    fn insert_next_places_directly_after_cursor() {
+        let mut q = queue();
+        assert_eq!(q.cursor, Some(2));
+        let next_id = "9".repeat(22);
+        q.insert_next(next_id.clone());
+        q.validate().unwrap();
+        assert_eq!(q.cursor, Some(2));
+        assert_eq!(q.order[3], 5);
+        assert_eq!(q.ids[5], next_id);
+    }
+    #[test]
+    fn clear_wipes_queue_and_resets_cursor() {
+        let mut q = queue();
+        assert!(q.clear());
+        assert!(q.ids.is_empty());
+        assert!(q.order.is_empty());
+        assert_eq!(q.cursor, None);
+        q.validate().unwrap();
+    }
+    #[test]
+    fn move_item_reorders_and_tracks_cursor() {
+        let mut q = queue();
+        // cursor is at 2
+        assert!(q.move_item(0, 4));
+        q.validate().unwrap();
+        // Item at 0 moved to 4, so cursor (2) shifted down to 1
+        assert_eq!(q.cursor, Some(1));
+        // Move playing item from 1 to 3
+        assert!(q.move_item(1, 3));
+        q.validate().unwrap();
+        assert_eq!(q.cursor, Some(3));
     }
 }
