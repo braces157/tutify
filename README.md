@@ -40,9 +40,18 @@ and Windows Credential Manager. This is an implementation change from the
 original single-login assumption.
 
 The callback listener binds only to `127.0.0.1:8989`, starts before the browser
-opens, and times out after five minutes. If the browser shows a blank or blocked
-callback page, check the terminal: a **Login saved** message confirms success.
-Otherwise rerun the relevant auth command. Close any other process using port 8989.
+opens, and times out after five minutes. After authorization, the terminal reports
+token exchange and account verification progress. The callback page waits for the
+actual result: it confirms saved credentials or displays the setup error. Login
+does not launch the player; run `tuitify` after both logins succeed. If the browser
+shows a blank or blocked callback page, the terminal's **Login saved** message
+confirms success. Close any other process using port 8989.
+
+HTTP 429 is a Spotify rate limit, not evidence of a Premium problem. Verification
+waits for `Retry-After` and retries once when the delay is at most 30 seconds.
+For longer delays, or a second rate limit, it displays the required wait and exits.
+Avoid repeating login attempts during that wait. A saved catalog account ID is
+reused when checking the streaming login to avoid an unnecessary profile request.
 
 To use `tuitify` without the `.exe` path, add its folder to your user PATH.
 

@@ -39,13 +39,18 @@ Retry-After seconds and HTTP dates, ten-result search pagination, playlist `/ite
 response parsing, metadata-only restrictions, 403/503 errors, 401 refresh, URL
 validation, and all views at 120x35, 80x24, 48x18, 32x10, and 20x6.
 
-Final results: 21 offline tests passed; formatting and Clippy with warnings denied
+Final results: 26 offline tests passed; formatting and Clippy with warnings denied
 passed; the optimized Windows release build succeeded. Both opt-in acceptance
 tests (streaming and terminal cleanup) passed separately. Run the commands in
 README.md to reproduce checks. These two tests are ignored by default because
 they require live credentials/audio or a real terminal.
 
 ## Practical limits
+
+Login follow-up: five additional mocked tests cover the final callback result,
+long and short verification rate limits, bounded retries, and denied app access.
+The callback no longer reports receipt before the eventual setup failure is known.
+These checks do not claim Spotify's current live quota has cleared.
 
 - Session-loss recovery was tested by shutting down the player's Spotify session,
   not by disabling the user's network adapter. A real Wi-Fi/router outage remains

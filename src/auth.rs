@@ -162,45 +162,133 @@ pub async fn login(store: &Storage, client_id: Option<String>, streaming: bool) 
         "Complete Spotify login in your browser. Waiting up to five minutes.\nIf the browser did not open, visit:\n{url}"
     );
     let _ = webbrowser::open(url.as_str());
-    let code = tokio::time::timeout(Duration::from_secs(300), async {
+    let (code, mut callback) = tokio::time::timeout(Duration::from_secs(300), async {
         loop {
             let (mut stream, _) = listener.accept().await?;
-            let mut request = vec![0u8; 8192]; let mut used = 0;
+            let mut request = vec![0u8; 8192];
+            let mut used = 0;
             let read = tokio::time::timeout(Duration::from_secs(5), async {
                 loop {
-                    if used == request.len() { bail!("Callback too large"); }
-                    let n = stream.read(&mut request[used..]).await?; if n == 0 { bail!("Incomplete callback"); }
-                    used += n; if request[..used].windows(4).any(|w| w == b"\r\n\r\n") { break; }
+                    if used == request.len() {
+                        bail!("Callback too large");
+                    }
+                    let n = stream.read(&mut request[used..]).await?;
+                    if n == 0 {
+                        bail!("Incomplete callback");
+                    }
+                    used += n;
+                    if request[..used].windows(4).any(|w| w == b"\r\n\r\n") {
+                        break;
+                    }
                 }
                 Ok::<_, anyhow::Error>(())
-            }).await;
-            if !matches!(read, Ok(Ok(()))) { continue; }
-            let request = String::from_utf8_lossy(&request[..used]);
-            let mut parts = request.lines().next().unwrap_or_default().split_whitespace();
-            let method = parts.next().unwrap_or_default(); let target = parts.next().unwrap_or_default();
-            if method != "GET" || !target.starts_with(&format!("{callback_path}?")) {
-                let _ = stream.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await; continue;
+            })
+            .await;
+            if !matches!(read, Ok(Ok(()))) {
+                continue;
             }
-            let result = if streaming { validate_callback_path(target, &state, callback_path) } else { validate_callback(target, &state) };
-            let (status, body) = if result.is_ok() { ("200 OK", "Login received. Return to Tuitify to see whether setup succeeded.") } else { ("400 Bad Request", "Login validation failed. Return to Tuitify and run auth again.") };
-            let response = format!("HTTP/1.1 {status}\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n{body}", body.len());
-            let _ = stream.write_all(response.as_bytes()).await;
-            return result;
+            let request = String::from_utf8_lossy(&request[..used]);
+            let mut parts = request
+                .lines()
+                .next()
+                .unwrap_or_default()
+                .split_whitespace();
+            let method = parts.next().unwrap_or_default();
+            let target = parts.next().unwrap_or_default();
+            if method != "GET" || !target.starts_with(&format!("{callback_path}?")) {
+                let _ = stream
+                    .write_all(
+                        b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                    )
+                    .await;
+                continue;
+            }
+            let result = if streaming {
+                validate_callback_path(target, &state, callback_path)
+            } else {
+                validate_callback(target, &state)
+            };
+            match result {
+                Ok(code) => return Ok((code, stream)),
+                Err(error) => {
+                    send_callback_result(&mut stream, &Err(anyhow::anyhow!("{error}")), streaming)
+                        .await;
+                    return Err(error);
+                }
+            }
         }
-    }).await.context("Login timed out; run tuitify auth again")??;
+    })
+    .await
+    .context("Login timed out; run tuitify auth again")??;
+    println!("Browser authorization received. Exchanging the code with Spotify...");
+    let result = finish_login(
+        store, &config, streaming, &oauth_id, redirect, &code, &verifier,
+    )
+    .await;
+    send_callback_result(&mut callback, &result, streaming).await;
+    result
+}
+
+fn callback_message(result: &Result<()>, streaming: bool) -> (String, String) {
+    match result {
+        Ok(()) => (
+            "200 OK".into(),
+            if streaming {
+                "Spotify streaming login saved successfully. Close this tab and run tuitify in your terminal to open the player.".into()
+            } else {
+                "Spotify catalog login saved successfully. Close this tab and run tuitify auth --streaming in your terminal. After that login succeeds, run tuitify to open the player.".into()
+            },
+        ),
+        Err(error) => (
+            "400 Bad Request".into(),
+            format!(
+                "Tuitify setup did not finish.\n\n{error:#}\n\nReturn to the terminal. Browser authorization alone does not complete setup."
+            ),
+        ),
+    }
+}
+
+async fn send_callback_result(
+    stream: &mut tokio::net::TcpStream,
+    result: &Result<()>,
+    streaming: bool,
+) {
+    let (status, body) = callback_message(result, streaming);
+    let response = format!(
+        "HTTP/1.1 {status}\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    // A closed browser tab must not prevent terminal login from finishing.
+    let _ = tokio::time::timeout(Duration::from_secs(3), async {
+        stream.write_all(response.as_bytes()).await?;
+        stream.shutdown().await
+    })
+    .await;
+}
+
+async fn finish_login(
+    store: &Storage,
+    config: &Config,
+    streaming: bool,
+    oauth_id: &str,
+    redirect: &str,
+    code: &str,
+    verifier: &str,
+) -> Result<()> {
     let response = http_client()?
         .post(TOKEN_URL)
         .form(&[
             ("grant_type", "authorization_code"),
-            ("client_id", oauth_id.as_str()),
+            ("client_id", oauth_id),
             ("redirect_uri", redirect),
-            ("code", code.as_str()),
-            ("code_verifier", verifier.as_str()),
+            ("code", code),
+            ("code_verifier", verifier),
         ])
         .send()
         .await
         .context("Cannot reach Spotify login; check your network and run auth again")?;
     let token = decode_token(response).await?;
+    println!("Authorization exchanged. Verifying the Spotify account...");
     let tokens = Tokens {
         account_id: profile_id(&token.access_token).await?,
         access_token: token.access_token,
@@ -210,8 +298,13 @@ pub async fn login(store: &Storage, client_id: Option<String>, streaming: bool) 
         expires_at: now() + token.expires_in,
     };
     if streaming {
-        let catalog = TokenManager::load(&config)?;
-        let id = profile_id(&catalog.access().await?).await?;
+        let catalog = TokenManager::load(config)?;
+        let cached_id = catalog.state.lock().await.account_id.clone();
+        let id = if cached_id.is_empty() {
+            profile_id(&catalog.access().await?).await?
+        } else {
+            cached_id
+        };
         if id != tokens.account_id {
             bail!(
                 "Streaming and catalog logins belong to different Spotify accounts. Run tuitify auth --streaming and choose the same account."
@@ -220,7 +313,7 @@ pub async fn login(store: &Storage, client_id: Option<String>, streaming: bool) 
     }
     // Every successful explicit login starts a clean account queue; no cross-account reuse.
     store.clear_queue()?;
-    store.save_config(&config)?;
+    store.save_config(config)?;
     if !streaming {
         match stream_entry()?.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => (),
@@ -247,12 +340,14 @@ async fn decode_token(response: reqwest::Response) -> Result<TokenResponse> {
             .context("Invalid Spotify token response")?),
         400 | 401 => bail!("Spotify login expired or was revoked; run tuitify auth"),
         429 => bail!(
-            "Spotify login quota reached; wait {} seconds before retrying",
-            response
-                .headers()
-                .get("retry-after")
-                .and_then(|v| v.to_str().ok())
-                .unwrap_or("60")
+            "Spotify login is rate-limited (HTTP 429). Wait at least {} seconds before retrying; this does not indicate a Premium problem.",
+            retry_delay(
+                response
+                    .headers()
+                    .get("retry-after")
+                    .and_then(|v| v.to_str().ok())
+            )
+            .as_secs()
         ),
         status => {
             bail!("Spotify login returned HTTP {status}; check your connection and retry later")
@@ -261,23 +356,57 @@ async fn decode_token(response: reqwest::Response) -> Result<TokenResponse> {
 }
 
 async fn profile_id(token: &str) -> Result<String> {
-    let response = http_client()?
-        .get("https://api.spotify.com/v1/me")
-        .bearer_auth(token)
-        .send()
-        .await
-        .context("Cannot verify Spotify account; check network and retry login")?;
-    if !response.status().is_success() {
-        bail!(
-            "Cannot verify Spotify account (HTTP {}). Check Premium and app access, then retry login.",
-            response.status().as_u16()
-        );
+    profile_id_at(token, "https://api.spotify.com/v1/me").await
+}
+
+async fn profile_id_at(token: &str, endpoint: &str) -> Result<String> {
+    let client = http_client()?;
+    for attempt in 0..2 {
+        let response = client
+            .get(endpoint)
+            .bearer_auth(token)
+            .send()
+            .await
+            .context("Cannot verify Spotify account; check network and retry login")?;
+        match response.status().as_u16() {
+            200 => (),
+            429 => {
+                let wait = retry_delay(
+                    response
+                        .headers()
+                        .get("retry-after")
+                        .and_then(|v| v.to_str().ok()),
+                );
+                if attempt == 0 && wait <= Duration::from_secs(30) {
+                    println!(
+                        "Spotify rate limit (HTTP 429). Waiting {} seconds before one verification retry; Premium is not the issue.",
+                        wait.as_secs()
+                    );
+                    tokio::time::sleep(wait).await;
+                    continue;
+                }
+                bail!(
+                    "Spotify account verification is rate-limited (HTTP 429). Wait at least {} seconds before retrying login. Premium is not the issue; avoid repeated login attempts during this wait.",
+                    wait.as_secs()
+                );
+            }
+            401 => bail!(
+                "Spotify account verification rejected the login (HTTP 401); run the same auth command again."
+            ),
+            403 => bail!(
+                "Spotify denied account verification (HTTP 403). Check that this account is allowed in your Developer app and that the app owner has Premium."
+            ),
+            status => bail!(
+                "Spotify account verification returned HTTP {status}. Setup did not finish; retry later."
+            ),
+        }
+        let profile: serde_json::Value = response.json().await?;
+        return Ok(profile["id"]
+            .as_str()
+            .context("Spotify account ID missing")?
+            .to_owned());
     }
-    let profile: serde_json::Value = response.json().await?;
-    Ok(profile["id"]
-        .as_str()
-        .context("Spotify account ID missing")?
-        .to_owned())
+    unreachable!()
 }
 
 pub fn retry_delay(header: Option<&str>) -> Duration {
@@ -424,6 +553,88 @@ mod tests {
         Mock, MockServer, ResponseTemplate,
         matchers::{body_string_contains, method, path},
     };
+    #[test]
+    fn callback_reports_final_success_or_failure() {
+        let (status, body) = callback_message(&Ok(()), false);
+        assert_eq!(status, "200 OK");
+        assert!(body.contains("auth --streaming"));
+        let (_, body) = callback_message(&Ok(()), true);
+        assert!(body.contains("run tuitify in your terminal"));
+        let (status, body) =
+            callback_message(&Err(anyhow::anyhow!("HTTP 429: wait 120 seconds")), false);
+        assert_ne!(status, "200 OK");
+        assert!(body.contains("setup did not finish"));
+        assert!(body.contains("wait 120 seconds"));
+        assert!(!body.contains("saved successfully"));
+    }
+
+    #[tokio::test]
+    async fn verification_long_rate_limit_does_not_retry_or_blame_premium() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(429).insert_header("Retry-After", "120"))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let message = profile_id_at("test-token", &server.uri())
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(message.contains("120 seconds"));
+        assert!(message.contains("Premium is not the issue"));
+    }
+
+    #[tokio::test]
+    async fn verification_short_rate_limit_retries_once_then_succeeds() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(429).insert_header("Retry-After", "0"))
+            .up_to_n_times(1)
+            .with_priority(1)
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({"id":"account"})),
+            )
+            .with_priority(2)
+            .expect(1)
+            .mount(&server)
+            .await;
+        assert_eq!(
+            profile_id_at("test-token", &server.uri()).await.unwrap(),
+            "account"
+        );
+    }
+
+    #[tokio::test]
+    async fn verification_repeated_rate_limit_is_bounded() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(429).insert_header("Retry-After", "0"))
+            .expect(2)
+            .mount(&server)
+            .await;
+        assert!(profile_id_at("test-token", &server.uri()).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn verification_denied_access_does_not_retry() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ResponseTemplate::new(403))
+            .expect(1)
+            .mount(&server)
+            .await;
+        assert!(
+            profile_id_at("test-token", &server.uri())
+                .await
+                .unwrap_err()
+                .to_string()
+                .contains("allowed in your Developer app")
+        );
+    }
     #[test]
     fn oauth_validation() {
         assert_eq!(
