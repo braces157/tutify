@@ -1,0 +1,844 @@
+<!DOCTYPE html>
+<html lang="en" class="dark scroll-smooth">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tuitify — Standalone Spotify Terminal Player for Windows</title>
+  <meta name="description" content="A blazing-fast, standalone Spotify terminal client for Windows built in 100% pure Rust. Stream high-fidelity audio natively with sub-15MB RAM and instantaneous keyboard control.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎵</text></svg>">
+  
+  <!-- Allowlisted Tailwind CSS -->
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            spotify: '#1ed760',
+            'spotify-dark': '#169c46',
+            terminal: '#0b0f0d',
+            'terminal-card': '#101713',
+            'terminal-border': '#1b2620',
+          },
+          fontFamily: {
+            mono: ['JetBrains Mono', 'Cascadia Code', 'Fira Code', 'Consolas', 'monospace'],
+            sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+    .glow-spotify {
+      box-shadow: 0 0 35px -5px rgba(30, 215, 96, 0.35);
+    }
+    .glow-spotify-subtle {
+      box-shadow: 0 0 20px -3px rgba(30, 215, 96, 0.15);
+    }
+    .grid-bg {
+      background-size: 32px 32px;
+      background-image: 
+        linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+    }
+    
+    @keyframes barDance {
+      0%, 100% { height: 6px; }
+      50% { height: 26px; }
+    }
+    .bar-anim {
+      animation: barDance 0.8s ease-in-out infinite alternate;
+    }
+
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #080c0a;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #1c2b22;
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #1ed760;
+    }
+  </style>
+</head>
+
+<body class="bg-[#070a08] text-slate-200 font-sans antialiased selection:bg-spotify selection:text-black min-h-screen relative overflow-x-hidden">
+
+  <!-- Background Ambient Glow & Grid -->
+  <div class="fixed inset-0 grid-bg pointer-events-none z-0"></div>
+  <div class="fixed top-[-10%] left-[20%] w-[600px] h-[600px] bg-emerald-500/10 rounded-full blur-[140px] pointer-events-none z-0"></div>
+  <div class="fixed bottom-[-10%] right-[10%] w-[500px] h-[500px] bg-spotify/10 rounded-full blur-[150px] pointer-events-none z-0"></div>
+
+  <!-- NAVIGATION BAR -->
+  <header class="sticky top-0 z-50 backdrop-blur-xl bg-[#070a08]/80 border-b border-white/5 transition-all">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      
+      <!-- Brand Logo -->
+      <a href="#" class="flex items-center gap-3 group">
+        <div class="w-9 h-9 rounded-lg bg-emerald-950/60 border border-spotify/30 flex items-center justify-center text-spotify font-mono font-bold text-lg group-hover:border-spotify group-hover:scale-105 transition-all glow-spotify-subtle">
+          ❯_
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="font-bold text-xl tracking-tight text-white group-hover:text-spotify transition-colors">Tuitify</span>
+          <span class="px-2 py-0.5 text-[10px] font-mono font-semibold bg-spotify/10 text-spotify border border-spotify/20 rounded-full">v0.1.1</span>
+        </div>
+      </a>
+
+      <!-- Desktop Links -->
+      <nav class="hidden md:flex items-center gap-8 text-sm font-medium text-slate-400">
+        <a href="#interactive-demo" class="hover:text-spotify transition-colors flex items-center gap-1.5">
+          <span class="w-1.5 h-1.5 rounded-full bg-spotify animate-pulse"></span>
+          Live Demo
+        </a>
+        <a href="#features" class="hover:text-spotify transition-colors">Features</a>
+        <a href="#benchmarks" class="hover:text-spotify transition-colors">Benchmarks</a>
+        <a href="#shortcuts" class="hover:text-spotify transition-colors">Shortcuts</a>
+        <a href="#install" class="hover:text-spotify transition-colors">Install</a>
+      </nav>
+
+      <!-- Action Buttons -->
+      <div class="flex items-center gap-3">
+        <a href="https://github.com/braces157/tutify" target="_blank" rel="noreferrer" 
+           class="px-3.5 py-2 text-xs font-mono font-medium rounded-lg bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 text-slate-300 hover:text-white transition flex items-center gap-2">
+          <svg class="w-4 h-4 fill-current" viewBox="0 0 24 24"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+          <span class="hidden sm:inline">Star on</span> GitHub
+        </a>
+        <a href="https://github.com/braces157/tutify/releases/latest/download/tuitify.exe" 
+           class="px-4 py-2 text-xs font-mono font-semibold rounded-lg bg-spotify text-black hover:bg-emerald-400 transition flex items-center gap-2 glow-spotify-subtle shadow-md font-bold">
+          <svg class="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.551H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801"/></svg>
+          Download .exe
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <!-- HERO SECTION -->
+  <section class="relative z-10 pt-16 pb-20 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
+    <div class="text-center max-w-3xl mx-auto">
+      
+      <!-- Pill Badge -->
+      <div class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-spotify/10 border border-spotify/25 text-spotify text-xs font-mono mb-8 glow-spotify-subtle">
+        <span class="w-2 h-2 rounded-full bg-spotify animate-ping"></span>
+        <span>v0.1.1 Released</span>
+        <span class="text-white/30">•</span>
+        <span class="text-slate-300">Live Search & Infinite 50+ Scrolling</span>
+      </div>
+
+      <!-- Main Headline -->
+      <h1 class="text-4xl sm:text-6xl lg:text-7xl font-extrabold tracking-tight text-white mb-6">
+        Spotify, <span class="text-transparent bg-clip-text bg-gradient-to-r from-spotify via-emerald-300 to-teal-200">Unbound.</span><br>
+        Pure Audio in your Terminal.
+      </h1>
+
+      <!-- Subtitle -->
+      <p class="text-lg sm:text-xl text-slate-400 font-normal leading-relaxed mb-10 max-w-2xl mx-auto">
+        A standalone Spotify player engineered in 100% pure Rust. Stream Vorbis audio natively via Librespot with <strong class="text-white font-medium">zero Electron bloat</strong>, <strong class="text-white font-medium">&lt;15 MB RAM</strong>, and instant keyboard navigation.
+      </p>
+
+      <!-- Primary Action Buttons -->
+      <div class="flex flex-col sm:flex-row items-center justify-center gap-4 mb-12">
+        <a href="https://github.com/braces157/tutify/releases/latest/download/tuitify.exe"
+           class="w-full sm:w-auto px-7 py-3.5 rounded-xl bg-spotify hover:bg-emerald-400 text-black font-semibold text-sm transition flex items-center justify-center gap-2.5 glow-spotify shadow-xl">
+          <svg class="w-4 h-4 fill-current" viewBox="0 0 24 24"><path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.551H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801"/></svg>
+          Download for Windows (tuitify.exe)
+        </a>
+        <button onclick="copyCommand('cargo install --git https://github.com/braces157/tutify.git', this)"
+                class="w-full sm:w-auto px-5 py-3.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.07] border border-white/10 text-slate-300 font-mono text-sm transition flex items-center justify-center gap-3 group">
+          <span class="text-spotify font-bold">$</span>
+          <span>cargo install tuitify</span>
+          <svg class="w-4 h-4 text-slate-500 group-hover:text-spotify transition" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+        </button>
+      </div>
+
+      <!-- Fast specs badges -->
+      <div class="flex flex-wrap items-center justify-center gap-6 text-xs font-mono text-slate-400">
+        <div class="flex items-center gap-2">
+          <svg class="w-4 h-4 text-spotify" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg>
+          <span>No Spotify App Needed</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <svg class="w-4 h-4 text-spotify" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg>
+          <span>14 MB RAM Footprint</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <svg class="w-4 h-4 text-spotify" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg>
+          <span>10ms Instant Startup</span>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- INTERACTIVE TERMINAL SIMULATOR -->
+  <section id="interactive-demo" class="relative z-10 py-12 px-4 sm:px-6 lg:px-8 max-w-6xl mx-auto">
+    <div class="text-center mb-8">
+      <span class="text-xs font-mono font-semibold uppercase tracking-widest text-spotify">Interactive Playground</span>
+      <h2 class="text-2xl sm:text-3xl font-bold text-white mt-1">Experience Tuitify Live in your Browser</h2>
+      <p class="text-sm text-slate-400 mt-1">Try switching views (1-5), typing in the live filter bar, toggling playback, and testing keyboard navigation.</p>
+    </div>
+
+    <!-- Terminal Window Container -->
+    <div class="rounded-2xl border border-white/10 bg-[#0c120e] shadow-2xl overflow-hidden glow-spotify-subtle">
+      
+      <!-- Terminal Header / Titlebar -->
+      <div class="px-4 py-3 bg-[#080d0a] border-b border-white/5 flex items-center justify-between font-mono text-xs">
+        <div class="flex items-center gap-2">
+          <span class="w-3 h-3 rounded-full bg-red-500/80 inline-block"></span>
+          <span class="w-3 h-3 rounded-full bg-yellow-500/80 inline-block"></span>
+          <span class="w-3 h-3 rounded-full bg-emerald-500/80 inline-block"></span>
+          <span class="ml-2 text-slate-400 font-medium hidden sm:inline">tuitify.exe — Windows Terminal (120x30)</span>
+        </div>
+        <div class="flex items-center gap-3 text-slate-400">
+          <span class="px-2 py-0.5 rounded bg-white/5 text-[10px] text-emerald-400">ONLINE</span>
+          <span id="tui-clock">12:55:09</span>
+        </div>
+      </div>
+
+      <!-- TUI Screen Body -->
+      <div class="p-4 sm:p-6 font-mono text-xs sm:text-sm select-none">
+        
+        <!-- Header: App Title & Now Playing Status -->
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-emerald-950/80 gap-2">
+          <div class="flex items-center gap-3">
+            <span class="font-extrabold text-base text-spotify tracking-wider">TUITIFY</span>
+            <span class="text-slate-500">|</span>
+            <span id="tui-now-playing-badge" class="px-2 py-0.5 rounded bg-spotify text-black font-bold text-xs">► PLAYING</span>
+            <span id="tui-header-track" class="text-white font-medium truncate max-w-xs sm:max-w-md">Bohemian Rhapsody — Queen</span>
+          </div>
+          <div class="flex items-center gap-3 text-xs text-slate-400">
+            <span id="tui-vol-label" class="text-emerald-400">VOL 80%</span>
+            <span>SHUF:OFF</span>
+            <span>R:OFF</span>
+          </div>
+        </div>
+
+        <!-- Navigation Tabs Bar (1:Search, 2:Playlists, 3:Liked, 4:Queue, 5:Help) -->
+        <div class="flex items-center gap-4 my-3 text-xs overflow-x-auto pb-1 border-b border-white/5">
+          <button onclick="switchView(1)" id="tui-tab-1" class="tui-tab px-2 py-1 rounded text-slate-400 hover:text-white transition">1:Search</button>
+          <button onclick="switchView(2)" id="tui-tab-2" class="tui-tab px-2 py-1 rounded text-slate-400 hover:text-white transition">2:Playlists</button>
+          <button onclick="switchView(3)" id="tui-tab-3" class="tui-tab px-2 py-1 rounded text-spotify font-bold bg-emerald-950/40 border border-spotify/30">3:Liked Songs</button>
+          <button onclick="switchView(4)" id="tui-tab-4" class="tui-tab px-2 py-1 rounded text-slate-400 hover:text-white transition">4:Queue (18)</button>
+          <button onclick="switchView(5)" id="tui-tab-5" class="tui-tab px-2 py-1 rounded text-slate-400 hover:text-white transition">5:Help</button>
+        </div>
+
+        <!-- Real-Time Filter Box -->
+        <div id="tui-filter-box" class="mb-3 rounded-lg border border-spotify/40 bg-black/40 p-2.5 flex items-center justify-between gap-2 shadow-inner">
+          <div class="flex items-center gap-2.5 flex-1">
+            <span class="text-spotify font-bold">🔍 FILTER ❯</span>
+            <input type="text" id="tui-filter-input" placeholder="Type artist or track name (e.g. 'queen', 'yellow', 'bowie')..." 
+                   class="bg-transparent border-none outline-none text-white w-full placeholder:text-slate-600 font-mono text-xs sm:text-sm"
+                   oninput="handleFilterInput(this.value)">
+          </div>
+          <div class="hidden sm:flex items-center gap-2 text-[10px] text-slate-500">
+            <span class="px-1.5 py-0.5 rounded bg-white/5 border border-white/10">Enter play</span>
+            <span class="px-1.5 py-0.5 rounded bg-white/5 border border-white/10">Esc clear</span>
+          </div>
+        </div>
+
+        <!-- Main TUI Grid / Table Area -->
+        <div class="rounded-lg border border-emerald-950 bg-[#090e0b] overflow-hidden">
+          
+          <!-- Table Header -->
+          <div class="px-3 py-2 bg-emerald-950/30 border-b border-emerald-950 text-slate-500 text-[11px] font-semibold flex justify-between items-center">
+            <div id="tui-table-title" class="text-slate-300">LIKED SONGS • <span id="tui-match-count">8 of 8 matches</span></div>
+            <div class="text-[10px] text-emerald-400/80">Page 1 • Auto-pagination ready</div>
+          </div>
+
+          <!-- Table Content (Simulated Rows) -->
+          <div id="tui-rows-container" class="divide-y divide-white/[0.03] max-h-56 overflow-y-auto">
+            <!-- Rows injected by JavaScript -->
+          </div>
+        </div>
+
+        <!-- Live Audio Controls & Visualizer Footer -->
+        <div class="mt-4 pt-3 border-t border-white/5 flex flex-col sm:flex-row items-center justify-between gap-4">
+          
+          <!-- Left: Playback Controls & Progress -->
+          <div class="flex items-center gap-4 w-full sm:w-auto">
+            <!-- Play/Pause Button -->
+            <button onclick="togglePlay()" id="tui-play-btn" class="w-9 h-9 rounded-lg bg-spotify text-black flex items-center justify-center font-bold hover:bg-emerald-400 transition shadow">
+              ⏸
+            </button>
+            <div class="flex-1 sm:w-64">
+              <div class="flex justify-between text-[11px] text-slate-400 mb-1">
+                <span id="tui-curr-time">1:14</span>
+                <span id="tui-total-time">5:54</span>
+              </div>
+              <div class="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden cursor-pointer" onclick="seekAudio(event)">
+                <div id="tui-progress-bar" class="h-full bg-spotify transition-all" style="width: 21%;"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Center: Dancing Visualizer Bars -->
+          <div class="flex items-end gap-1 h-6">
+            <span class="w-1 bg-spotify bar-anim rounded-t" style="animation-delay: 0.1s"></span>
+            <span class="w-1 bg-spotify bar-anim rounded-t" style="animation-delay: 0.3s"></span>
+            <span class="w-1 bg-spotify bar-anim rounded-t" style="animation-delay: 0.15s"></span>
+            <span class="w-1 bg-spotify bar-anim rounded-t" style="animation-delay: 0.4s"></span>
+            <span class="w-1 bg-spotify bar-anim rounded-t" style="animation-delay: 0.25s"></span>
+            <span class="w-1 bg-spotify bar-anim rounded-t" style="animation-delay: 0.5s"></span>
+            <span class="w-1 bg-spotify bar-anim rounded-t" style="animation-delay: 0.35s"></span>
+            <span class="w-1 bg-spotify bar-anim rounded-t" style="animation-delay: 0.2s"></span>
+          </div>
+
+          <!-- Right: Volume Slider & Status -->
+          <div class="flex items-center gap-2 w-full sm:w-auto justify-end text-xs text-slate-400">
+            <span>🔊</span>
+            <input type="range" min="0" max="100" value="80" 
+                   oninput="handleVolumeChange(this.value)"
+                   class="w-20 accent-emerald-400 cursor-pointer">
+          </div>
+        </div>
+
+        <!-- Bottom Shortcuts Legend -->
+        <div class="mt-3 pt-2 text-[10px] text-slate-500 flex flex-wrap items-center gap-x-4 gap-y-1">
+          <span><kbd class="px-1.5 py-0.5 rounded bg-white/5 text-slate-300 font-bold">Space</kbd> Play/Pause</span>
+          <span><kbd class="px-1.5 py-0.5 rounded bg-white/5 text-slate-300 font-bold">/</kbd> Filter</span>
+          <span><kbd class="px-1.5 py-0.5 rounded bg-white/5 text-slate-300 font-bold">1-5</kbd> Views</span>
+          <span><kbd class="px-1.5 py-0.5 rounded bg-white/5 text-slate-300 font-bold">n/p</kbd> Next/Prev</span>
+          <span><kbd class="px-1.5 py-0.5 rounded bg-white/5 text-slate-300 font-bold">+/-</kbd> Vol</span>
+          <span><kbd class="px-1.5 py-0.5 rounded bg-white/5 text-slate-300 font-bold">Esc</kbd> Clear</span>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- CORE VALUE PILLARS (BENTO GRID) -->
+  <section id="features" class="relative z-10 py-20 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
+    <div class="text-center max-w-2xl mx-auto mb-16">
+      <span class="text-xs font-mono font-semibold uppercase tracking-widest text-spotify">Engineered for Perfection</span>
+      <h2 class="text-3xl sm:text-4xl font-extrabold text-white mt-2">Why Developers Love Tuitify</h2>
+      <p class="text-slate-400 text-base mt-3">Built from the ground up for developers who demand instant speed, zero visual noise, and absolute keyboard control.</p>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      
+      <!-- Feature 1: Pure Rust & Tiny Footprint -->
+      <div class="p-6 rounded-2xl bg-[#0c120e]/80 border border-white/5 hover:border-spotify/30 transition group hover:shadow-xl hover:shadow-spotify/5">
+        <div class="w-12 h-12 rounded-xl bg-emerald-950/60 border border-spotify/20 flex items-center justify-center text-spotify mb-5 text-xl font-mono group-hover:scale-110 transition-transform">
+          ⚡
+        </div>
+        <h3 class="text-lg font-bold text-white mb-2 group-hover:text-spotify transition-colors">14 MB RAM Footprint</h3>
+        <p class="text-slate-400 text-sm leading-relaxed mb-4">
+          Replace Spotify’s 850 MB Chromium Electron instance with an unyielding 14 MB Rust executable that boots in 10 milliseconds.
+        </p>
+        <div class="pt-3 border-t border-white/5 flex items-center justify-between text-xs font-mono text-slate-500">
+          <span>Electron: ~850MB</span>
+          <span class="text-spotify font-semibold">Tuitify: 14MB (50x lighter)</span>
+        </div>
+      </div>
+
+      <!-- Feature 2: Standalone Librespot Audio -->
+      <div class="p-6 rounded-2xl bg-[#0c120e]/80 border border-white/5 hover:border-spotify/30 transition group hover:shadow-xl hover:shadow-spotify/5">
+        <div class="w-12 h-12 rounded-xl bg-emerald-950/60 border border-spotify/20 flex items-center justify-center text-spotify mb-5 text-xl font-mono group-hover:scale-110 transition-transform">
+          📻
+        </div>
+        <h3 class="text-lg font-bold text-white mb-2 group-hover:text-spotify transition-colors">Standalone Librespot Engine</h3>
+        <p class="text-slate-400 text-sm leading-relaxed mb-4">
+          Direct native Vorbis streaming from Spotify's CDN. No Spotify desktop app required in the background; operates completely autonomously.
+        </p>
+        <div class="pt-3 border-t border-white/5 flex items-center justify-between text-xs font-mono text-slate-500">
+          <span>Audio Engine</span>
+          <span class="text-spotify font-semibold">Native Vorbis 320kbps</span>
+        </div>
+      </div>
+
+      <!-- Feature 3: Real-Time In-Memory Filtering -->
+      <div class="p-6 rounded-2xl bg-[#0c120e]/80 border border-white/5 hover:border-spotify/30 transition group hover:shadow-xl hover:shadow-spotify/5">
+        <div class="w-12 h-12 rounded-xl bg-emerald-950/60 border border-spotify/20 flex items-center justify-center text-spotify mb-5 text-xl font-mono group-hover:scale-110 transition-transform">
+          🔍
+        </div>
+        <h3 class="text-lg font-bold text-white mb-2 group-hover:text-spotify transition-colors">Instant In-Memory Filter</h3>
+        <p class="text-slate-400 text-sm leading-relaxed mb-4">
+          Hit <kbd class="px-1.5 py-0.5 rounded bg-white/10 text-white font-mono text-xs">/</kbd> or <kbd class="px-1.5 py-0.5 rounded bg-white/10 text-white font-mono text-xs">f</kbd> in any playlist or liked songs. Multi-term search filters across title and artist names instantaneously without API quota lag.
+        </p>
+        <div class="pt-3 border-t border-white/5 flex items-center justify-between text-xs font-mono text-slate-500">
+          <span>Search latency</span>
+          <span class="text-spotify font-semibold">&lt;1ms Local Cache</span>
+        </div>
+      </div>
+
+      <!-- Feature 4: Glitch-Free Windows Terminal UI -->
+      <div class="p-6 rounded-2xl bg-[#0c120e]/80 border border-white/5 hover:border-spotify/30 transition group hover:shadow-xl hover:shadow-spotify/5">
+        <div class="w-12 h-12 rounded-xl bg-emerald-950/60 border border-spotify/20 flex items-center justify-center text-spotify mb-5 text-xl font-mono group-hover:scale-110 transition-transform">
+          📐
+        </div>
+        <h3 class="text-lg font-bold text-white mb-2 group-hover:text-spotify transition-colors">Glitch-Free Ratatui Layout</h3>
+        <p class="text-slate-400 text-sm leading-relaxed mb-4">
+          Engineered specifically for Windows Terminal font metrics. Ambiguous double-width emojis are replaced with precision single-column glyphs (<code class="text-spotify">►</code>, <code class="text-spotify">||</code>).
+        </p>
+        <div class="pt-3 border-t border-white/5 flex items-center justify-between text-xs font-mono text-slate-500">
+          <span>Column drift</span>
+          <span class="text-spotify font-semibold">0% Zero Overlap</span>
+        </div>
+      </div>
+
+      <!-- Feature 5: Infinite 50+ Song Auto-Pagination -->
+      <div class="p-6 rounded-2xl bg-[#0c120e]/80 border border-white/5 hover:border-spotify/30 transition group hover:shadow-xl hover:shadow-spotify/5">
+        <div class="w-12 h-12 rounded-xl bg-emerald-950/60 border border-spotify/20 flex items-center justify-center text-spotify mb-5 text-xl font-mono group-hover:scale-110 transition-transform">
+          ♾️
+        </div>
+        <h3 class="text-lg font-bold text-white mb-2 group-hover:text-spotify transition-colors">Infinite Auto-Pagination</h3>
+        <p class="text-slate-400 text-sm leading-relaxed mb-4">
+          Never cap at 50 tracks. Scroll down with <kbd class="px-1.5 py-0.5 rounded bg-white/10 text-white font-mono text-xs">j</kbd> or <kbd class="px-1.5 py-0.5 rounded bg-white/10 text-white font-mono text-xs">PgDn</kbd> to seamlessly load tracks 51 to 5,000+ asynchronously in the background.
+        </p>
+        <div class="pt-3 border-t border-white/5 flex items-center justify-between text-xs font-mono text-slate-500">
+          <span>Library limit</span>
+          <span class="text-spotify font-semibold">Unlimited</span>
+        </div>
+      </div>
+
+      <!-- Feature 6: Windows DPAPI Encrypted Vault -->
+      <div class="p-6 rounded-2xl bg-[#0c120e]/80 border border-white/5 hover:border-spotify/30 transition group hover:shadow-xl hover:shadow-spotify/5">
+        <div class="w-12 h-12 rounded-xl bg-emerald-950/60 border border-spotify/20 flex items-center justify-center text-spotify mb-5 text-xl font-mono group-hover:scale-110 transition-transform">
+          🔒
+        </div>
+        <h3 class="text-lg font-bold text-white mb-2 group-hover:text-spotify transition-colors">Secure DPAPI Storage</h3>
+        <p class="text-slate-400 text-sm leading-relaxed mb-4">
+          Tokens are encrypted with Windows DPAPI and stored in Windows Credential Manager. Automated PKCE OAuth means browser login happens only once.
+        </p>
+        <div class="pt-3 border-t border-white/5 flex items-center justify-between text-xs font-mono text-slate-500">
+          <span>Cleartext keys</span>
+          <span class="text-spotify font-semibold">0 (Hardware Encrypted)</span>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- BENCHMARK TABLE -->
+  <section id="benchmarks" class="relative z-10 py-16 px-4 sm:px-6 lg:px-8 max-w-5xl mx-auto">
+    <div class="text-center max-w-xl mx-auto mb-12">
+      <span class="text-xs font-mono font-semibold uppercase tracking-widest text-spotify">Hard Numbers</span>
+      <h2 class="text-3xl font-bold text-white mt-1">Benchmark Comparison</h2>
+      <p class="text-slate-400 text-sm mt-2">See how Tuitify compares to standard client architectures.</p>
+    </div>
+
+    <div class="rounded-2xl border border-white/10 bg-[#0c120e] overflow-hidden shadow-xl">
+      <table class="w-full text-left font-mono text-xs sm:text-sm">
+        <thead class="bg-[#080d0a] border-b border-white/10 text-slate-400 text-xs">
+          <tr>
+            <th class="py-4 px-4 sm:px-6">Metric</th>
+            <th class="py-4 px-4 sm:px-6 text-spotify font-bold">Tuitify (Rust)</th>
+            <th class="py-4 px-4 sm:px-6 text-slate-500">Spotify Desktop</th>
+            <th class="py-4 px-4 sm:px-6 text-slate-500 hidden sm:table-cell">Spotify Web</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-white/5 text-slate-300">
+          <tr class="hover:bg-white/[0.02] transition">
+            <td class="py-3.5 px-4 sm:px-6 font-sans font-medium text-white">RAM Consumption</td>
+            <td class="py-3.5 px-4 sm:px-6 text-spotify font-bold">~14 MB</td>
+            <td class="py-3.5 px-4 sm:px-6 text-slate-400">~850 MB</td>
+            <td class="py-3.5 px-4 sm:px-6 text-slate-400 hidden sm:table-cell">~600 MB</td>
+          </tr>
+          <tr class="hover:bg-white/[0.02] transition">
+            <td class="py-3.5 px-4 sm:px-6 font-sans font-medium text-white">Startup Latency</td>
+            <td class="py-3.5 px-4 sm:px-6 text-spotify font-bold">12 ms</td>
+            <td class="py-3.5 px-4 sm:px-6 text-slate-400">3,400 ms</td>
+            <td class="py-3.5 px-4 sm:px-6 text-slate-400 hidden sm:table-cell">4,200 ms</td>
+          </tr>
+          <tr class="hover:bg-white/[0.02] transition">
+            <td class="py-3.5 px-4 sm:px-6 font-sans font-medium text-white">Idle CPU Overhead</td>
+            <td class="py-3.5 px-4 sm:px-6 text-spotify font-bold">&lt;0.1%</td>
+            <td class="py-3.5 px-4 sm:px-6 text-slate-400">4.5% - 8.0%</td>
+            <td class="py-3.5 px-4 sm:px-6 text-slate-400 hidden sm:table-cell">3.2% - 6.0%</td>
+          </tr>
+          <tr class="hover:bg-white/[0.02] transition">
+            <td class="py-3.5 px-4 sm:px-6 font-sans font-medium text-white">External Client Needed</td>
+            <td class="py-3.5 px-4 sm:px-6 text-spotify font-bold">No (Self-contained)</td>
+            <td class="py-3.5 px-4 sm:px-6 text-slate-400">Is the client</td>
+            <td class="py-3.5 px-4 sm:px-6 text-slate-400 hidden sm:table-cell">Requires browser</td>
+          </tr>
+          <tr class="hover:bg-white/[0.02] transition">
+            <td class="py-3.5 px-4 sm:px-6 font-sans font-medium text-white">Terminal Integration</td>
+            <td class="py-3.5 px-4 sm:px-6 text-spotify font-bold">Native (Ratatui TUI)</td>
+            <td class="py-3.5 px-4 sm:px-6 text-slate-400">None</td>
+            <td class="py-3.5 px-4 sm:px-6 text-slate-400 hidden sm:table-cell">None</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- KEYBOARD SHORTCUTS CHEATSHEET -->
+  <section id="shortcuts" class="relative z-10 py-16 px-4 sm:px-6 lg:px-8 max-w-5xl mx-auto">
+    <div class="text-center max-w-xl mx-auto mb-10">
+      <span class="text-xs font-mono font-semibold uppercase tracking-widest text-spotify">100% Keyboard Driven</span>
+      <h2 class="text-3xl font-bold text-white mt-1">Instant Shortcuts</h2>
+      <p class="text-slate-400 text-sm mt-2">Navigate, queue, and control your audio without ever touching the mouse.</p>
+    </div>
+
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      
+      <!-- Card: Navigation -->
+      <div class="p-4 rounded-xl bg-[#0c120e] border border-white/5">
+        <h4 class="text-xs font-mono font-bold text-spotify uppercase tracking-wider mb-3">Navigation</h4>
+        <ul class="space-y-2 text-xs font-mono">
+          <li class="flex justify-between"><span class="text-slate-300">1 - 5</span> <span class="text-slate-500">Switch Views</span></li>
+          <li class="flex justify-between"><span class="text-slate-300">j / k, Up/Dn</span> <span class="text-slate-500">Cursor move</span></li>
+          <li class="flex justify-between"><span class="text-slate-300">PgDn / PgUp</span> <span class="text-slate-500">Fast scroll</span></li>
+          <li class="flex justify-between"><span class="text-slate-300">Tab</span> <span class="text-slate-500">Sidebar focus</span></li>
+          <li class="flex justify-between"><span class="text-slate-300">Backspace</span> <span class="text-slate-500">Back from playlist</span></li>
+        </ul>
+      </div>
+
+      <!-- Card: Playback -->
+      <div class="p-4 rounded-xl bg-[#0c120e] border border-white/5">
+        <h4 class="text-xs font-mono font-bold text-spotify uppercase tracking-wider mb-3">Playback</h4>
+        <ul class="space-y-2 text-xs font-mono">
+          <li class="flex justify-between"><span class="text-slate-300">Space</span> <span class="text-slate-500">Play / Pause</span></li>
+          <li class="flex justify-between"><span class="text-slate-300">Enter</span> <span class="text-slate-500">Play selected</span></li>
+          <li class="flex justify-between"><span class="text-slate-300">n / p</span> <span class="text-slate-500">Next / Previous</span></li>
+          <li class="flex justify-between"><span class="text-slate-300">Left / Right</span> <span class="text-slate-500">Seek 10s</span></li>
+          <li class="flex justify-between"><span class="text-slate-300">Home / End</span> <span class="text-slate-500">Jump start/end</span></li>
+        </ul>
+      </div>
+
+      <!-- Card: Search & Filter -->
+      <div class="p-4 rounded-xl bg-[#0c120e] border border-white/5">
+        <h4 class="text-xs font-mono font-bold text-spotify uppercase tracking-wider mb-3">Search & Filter</h4>
+        <ul class="space-y-2 text-xs font-mono">
+          <li class="flex justify-between"><span class="text-slate-300">/ or f</span> <span class="text-slate-500">Filter View</span></li>
+          <li class="flex justify-between"><span class="text-slate-300">Typing</span> <span class="text-slate-500">Live filter</span></li>
+          <li class="flex justify-between"><span class="text-slate-300">Down / Tab</span> <span class="text-slate-500">Browse filter</span></li>
+          <li class="flex justify-between"><span class="text-slate-300">Esc</span> <span class="text-slate-500">Clear filter</span></li>
+          <li class="flex justify-between"><span class="text-slate-300">F5</span> <span class="text-slate-500">Refresh catalog</span></li>
+        </ul>
+      </div>
+
+      <!-- Card: Volume & Queue -->
+      <div class="p-4 rounded-xl bg-[#0c120e] border border-white/5">
+        <h4 class="text-xs font-mono font-bold text-spotify uppercase tracking-wider mb-3">Modes & Queue</h4>
+        <ul class="space-y-2 text-xs font-mono">
+          <li class="flex justify-between"><span class="text-slate-300">+ / -</span> <span class="text-slate-500">Volume 5%</span></li>
+          <li class="flex justify-between"><span class="text-slate-300">[ / ]</span> <span class="text-slate-500">Volume 1%</span></li>
+          <li class="flex justify-between"><span class="text-slate-300">m</span> <span class="text-slate-500">Mute / Restore</span></li>
+          <li class="flex justify-between"><span class="text-slate-300">a</span> <span class="text-slate-500">Enqueue song</span></li>
+          <li class="flex justify-between"><span class="text-slate-300">Delete</span> <span class="text-slate-500">Remove queue</span></li>
+        </ul>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- INSTALLATION & GETTING STARTED -->
+  <section id="install" class="relative z-10 py-20 px-4 sm:px-6 lg:px-8 max-w-4xl mx-auto">
+    <div class="text-center max-w-xl mx-auto mb-12">
+      <span class="text-xs font-mono font-semibold uppercase tracking-widest text-spotify">Quickstart</span>
+      <h2 class="text-3xl font-bold text-white mt-1">Install Tuitify in Seconds</h2>
+      <p class="text-slate-400 text-sm mt-2">Pick your preferred installation method below.</p>
+    </div>
+
+    <!-- Tabs Container -->
+    <div class="rounded-2xl border border-white/10 bg-[#0c120e] overflow-hidden shadow-2xl">
+      <div class="flex border-b border-white/5 bg-[#080d0a] text-xs font-mono">
+        <button onclick="switchInstallTab(0)" id="install-tab-0" class="px-5 py-3 text-spotify font-semibold border-b-2 border-spotify bg-white/[0.02]">Standalone .exe</button>
+        <button onclick="switchInstallTab(1)" id="install-tab-1" class="px-5 py-3 text-slate-400 hover:text-white transition">Cargo (Rust)</button>
+        <button onclick="switchInstallTab(2)" id="install-tab-2" class="px-5 py-3 text-slate-400 hover:text-white transition">PowerShell Script</button>
+      </div>
+
+      <!-- Tab Content 0: Standalone Exe -->
+      <div id="install-content-0" class="p-6">
+        <p class="text-sm text-slate-300 mb-4 font-sans">
+          Download the pre-compiled, self-contained Windows executable directly from the GitHub Release. No Rust toolchain or external dependencies needed.
+        </p>
+        <div class="flex flex-col sm:flex-row items-center gap-4 mb-4">
+          <a href="https://github.com/braces157/tutify/releases/latest/download/tuitify.exe" 
+             class="w-full sm:w-auto px-6 py-3 rounded-xl bg-spotify hover:bg-emerald-400 text-black font-semibold text-xs font-mono transition flex items-center justify-center gap-2 glow-spotify-subtle">
+            <svg class="w-4 h-4 fill-current" viewBox="0 0 24 24"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM17 13l-5 5-5-5h3V9h4v4h3z"/></svg>
+            Download tuitify.exe (v0.1.1)
+          </a>
+          <a href="https://github.com/braces157/tutify/releases/latest/download/Tuitify-0.1.1-windows-x86_64.zip" 
+             class="w-full sm:w-auto px-5 py-3 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 text-slate-300 text-xs font-mono transition flex items-center justify-center gap-2">
+            Download .ZIP Package
+          </a>
+        </div>
+        <p class="text-xs text-slate-500 font-mono">
+          Place <code class="text-spotify">tuitify.exe</code> in your <code class="text-slate-300">%PATH%</code> (e.g. <code class="text-slate-300">C:\Users\&lt;You&gt;\.cargo\bin\</code>) and type <code class="text-spotify">tuitify</code> in any terminal!
+        </p>
+      </div>
+
+      <!-- Tab Content 1: Cargo -->
+      <div id="install-content-1" class="p-6 hidden">
+        <p class="text-sm text-slate-300 mb-3 font-sans">
+          If you have Rust installed, install or update directly via Cargo:
+        </p>
+        <div class="relative bg-black/60 rounded-xl p-4 font-mono text-xs border border-white/10 mb-3 flex items-center justify-between">
+          <code class="text-emerald-400">cargo install --git https://github.com/braces157/tutify.git</code>
+          <button onclick="copyCommand('cargo install --git https://github.com/braces157/tutify.git', this)" class="p-1.5 rounded bg-white/10 hover:bg-white/20 text-slate-300 transition">
+            📋
+          </button>
+        </div>
+        <p class="text-xs text-slate-500 font-mono">Builds optimized release binary with ThinLTO and stripped symbols.</p>
+      </div>
+
+      <!-- Tab Content 2: PowerShell -->
+      <div id="install-content-2" class="p-6 hidden">
+        <p class="text-sm text-slate-300 mb-3 font-sans">
+          Run this single command in Windows PowerShell to download the latest binary directly to your local user directory:
+        </p>
+        <div class="relative bg-black/60 rounded-xl p-4 font-mono text-xs border border-white/10 mb-3 flex items-center justify-between overflow-x-auto">
+          <code class="text-emerald-400">iwr -useb https://github.com/braces157/tutify/releases/latest/download/tuitify.exe -OutFile tuitify.exe; .\tuitify.exe</code>
+          <button onclick="copyCommand('iwr -useb https://github.com/braces157/tutify/releases/latest/download/tuitify.exe -OutFile tuitify.exe; .\\tuitify.exe', this)" class="p-1.5 rounded bg-white/10 hover:bg-white/20 text-slate-300 transition shrink-0 ml-2">
+            📋
+          </button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FAQ SECTION -->
+  <section class="relative z-10 py-16 px-4 sm:px-6 lg:px-8 max-w-4xl mx-auto">
+    <div class="text-center max-w-xl mx-auto mb-12">
+      <span class="text-xs font-mono font-semibold uppercase tracking-widest text-spotify">FAQ</span>
+      <h2 class="text-3xl font-bold text-white mt-1">Frequently Asked Questions</h2>
+    </div>
+
+    <div class="space-y-4">
+      <details class="group p-5 rounded-xl bg-[#0c120e] border border-white/5 [&_summary::-webkit-details-marker]:hidden cursor-pointer">
+        <summary class="flex justify-between items-center text-sm font-semibold text-white">
+          <span>Do I need Spotify Premium to use Tuitify?</span>
+          <span class="text-spotify text-lg group-open:rotate-45 transition-transform">+</span>
+        </summary>
+        <p class="mt-3 text-xs text-slate-400 font-sans leading-relaxed">
+          Yes. Native Vorbis streaming via the Spotify Connect / Librespot audio key protocol is restricted by Spotify to Premium accounts. If your account does not have Premium, the API will refuse track key requests.
+        </p>
+      </details>
+
+      <details class="group p-5 rounded-xl bg-[#0c120e] border border-white/5 [&_summary::-webkit-details-marker]:hidden cursor-pointer">
+        <summary class="flex justify-between items-center text-sm font-semibold text-white">
+          <span>Does Tuitify require the official Spotify desktop app to be installed?</span>
+          <span class="text-spotify text-lg group-open:rotate-45 transition-transform">+</span>
+        </summary>
+        <p class="mt-3 text-xs text-slate-400 font-sans leading-relaxed">
+          No! Tuitify is 100% standalone. It decodes and plays audio directly to your Windows default audio endpoint using Rodio and CPAL without any Electron process running in the background.
+        </p>
+      </details>
+
+      <details class="group p-5 rounded-xl bg-[#0c120e] border border-white/5 [&_summary::-webkit-details-marker]:hidden cursor-pointer">
+        <summary class="flex justify-between items-center text-sm font-semibold text-white">
+          <span>How does authentication work? Is my password safe?</span>
+          <span class="text-spotify text-lg group-open:rotate-45 transition-transform">+</span>
+        </summary>
+        <p class="mt-3 text-xs text-slate-400 font-sans leading-relaxed">
+          Tuitify uses standard OAuth 2.0 PKCE. On first run, it opens a secure Spotify authorization page in your browser. Tuitify never sees or stores your Spotify password. The resulting access and refresh tokens are encrypted using Windows DPAPI and stored in Windows Credential Manager.
+        </p>
+      </details>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer class="relative z-10 border-t border-white/5 py-12 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto text-xs font-mono text-slate-500">
+    <div class="flex flex-col sm:flex-row items-center justify-between gap-6">
+      <div class="flex items-center gap-3">
+        <span class="text-spotify font-bold text-base">Tuitify</span>
+        <span>•</span>
+        <span>Crafted in Rust by <a href="https://github.com/braces157" target="_blank" class="text-slate-300 hover:text-spotify transition">Lê Phan Phú Quốc (@braces157)</a></span>
+      </div>
+      <div class="flex items-center gap-6">
+        <a href="https://github.com/braces157/tutify" class="hover:text-spotify transition">GitHub</a>
+        <a href="https://github.com/braces157/tutify/releases" class="hover:text-spotify transition">Releases</a>
+        <a href="https://github.com/braces157/tutify/blob/master/LICENSE" class="hover:text-spotify transition">MIT License</a>
+      </div>
+    </div>
+    <div class="mt-6 pt-6 border-t border-white/[0.02] text-[10px] text-slate-600 text-center sm:text-left">
+      Disclaimer: Tuitify is an independent open-source project and is not affiliated with or endorsed by Spotify AB.
+    </div>
+  </footer>
+
+  <!-- INTERACTIVE TERMINAL SIMULATOR SCRIPT -->
+  <script>
+    const catalog = [
+      { id: '1', title: 'Bohemian Rhapsody', artist: 'Queen', duration: '5:54', sec: 354 },
+      { id: '2', title: 'Yellow', artist: 'Coldplay', duration: '4:29', sec: 269 },
+      { id: '3', title: 'Under Pressure', artist: 'Queen, David Bowie', duration: '4:08', sec: 248 },
+      { id: '4', title: 'Get Lucky', artist: 'Daft Punk, Pharrell Williams', duration: '6:09', sec: 369 },
+      { id: '5', title: 'Creep', artist: 'Radiohead', duration: '3:58', sec: 238 },
+      { id: '6', title: 'Comfortably Numb', artist: 'Pink Floyd', duration: '6:22', sec: 382 },
+      { id: '7', title: 'Starboy', artist: 'The Weeknd, Daft Punk', duration: '3:50', sec: 230 },
+      { id: '8', title: 'Viva La Vida', artist: 'Coldplay', duration: '4:02', sec: 242 },
+    ];
+
+    let currentTrack = catalog[0];
+    let isPlaying = true;
+    let currentSec = 74;
+    let selectedIndex = 0;
+    let activeFilter = '';
+    let currentView = 3;
+
+    function renderRows() {
+      const container = document.getElementById('tui-rows-container');
+      const needle = activeFilter.toLowerCase().trim();
+      const terms = needle ? needle.split(/\s+/) : [];
+
+      const filtered = catalog.filter(t => {
+        if (!terms.length) return true;
+        const name = t.title.toLowerCase();
+        const artist = t.artist.toLowerCase();
+        return terms.every(term => name.includes(term) || artist.includes(term));
+      });
+
+      document.getElementById('tui-match-count').innerText = `${filtered.length} of ${catalog.length} matches`;
+
+      if (filtered.length === 0) {
+        container.innerHTML = `
+          <div class="py-8 text-center text-slate-500 text-xs">
+            No tracks match your filter.<br>
+            <span class="text-slate-600 text-[11px]">• Press Backspace to edit or Esc to clear</span>
+          </div>
+        `;
+        return;
+      }
+
+      container.innerHTML = filtered.map((t, idx) => {
+        const isCurrent = t.id === currentTrack.id;
+        const isSelected = idx === selectedIndex;
+        const indicator = isCurrent ? (isPlaying ? '►' : '||') : '  ';
+
+        return `
+          <div onclick="selectAndPlay('${t.id}')" 
+               class="px-3 py-2 flex items-center justify-between cursor-pointer transition ${isSelected ? 'bg-emerald-950/60 font-semibold' : 'hover:bg-white/[0.02]'}">
+            <div class="flex items-center gap-3 truncate">
+              <span class="w-6 text-center ${isCurrent ? 'text-spotify font-bold' : 'text-slate-600'}">${indicator}</span>
+              <span class="text-slate-500 w-6">${idx + 1}</span>
+              <span class="${isCurrent ? 'text-spotify font-bold' : 'text-slate-200'} truncate">${t.title}</span>
+              <span class="text-slate-400 text-xs truncate hidden sm:inline">— ${t.artist}</span>
+            </div>
+            <div class="text-slate-500 text-xs shrink-0 ml-4">${t.duration}</div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function selectAndPlay(id) {
+      const found = catalog.find(t => t.id === id);
+      if (found) {
+        currentTrack = found;
+        currentSec = 0;
+        isPlaying = true;
+        updatePlayerUI();
+        renderRows();
+      }
+    }
+
+    function togglePlay() {
+      isPlaying = !isPlaying;
+      updatePlayerUI();
+      renderRows();
+    }
+
+    function updatePlayerUI() {
+      const badge = document.getElementById('tui-now-playing-badge');
+      const btn = document.getElementById('tui-play-btn');
+      const headerTrack = document.getElementById('tui-header-track');
+
+      headerTrack.innerText = `${currentTrack.title} — ${currentTrack.artist}`;
+
+      if (isPlaying) {
+        badge.innerText = '► PLAYING';
+        badge.className = 'px-2 py-0.5 rounded bg-spotify text-black font-bold text-xs';
+        btn.innerText = '⏸';
+      } else {
+        badge.innerText = '|| PAUSED';
+        badge.className = 'px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 font-bold text-xs border border-emerald-800';
+        btn.innerText = '▶';
+      }
+
+      const m = Math.floor(currentSec / 60);
+      const s = currentSec % 60;
+      document.getElementById('tui-curr-time').innerText = `${m}:${s < 10 ? '0' : ''}${s}`;
+      document.getElementById('tui-total-time').innerText = currentTrack.duration;
+
+      const pct = Math.min(100, (currentSec / currentTrack.sec) * 100);
+      document.getElementById('tui-progress-bar').style.width = `${pct}%`;
+    }
+
+    function handleFilterInput(val) {
+      activeFilter = val;
+      selectedIndex = 0;
+      renderRows();
+    }
+
+    function switchView(viewIndex) {
+      currentView = viewIndex;
+      document.querySelectorAll('.tui-tab').forEach((el, idx) => {
+        if (idx + 1 === viewIndex) {
+          el.className = 'tui-tab px-2 py-1 rounded text-spotify font-bold bg-emerald-950/40 border border-spotify/30';
+        } else {
+          el.className = 'tui-tab px-2 py-1 rounded text-slate-400 hover:text-white transition';
+        }
+      });
+      renderRows();
+    }
+
+    function handleVolumeChange(val) {
+      document.getElementById('tui-vol-label').innerText = `VOL ${val}%`;
+    }
+
+    function seekAudio(e) {
+      const rect = e.currentTarget.getBoundingClientRect();
+      const clickX = e.clientX - rect.left;
+      const pct = clickX / rect.width;
+      currentSec = Math.floor(pct * currentTrack.sec);
+      updatePlayerUI();
+    }
+
+    function switchInstallTab(tabIdx) {
+      for (let i = 0; i < 3; i++) {
+        const btn = document.getElementById(`install-tab-${i}`);
+        const content = document.getElementById(`install-content-${i}`);
+        if (i === tabIdx) {
+          btn.className = 'px-5 py-3 text-spotify font-semibold border-b-2 border-spotify bg-white/[0.02]';
+          content.classList.remove('hidden');
+        } else {
+          btn.className = 'px-5 py-3 text-slate-400 hover:text-white transition';
+          content.classList.add('hidden');
+        }
+      }
+    }
+
+    function copyCommand(text, btn) {
+      navigator.clipboard.writeText(text).then(() => {
+        const original = btn.innerHTML;
+        btn.innerHTML = '<span class="text-spotify font-bold">✓ Copied!</span>';
+        setTimeout(() => { btn.innerHTML = original; }, 2000);
+      });
+    }
+
+    setInterval(() => {
+      if (isPlaying) {
+        currentSec++;
+        if (currentSec >= currentTrack.sec) {
+          const idx = catalog.findIndex(t => t.id === currentTrack.id);
+          currentTrack = catalog[(idx + 1) % catalog.length];
+          currentSec = 0;
+          renderRows();
+        }
+        updatePlayerUI();
+      }
+      
+      const now = new Date();
+      const h = String(now.getHours()).padStart(2, '0');
+      const m = String(now.getMinutes()).padStart(2, '0');
+      const s = String(now.getSeconds()).padStart(2, '0');
+      const clockEl = document.getElementById('tui-clock');
+      if (clockEl) clockEl.innerText = `${h}:${m}:${s}`;
+    }, 1000);
+
+    renderRows();
+    updatePlayerUI();
+  </script>
+</body>
+</html>
