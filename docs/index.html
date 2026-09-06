@@ -421,7 +421,7 @@
         </div>
         <h3 class="text-lg font-bold text-white mb-2 group-hover:text-spotify transition-colors">Seed-Based Track Radio</h3>
         <p class="text-slate-400 text-sm leading-relaxed mb-4">
-          Press <kbd class="px-1.5 py-0.5 rounded bg-white/10 text-white font-mono text-xs">R</kbd> or play any search result. Intelligent pagination queues related songs and discards duplicate acoustic/remix cuts for a non-stop listening flow.
+          Press <kbd class="px-1.5 py-0.5 rounded bg-white/10 text-white font-mono text-xs">R</kbd> to start radio from the selected track. Intelligent pagination queues related songs and discards duplicate acoustic/remix cuts for a non-stop listening flow.
         </p>
         <div class="pt-3 border-t border-white/5 flex items-center justify-between text-xs font-mono text-slate-500">
           <span>Autoplay</span>
@@ -449,9 +449,9 @@
         <div class="w-12 h-12 rounded-xl bg-emerald-950/60 border border-spotify/20 flex items-center justify-center text-spotify mb-5 text-xl font-mono group-hover:scale-110 transition-transform">
           🔍
         </div>
-        <h3 class="text-lg font-bold text-white mb-2 group-hover:text-spotify transition-colors">Library Browsing & Local Filter</h3>
+        <h3 class="text-lg font-bold text-white mb-2 group-hover:text-spotify transition-colors">Choose Where to Search</h3>
         <p class="text-slate-400 text-sm leading-relaxed mb-4">
-          Hit <kbd class="px-1.5 py-0.5 rounded bg-white/10 text-white font-mono text-xs">/</kbd> to filter titles and artists locally. The app follows Spotify pages as needed, while the demo keeps a small sample catalog for predictable interaction.
+          Hit <kbd class="px-1.5 py-0.5 rounded bg-white/10 text-white font-mono text-xs">/</kbd> or <strong>f</strong> to filter only loaded rows. In the terminal app, <strong>F2</strong> searches Spotify and <strong>F3</strong> scans saved Liked Songs and accessible saved playlists for matching titles and artists. Results arrive as the scan progresses; the browser demo uses a small sample catalog.
         </p>
         <div class="pt-3 border-t border-white/5 flex items-center justify-between text-xs font-mono text-slate-500">
           <span>Evidence</span>
@@ -459,6 +459,30 @@
         </div>
       </div>
     </div>
+  </section>
+
+  <!-- QUEUE RECOVERY AND SEARCH -->
+  <section id="queue-search" class="relative z-10 py-16 px-4 sm:px-6 lg:px-8 max-w-5xl mx-auto">
+    <div class="text-center max-w-xl mx-auto mb-10">
+      <span class="text-xs font-mono font-semibold uppercase tracking-widest text-spotify">Terminal app · v0.2.3</span>
+      <h2 class="text-3xl font-bold text-white mt-1">Your queue, with a way back</h2>
+      <p class="text-slate-400 text-sm mt-2">Recover queue edits and search beyond the songs already on screen.</p>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <article class="p-5 rounded-xl bg-[#0c120e] border border-white/5">
+        <h3 class="text-sm font-bold text-white mb-2">Keep your queue after re-login</h3>
+        <p class="text-xs leading-relaxed text-slate-400">Signing back into the same verified Spotify account keeps your queue, order, saved position, and metadata cache. Switching accounts, an unknown prior account, or explicit logout clears the old queue and cache. Streaming reauthorization uses the same catalog account.</p>
+      </article>
+      <article class="p-5 rounded-xl bg-[#0c120e] border border-white/5">
+        <h3 class="text-sm font-bold text-white mb-2">Undo queue edits</h3>
+        <p class="text-xs leading-relaxed text-slate-400">Press <strong>u</strong> or <strong>Ctrl+Z</strong>, or right-click the queue and choose Undo, to recover from removal, clearing, replacement, additions, reordering, shuffle, or radio. Restored queues are paused; press Space to resume. History lasts for this session, up to 10 snapshots and 100,000 track IDs combined.</p>
+      </article>
+      <article class="p-5 rounded-xl bg-[#0c120e] border border-white/5">
+        <h3 class="text-sm font-bold text-white mb-2">Scan your saved library</h3>
+        <p class="text-xs leading-relaxed text-slate-400"><strong>F3</strong> searches titles and artists across saved Liked Songs and accessible saved playlist tracks, removing duplicate track IDs. It needs a network connection and can take time for large libraries. <strong>F5</strong> restarts the scan. <strong>Esc</strong> cancels while browsing; while editing, first press Esc to leave the input.</p>
+      </article>
+    </div>
+    <p class="text-xs leading-relaxed text-slate-400 mt-3">Library scans retain partial matches and label incomplete results after cancellation, errors, rate limits, inaccessible playlists, or scan limits. Each scan allows up to 100,000 unique tracks, 100,000 playlists, and 100,000 page requests. These features run in the terminal app; the silent browser demo remains a sample simulation. <a href="https://github.com/braces157/tutify#queue-recovery-and-search-v023" class="text-spotify hover:underline">Read the controls and limits</a>.</p>
   </section>
 
   <!-- PERFORMANCE EVIDENCE -->
@@ -527,7 +551,8 @@
           <li class="flex justify-between"><span class="text-slate-300">t</span> <span class="text-slate-500">Cycle 5 Themes</span></li>
           <li class="flex justify-between"><span class="text-slate-300">v</span> <span class="text-slate-500">Decorative visualizer</span></li>
           <li class="flex justify-between"><span class="text-slate-300">l</span> <span class="text-slate-500">Synced Lyrics</span></li>
-          <li class="flex justify-between"><span class="text-slate-300">/ or f</span> <span class="text-slate-500">Live Filter</span></li>
+          <li class="flex justify-between"><span class="text-slate-300">/ or f</span> <span class="text-slate-500">Filter loaded rows</span></li>
+          <li class="flex justify-between"><span class="text-slate-300">F2 / F3</span> <span class="text-slate-500">Spotify / Library</span></li>
           <li class="flex justify-between"><span class="text-slate-300">Esc</span> <span class="text-slate-500">Close overlay</span></li>
         </ul>
       </div>
@@ -542,6 +567,7 @@
           <li class="flex justify-between"><span class="text-slate-300">K / J</span> <span class="text-slate-500">Move up / down</span></li>
           <li class="flex justify-between"><span class="text-slate-300">C</span> <span class="text-slate-500">Clear queue</span></li>
           <li class="flex justify-between"><span class="text-slate-300">Delete</span> <span class="text-slate-500">Remove item</span></li>
+          <li class="flex justify-between"><span class="text-slate-300">u / Ctrl+Z</span> <span class="text-slate-500">Undo queue edit</span></li>
         </ul>
       </div>
 
