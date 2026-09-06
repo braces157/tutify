@@ -4,11 +4,13 @@ mod cache;
 mod catalog;
 mod diagnostics;
 mod lyrics;
+mod library;
 mod model;
 mod playback;
 mod queue;
 mod storage;
 mod ui;
+pub mod visualizer;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};

@@ -1,5 +1,5 @@
 use crate::{
-    app::{App, MouseTarget, State, View},
+    app::{App, MouseTarget, SearchScope, State, View},
     catalog::Rows,
     model::Repeat,
 };
@@ -226,7 +226,7 @@ pub fn draw(frame: &mut Frame<'_>, app: &App) {
     .split(area);
 
     let theme = Theme::from_str(&app.config.theme);
-    let header_line = if area.width >= 65 {
+    let header_line = if area.width >= 86 {
         Line::from(vec![
             Span::styled(
                 " TUITIFY ",
@@ -240,6 +240,24 @@ pub fn draw(frame: &mut Frame<'_>, app: &App) {
                 Style::default().fg(theme.primary()).bold(),
             ),
             Span::styled("  YOUR MUSIC, IN THE TERMINAL", Style::default().fg(MUTED)),
+            Span::styled(
+                "   [? help]  [q quit]  [t theme]",
+                Style::default().fg(theme.accent_dim()),
+            ),
+        ])
+    } else if area.width >= 58 {
+        Line::from(vec![
+            Span::styled(
+                " TUITIFY ",
+                Style::default()
+                    .fg(Color::Rgb(14, 17, 16))
+                    .bg(theme.primary())
+                    .bold(),
+            ),
+            Span::styled(
+                format!(" [{}]", theme.name()),
+                Style::default().fg(theme.primary()).bold(),
+            ),
             Span::styled(
                 "   [? help]  [q quit]  [t theme]",
                 Style::default().fg(theme.accent_dim()),
@@ -652,6 +670,22 @@ fn visualizer(frame: &mut Frame<'_>, app: &App, area: Rect) {
     } else {
         "No track playing".to_string()
     };
+    let real_time = app.visualizer.has_audio_samples();
+    let badge = if real_time {
+        "[REAL-TIME SPECTRUM]"
+    } else {
+        "[STANDBY VISUALIZER]"
+    };
+    let available_track = (inner.width as usize).saturating_sub(16 + badge.len());
+    let display_track = if track_info.chars().count() > available_track && available_track > 3 {
+        format!(
+            "{}...",
+            track_info.chars().take(available_track - 3).collect::<String>()
+        )
+    } else {
+        track_info
+    };
+
     let status_line = Line::from(vec![
         Span::styled(
             if app.state == State::Playing {
@@ -661,9 +695,9 @@ fn visualizer(frame: &mut Frame<'_>, app: &App, area: Rect) {
             },
             Style::default().fg(theme.primary()).bold(),
         ),
-        Span::styled(track_info, Style::default().fg(FG).bold()),
+        Span::styled(display_track, Style::default().fg(FG).bold()),
         Span::styled(
-            "   [DECORATIVE ANIMATION]",
+            format!("   {badge}"),
             Style::default().fg(theme.accent_dim()).italic(),
         ),
     ]);
@@ -674,25 +708,34 @@ fn visualizer(frame: &mut Frame<'_>, app: &App, area: Rect) {
     if height >= 2 && width >= 10 {
         let is_playing = app.state == State::Playing;
         let bar_count = (width / 3).clamp(8, 32);
-        let t = app.animation_frame as f64 * 0.16;
 
-        let heights: Vec<usize> = (0..bar_count)
-            .map(|col| {
-                if !is_playing {
-                    return 0;
-                }
-                let x = col as f64;
-                let freq = 1.1 + x * 0.12;
-                let wave = (t * freq + x * 0.7).sin() * 0.42
-                    + (t * 0.6 - x * 0.35).cos() * 0.35
-                    + (t * 2.3 + x * 1.4).sin() * 0.23;
-                ((wave + 1.0) * 0.5 * height as f64).round() as usize
-            })
-            .collect();
+        let heights = if real_time {
+            let (h, _) = app
+                .visualizer
+                .get_bars_and_peaks(bar_count, height, is_playing);
+            h
+        } else {
+            let t = app.animation_frame as f64 * 0.16;
+            (0..bar_count)
+                .map(|col| {
+                    if !is_playing {
+                        return 0;
+                    }
+                    let x = col as f64;
+                    let freq = 1.1 + x * 0.12;
+                    let wave = (t * freq + x * 0.7).sin() * 0.42
+                        + (t * 0.6 - x * 0.35).cos() * 0.35
+                        + (t * 2.3 + x * 1.4).sin() * 0.23;
+                    ((wave + 1.0) * 0.5 * height as f64).round() as usize
+                })
+                .collect()
+        };
+
         let mut lines = Vec::new();
         for row in (1..=height).rev() {
             let mut spans = vec![Span::raw("  ")];
-            for &val in &heights {
+            for col in 0..bar_count {
+                let val = heights.get(col).copied().unwrap_or(0);
                 if val >= row {
                     let color = if row > height * 3 / 4 {
                         Color::Red
@@ -702,8 +745,6 @@ fn visualizer(frame: &mut Frame<'_>, app: &App, area: Rect) {
                         theme.primary()
                     };
                     spans.push(Span::styled("█ ", Style::default().fg(color).bold()));
-                } else if val + 1 == row && is_playing {
-                    spans.push(Span::styled("▄ ", Style::default().fg(theme.accent_dim())));
                 } else {
                     spans.push(Span::styled("  ", Style::default()));
                 }
@@ -713,24 +754,132 @@ fn visualizer(frame: &mut Frame<'_>, app: &App, area: Rect) {
         frame.render_widget(Paragraph::new(lines), parts[1]);
     }
 
-    let labels = Line::from(vec![Span::styled(
-        "  Decorative bars • not audio frequency analysis",
-        Style::default().fg(MUTED),
-    )]);
+    let labels = if real_time {
+        if inner.width >= 75 {
+            Line::from(vec![
+                Span::styled(
+                    "  50Hz   120Hz   300Hz   800Hz   2kHz   4.5kHz   9kHz",
+                    Style::default().fg(theme.primary()),
+                ),
+                Span::styled(
+                    " • Real-time FFT",
+                    Style::default().fg(MUTED),
+                ),
+            ])
+        } else {
+            Line::from(vec![
+                Span::styled(
+                    "  50Hz  200Hz  800Hz  2.5kHz  9kHz",
+                    Style::default().fg(theme.primary()),
+                ),
+                Span::styled(
+                    " • Real-time FFT",
+                    Style::default().fg(MUTED),
+                ),
+            ])
+        }
+    } else {
+        Line::from(vec![Span::styled(
+            "  Waiting for live audio stream • press Space to play",
+            Style::default().fg(MUTED),
+        )])
+    };
     frame.render_widget(Paragraph::new(labels), parts[2]);
+}
+
+fn wrap_lyric_line(text: &str, max_width: usize) -> Vec<String> {
+    if text.trim().is_empty() {
+        return vec![String::new()];
+    }
+    let max_width = max_width.max(1);
+    let mut lines = Vec::new();
+    let mut current_line = String::new();
+    let mut current_len = 0;
+
+    let push_word_chunked = |lines: &mut Vec<String>, current_line: &mut String, current_len: &mut usize, word: &str| {
+        let mut chunk = String::new();
+        let mut chunk_width = 0;
+        for c in word.chars() {
+            let mut buf = [0u8; 4];
+            let c_str = c.encode_utf8(&mut buf);
+            let c_w = Span::raw(&*c_str).width();
+            if chunk_width + c_w > max_width && !chunk.is_empty() {
+                lines.push(chunk);
+                chunk = String::new();
+                chunk_width = 0;
+            }
+            chunk.push(c);
+            chunk_width += c_w;
+        }
+        if !chunk.is_empty() {
+            *current_line = chunk;
+            *current_len = chunk_width;
+        }
+    };
+
+    for word in text.split_whitespace() {
+        let word_width = Span::raw(word).width();
+        if current_line.is_empty() {
+            if word_width <= max_width {
+                current_line.push_str(word);
+                current_len = word_width;
+            } else {
+                push_word_chunked(&mut lines, &mut current_line, &mut current_len, word);
+            }
+        } else if current_len + 1 + word_width <= max_width {
+            current_line.push(' ');
+            current_line.push_str(word);
+            current_len += 1 + word_width;
+        } else {
+            lines.push(current_line);
+            current_line = String::new();
+            current_len = 0;
+
+            if word_width <= max_width {
+                current_line.push_str(word);
+                current_len = word_width;
+            } else {
+                push_word_chunked(&mut lines, &mut current_line, &mut current_len, word);
+            }
+        }
+    }
+
+    if !current_line.is_empty() {
+        lines.push(current_line);
+    }
+
+    if lines.is_empty() {
+        lines.push(String::new());
+    }
+
+    lines
 }
 
 fn lyrics(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let theme = Theme::from_str(&app.config.theme);
     let track = app.current_track();
     let title = if let Some(t) = &track {
-        format!(" LYRICS • {} [l exit] ", t.name)
+        if area.width < 35 {
+            " LYRICS [l exit] ".to_string()
+        } else {
+            let max_track = (area.width as usize).saturating_sub(22);
+            if t.name.chars().count() > max_track && max_track > 2 {
+                let truncated: String = t.name.chars().take(max_track.saturating_sub(1)).collect();
+                format!(" LYRICS • {}… [l exit] ", truncated)
+            } else {
+                format!(" LYRICS • {} [l exit] ", t.name)
+            }
+        }
     } else {
         " LYRICS [l exit] ".to_string()
     };
     let outer = block_themed(title, true, theme);
     let inner = outer.inner(area);
     frame.render_widget(outer, area);
+
+    if inner.width <= 2 || inner.height == 0 {
+        return;
+    }
 
     if let Some(error) = &app.lyrics_error {
         frame.render_widget(
@@ -743,6 +892,7 @@ fn lyrics(frame: &mut Frame<'_>, app: &App, area: Rect) {
     }
     if app.lyrics_loading {
         let p = Paragraph::new("\n  ⟳ Loading synchronized lyrics from Lrclib...")
+            .wrap(Wrap { trim: false })
             .style(Style::default().fg(theme.primary()).italic());
         frame.render_widget(p, inner);
         return;
@@ -750,6 +900,7 @@ fn lyrics(frame: &mut Frame<'_>, app: &App, area: Rect) {
 
     let Some(lyr) = &app.lyrics else {
         let p = Paragraph::new("\n  No lyrics available for this track.\n\n  • Press l to return to library view\n  • Songs with available lyrics will sync automatically")
+            .wrap(Wrap { trim: false })
             .style(Style::default().fg(MUTED));
         frame.render_widget(p, inner);
         return;
@@ -757,36 +908,51 @@ fn lyrics(frame: &mut Frame<'_>, app: &App, area: Rect) {
 
     if !lyr.lines.is_empty() {
         let active = lyr.current_line_index(app.queue.position_ms);
-        let current_idx = active.unwrap_or(0);
+        let max_text_width = (inner.width as usize).saturating_sub(2).max(1);
+
+        let mut all_lines: Vec<Line<'static>> = Vec::new();
+        let mut active_visual_start = 0;
+
+        for (i, l) in lyr.lines.iter().enumerate() {
+            let is_active = Some(i) == active;
+            let is_past = active.is_some_and(|act| i < act);
+            let chunks = wrap_lyric_line(&l.text, max_text_width);
+
+            if is_active {
+                active_visual_start = all_lines.len();
+            }
+
+            for (chunk_idx, chunk) in chunks.into_iter().enumerate() {
+                let prefix = if is_active && chunk_idx == 0 {
+                    Span::styled("► ", Style::default().fg(theme.primary()).bold())
+                } else {
+                    Span::raw("  ")
+                };
+
+                let text_span = if is_active {
+                    Span::styled(
+                        chunk,
+                        Style::default().fg(FG).bg(theme.highlight_bg()).bold(),
+                    )
+                } else if is_past {
+                    Span::styled(chunk, Style::default().fg(MUTED))
+                } else {
+                    Span::styled(chunk, Style::default().fg(FG))
+                };
+
+                all_lines.push(Line::from(vec![prefix, text_span]));
+            }
+        }
+
         let height = inner.height as usize;
         let half = height / 2;
-        let start = current_idx.saturating_sub(half);
-        let visible = lyr.lines.iter().enumerate().skip(start).take(height);
-
-        let items: Vec<Line<'static>> = visible
-            .map(|(i, l)| {
-                if Some(i) == active {
-                    Line::from(vec![
-                        Span::styled("► ", Style::default().fg(theme.primary()).bold()),
-                        Span::styled(
-                            l.text.clone(),
-                            Style::default().fg(FG).bg(theme.highlight_bg()).bold(),
-                        ),
-                    ])
-                } else if active.is_some_and(|active| i < active) {
-                    Line::from(vec![
-                        Span::raw("  "),
-                        Span::styled(l.text.clone(), Style::default().fg(MUTED)),
-                    ])
-                } else {
-                    Line::from(vec![
-                        Span::raw("  "),
-                        Span::styled(l.text.clone(), Style::default().fg(FG)),
-                    ])
-                }
-            })
+        let scroll = active_visual_start.saturating_sub(half);
+        let visible: Vec<Line<'static>> = all_lines
+            .into_iter()
+            .skip(scroll)
+            .take(height)
             .collect();
-        frame.render_widget(Paragraph::new(items), inner);
+        frame.render_widget(Paragraph::new(visible), inner);
     } else if let Some(plain) = &lyr.plain {
         let p = Paragraph::new(plain.as_str())
             .wrap(Wrap { trim: true })
@@ -804,6 +970,7 @@ fn lyrics(frame: &mut Frame<'_>, app: &App, area: Rect) {
         );
     } else {
         let p = Paragraph::new("\n  No lyrics found for this track. Press l to return.")
+            .wrap(Wrap { trim: false })
             .style(Style::default().fg(MUTED));
         frame.render_widget(p, inner);
     }
@@ -863,6 +1030,7 @@ fn center(frame: &mut Frame<'_>, app: &App, area: Rect) {
         [ / ]          Fine volume control 1%\n\
         m              Mute / restore previous volume\n\n\
         QUEUE & PLAYLISTS\n\
+        u / Ctrl-Z     Undo queue edit (restores paused)\n\
         a              Append selected track to Queue (or enqueue entire playlist)\n\
         A (Shift-A)    Play Next (insert directly after current track)\n\
         R (Shift-R)    Start Track Radio (play track & queue related recommendations)\n\
@@ -874,10 +1042,13 @@ fn center(frame: &mut Frame<'_>, app: &App, area: Rect) {
         r              Cycle repeat: Off -> Queue -> Track\n\n\
         RETRO FEATURES & THEMES\n\
         t              Cycle Retro Theme (Spotify, Amber CRT, Matrix, Cyberpunk, Monochrome)\n\
-        v              Toggle Decorative Retro Visualizer\n\
+        v              Toggle Retro Visualizer (Real-time FFT)\n\
         l              Toggle Synced Real-Time Lyrics View (Lrclib)\n\n\
         CATALOG & NETWORK\n\
-        / or f         Filter current view (Liked/Playlists) or Search catalog\n\
+        / or f         Filter loaded Liked/Playlist rows only\n\
+        F2             Search Spotify catalog\n\
+        F3             Search all saved Liked Songs/playlist tracks\n\
+        Esc            Cancel library scan; retain partial matches\n\
         PgDn           Load next catalog page\n\
         F5             Refresh / retry network connection\n\
         q / Ctrl-C     Quit and save state\n\n\
@@ -907,12 +1078,22 @@ fn center(frame: &mut Frame<'_>, app: &App, area: Rect) {
         return;
     }
     let body = if app.view == View::Search {
-        let split = Layout::vertical([Constraint::Length(3), Constraint::Min(1)]).split(area);
+        let split = Layout::vertical([Constraint::Length(1), Constraint::Length(3), Constraint::Min(1)]).split(area);
+        let modes = [(SearchScope::Spotify, " F2 Spotify "), (SearchScope::Library, " F3 Saved library ")];
+        let spans = modes.iter().map(|(scope, label)| Span::styled(*label,
+            if app.search_scope == *scope { Style::default().fg(theme.primary()).bg(theme.highlight_bg()).bold() } else { Style::default().fg(MUTED) })).collect::<Vec<_>>();
+        frame.render_widget(Paragraph::new(Line::from(spans)), split[0]);
+        let mut x = split[0].x;
+        for (scope, label) in modes {
+            let width = (label.len() as u16).min(split[0].right().saturating_sub(x));
+            hit(app, Rect::new(x, split[0].y, width, split[0].height), MouseTarget::SearchMode(scope));
+            x += width;
+        }
         let prompt_line = if app.query.is_empty() && !app.editing {
             Line::from(vec![
                 Span::styled(" 🔍 ", Style::default().fg(theme.primary())),
                 Span::styled(
-                    "Press / to search songs, artists, or paste a Spotify link",
+                    if app.search_scope == SearchScope::Library { "Search all saved Liked Songs and playlist tracks" } else { "Search Spotify songs/artists, or paste a track link" },
                     Style::default().fg(MUTED).italic(),
                 ),
             ])
@@ -921,7 +1102,7 @@ fn center(frame: &mut Frame<'_>, app: &App, area: Rect) {
                 .query
                 .chars()
                 .rev()
-                .take(split[0].width.saturating_sub(6) as usize)
+                .take(split[1].width.saturating_sub(6) as usize)
                 .collect::<String>()
                 .chars()
                 .rev()
@@ -934,17 +1115,17 @@ fn center(frame: &mut Frame<'_>, app: &App, area: Rect) {
         frame.render_widget(
             Paragraph::new(prompt_line).block(block_themed(
                 if app.editing {
-                    " 🔍 SEARCH • Enter submit • Esc cancel "
+                    " SEARCH • Enter submit • Esc cancel "
                 } else {
-                    " 🔍 SEARCH "
+                    app.search_scope.label()
                 },
                 app.editing,
                 theme,
             )),
-            split[0],
+            split[1],
         );
-        hit(app, split[0], MouseTarget::Prompt);
-        split[1]
+        hit(app, split[1], MouseTarget::Prompt);
+        split[2]
     } else if (app.view == View::Liked || app.view == View::Playlists)
         && (app.filtering || !app.filter.is_empty())
     {
@@ -978,9 +1159,9 @@ fn center(frame: &mut Frame<'_>, app: &App, area: Rect) {
             ])
         };
         let filter_title = if app.filtering {
-            " 🔍 FILTER • Enter play • Down browse • Esc clear "
+            " FILTER LOADED • Enter play • Esc clear "
         } else {
-            " 🔍 FILTER • [/] edit • Esc clear "
+            " FILTER LOADED • F2 Spotify • F3 Saved library "
         };
         frame.render_widget(
             Paragraph::new(prompt_line).block(block_themed(filter_title, app.filtering, theme)),
@@ -996,7 +1177,7 @@ fn center(frame: &mut Frame<'_>, app: &App, area: Rect) {
         let matched = app.filtered_indices().len();
         let total = app.raw_len();
         format!(
-            " {} • {} of {} matches{} ",
+            " {} • {} of {} loaded matches{} ",
             app.title,
             matched,
             total,
@@ -1024,7 +1205,7 @@ fn center(frame: &mut Frame<'_>, app: &App, area: Rect) {
                 let empty_msg = if app.busy {
                     "\n  ⟳ Fetching tracks from Spotify..."
                 } else if app.is_filtered() {
-                    "\n  No tracks match your filter.\n\n  • Backspace to edit filter\n  • Esc to clear filter and show all tracks"
+                    "\n  No loaded tracks match your filter.\n\n  • F3 searches all saved library tracks\n  • F2 searches Spotify\n  • Esc clears this loaded-page filter"
                 } else {
                     "\n  No tracks found.\n\n  • Press / to search for songs or paste a track link\n  • Press 2 to browse your playlists\n  • Press 3 to see your liked songs"
                 };
@@ -1217,7 +1398,7 @@ fn queue(frame: &mut Frame<'_>, app: &App, area: Rect, main: bool) {
     let theme = Theme::from_str(&app.config.theme);
     if app.queue.order.is_empty() {
         let msg = if main {
-            "\n  Your queue is empty.\n\n  • Play a track or playlist from Search or Playlists\n  • Press a on any song to append it to the queue"
+            "\n  Your queue is empty.\n\n  • Play a track or playlist from Search or Playlists\n  • Press a on any song to append it to the queue\n  • u or right-click to undo a queue change"
         } else {
             "\n  Queue is empty.\n  Press a to enqueue."
         };
@@ -1467,7 +1648,11 @@ fn playback(frame: &mut Frame<'_>, app: &App, area: Rect) {
     if ctrl_width > 0 {
         let mut ctrl_spans = Vec::new();
         if app.state == State::Playing && bar_count > 0 {
-            let mini_bars = generate_bars(app.animation_frame, bar_count, true);
+            let mini_bars = if app.visualizer.has_audio_samples() {
+                app.visualizer.get_mini_bars(bar_count, true)
+            } else {
+                generate_bars(app.animation_frame, bar_count, true)
+            };
             ctrl_spans.push(Span::styled(
                 mini_bars,
                 Style::default().fg(theme.primary()).bold(),
@@ -1760,6 +1945,40 @@ mod tests {
         assert!(has_eq_bar);
     }
     #[test]
+    fn render_real_time_visualizer_with_live_audio() {
+        let mut app = App::new(Config::default(), Queue::default());
+        let mut track = Track::unknown(&"0".repeat(22));
+        track.name = "Live Frequency Track".into();
+        track.artists = "Artist".into();
+        track.duration_ms = 200_000;
+        app.queue.replace(vec![track.id.clone()], 0, false);
+        app.cache.insert(track.id.clone(), track);
+        app.state = State::Playing;
+        app.show_visualizer = true;
+
+        // Feed some real audio samples (220 Hz tone)
+        for i in 0..2048 {
+            let t = i as f32 / 44100.0;
+            app.visualizer
+                .push_sample((2.0 * std::f32::consts::PI * 220.0 * t).sin());
+        }
+
+        let mut terminal = Terminal::new(TestBackend::new(120, 35)).unwrap();
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        let text = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|c| c.symbol())
+            .collect::<String>();
+
+        assert!(text.contains("RETRO VISUALIZER"));
+        assert!(text.contains("REAL-TIME SPECTRUM"));
+        assert!(text.contains("Real-time FFT"));
+        assert!(text.contains("50Hz"));
+    }
+    #[test]
     fn render_modern_ui_elements() {
         let mut app = App::new(Config::default(), Queue::default());
         app.view = View::Queue;
@@ -1827,7 +2046,7 @@ mod tests {
 
         assert!(text.contains("FILTER"));
         assert!(text.contains("queen"));
-        assert!(text.contains("1 of 2 matches"));
+        assert!(text.contains("1 of 2 loaded matches"));
         assert!(text.contains("Bohemian Rhapsody"));
         assert!(!text.contains("Coldplay"));
 
@@ -1841,7 +2060,79 @@ mod tests {
             .iter()
             .map(|c| c.symbol())
             .collect::<String>();
-        assert!(text2.contains("No tracks match your filter"));
+        assert!(text2.contains("No loaded tracks match your filter"));
+    }
+
+    #[test]
+    fn test_wrap_lyric_line_basics() {
+        assert_eq!(wrap_lyric_line("", 20), vec![""]);
+        assert_eq!(wrap_lyric_line("   ", 20), vec![""]);
+        assert_eq!(
+            wrap_lyric_line("Hello world", 20),
+            vec!["Hello world"]
+        );
+        assert_eq!(
+            wrap_lyric_line("And tasted the sweet perfume of the mountain grass I rolled down", 30),
+            vec![
+                "And tasted the sweet perfume",
+                "of the mountain grass I rolled",
+                "down",
+            ]
+        );
+        // Word longer than max width chunks cleanly
+        assert_eq!(
+            wrap_lyric_line("abcdefghijklm", 5),
+            vec!["abcde", "fghij", "klm"]
+        );
+    }
+
+    #[test]
+    fn test_synced_lyrics_wraps_in_narrow_terminal() {
+        let mut app = App::new(Config::default(), Queue::default());
+        app.show_lyrics = true;
+        let mut track = Track::unknown(&"0".repeat(22));
+        track.name = "Castle on the Hill".into();
+        track.artists = "Ed Sheeran".into();
+        app.queue.replace(vec![track.id.clone()], 0, false);
+        app.cache.insert(track.id.clone(), track);
+
+        let lrc_sample = "\
+[00:01.00] When I was six years old, I broke my leg
+[00:05.00] I was running from my brother and his friends
+[00:10.00] And tasted the sweet perfume of the mountain grass I rolled down
+[00:15.00] I was younger then, take me back to when I";
+
+        app.lyrics = Some(crate::lyrics::Lyrics {
+            lines: crate::lyrics::parse_lrc(lrc_sample),
+            plain: None,
+        });
+        // Position at 16 seconds (line index 3 is active: "I was younger then...")
+        app.queue.position_ms = 16_000;
+
+        // Terminal width 80 (just like the user's resized screenshot)
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        let text = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|c| c.symbol())
+            .collect::<String>();
+
+        // "rolled down" was previously cut off at "grass I r"
+        assert!(
+            text.contains("rolled down"),
+            "Expected 'rolled down' to be visible, but buffer was:\n{text}"
+        );
+        assert!(
+            text.contains("mountain grass"),
+            "Expected 'mountain grass' to be visible, but buffer was:\n{text}"
+        );
+        assert!(
+            text.contains("► I was younger then"),
+            "Expected active marker on current line, but buffer was:\n{text}"
+        );
     }
     #[test]
     #[ignore = "Requires a real terminal; exercises alternate screen and a caught panic"]

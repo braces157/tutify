@@ -53,10 +53,24 @@ pub struct Playback {
 
 impl Playback {
     pub fn spawn(tokens: TokenManager, client_id: String, volume: u8) -> Self {
+        Self::spawn_with_visualizer(
+            tokens,
+            client_id,
+            volume,
+            crate::visualizer::AudioVisualizer::new(),
+        )
+    }
+
+    pub fn spawn_with_visualizer(
+        tokens: TokenManager,
+        client_id: String,
+        volume: u8,
+        visualizer: Arc<crate::visualizer::AudioVisualizer>,
+    ) -> Self {
         let (commands, rx) = mpsc::unbounded_channel();
         let (tx, events) = mpsc::unbounded_channel();
         let task = tokio::spawn(async move {
-            if let Err(e) = worker(tokens, client_id, volume, rx, tx.clone()).await {
+            if let Err(e) = worker(tokens, client_id, volume, rx, tx.clone(), visualizer).await {
                 let _ = tx.send(Event::Error(format!("{e:#}")));
             }
         });
@@ -127,6 +141,7 @@ async fn connect(
     _client_id: &str,
     volume: u8,
     tx: mpsc::UnboundedSender<Event>,
+    visualizer: Arc<crate::visualizer::AudioVisualizer>,
 ) -> Result<(Engine, mpsc::UnboundedReceiver<PlayerEvent>)> {
     let token = tokens.access().await?;
     let session = Session::new(
@@ -158,7 +173,7 @@ async fn connect(
         },
         session.clone(),
         mixer.get_soft_volume(),
-        move || Box::new(WindowsAudio::new(tx)),
+        move || Box::new(WindowsAudio::new(tx.clone(), visualizer.clone())),
     );
     let events = player.get_player_event_channel();
     guard.0.take();
@@ -178,13 +193,16 @@ async fn worker(
     volume: u8,
     commands: mpsc::UnboundedReceiver<Command>,
     tx: mpsc::UnboundedSender<Event>,
+    visualizer: Arc<crate::visualizer::AudioVisualizer>,
 ) -> Result<()> {
     let event_tx = tx.clone();
+    let vis = visualizer.clone();
     worker_with_connector(volume, commands, tx, move |volume| {
         let tokens = tokens.clone();
         let client_id = client_id.clone();
         let tx = event_tx.clone();
-        Box::pin(async move { connect(&tokens, &client_id, volume, tx).await })
+        let vis = vis.clone();
+        Box::pin(async move { connect(&tokens, &client_id, volume, tx, vis).await })
     })
     .await
 }
@@ -292,10 +310,11 @@ where
 struct WindowsAudio {
     output: Option<(rodio::Sink, rodio::OutputStream)>,
     tx: mpsc::UnboundedSender<Event>,
+    visualizer: Arc<crate::visualizer::AudioVisualizer>,
 }
 impl WindowsAudio {
-    fn new(tx: mpsc::UnboundedSender<Event>) -> Self {
-        Self { output: None, tx }
+    fn new(tx: mpsc::UnboundedSender<Event>, visualizer: Arc<crate::visualizer::AudioVisualizer>) -> Self {
+        Self { output: None, tx, visualizer }
     }
     fn fail(&self, detail: impl std::fmt::Display) -> SinkError {
         let message = format!(
@@ -333,7 +352,9 @@ impl Sink for WindowsAudio {
             .output
             .as_ref()
             .ok_or_else(|| self.fail("output disconnected"))?;
-        sink.append(rodio::buffer::SamplesBuffer::new(2, 44_100, samples));
+        let buffer = rodio::buffer::SamplesBuffer::new(2, 44_100, samples);
+        let source = crate::visualizer::VisualizerSource::new(buffer, self.visualizer.clone());
+        sink.append(source);
         let until = Instant::now() + Duration::from_secs(3);
         while sink.len() > 12 {
             if Instant::now() > until {
