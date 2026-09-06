@@ -3,8 +3,8 @@
 V1 ships search, playlists, liked songs, standalone playback, local queue controls,
 and settings/queue persistence.
 
-V0.2.0 delivers 5 retro CRT themes, high-resolution 30 FPS audio spectrum visualizer,
-real-time synchronized lyrics (Lrclib), seed-based Track Radio autoplay recommendations,
+V0.2.0 delivers 5 retro CRT themes, decorative retro visualizer (up to 30 FPS while playing),
+real-time synchronized lyrics (Lrclib), explicit seed-based Track Radio recommendations,
 and expanded queue manipulation (Play Next, reorder up/down, clear queue).
 
 Deferred by user choice: persistent listening history, AI suggestions, and song

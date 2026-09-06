@@ -85,6 +85,43 @@ impl Drop for Engine {
     }
 }
 
+struct ConnectingSession(Option<Session>);
+impl Drop for ConnectingSession {
+    fn drop(&mut self) {
+        if let Some(session) = &self.0 {
+            session.shutdown();
+        }
+    }
+}
+
+type Connected = (Engine, mpsc::UnboundedReceiver<PlayerEvent>);
+type ConnectionFuture = futures_util::future::BoxFuture<'static, Result<Connected>>;
+
+#[derive(Debug)]
+struct LoadIntent {
+    id: String,
+    position_ms: u32,
+    generation: u64,
+    paused: bool,
+}
+impl LoadIntent {
+    fn control(&mut self, command: &Command) {
+        match command {
+            Command::Pause => self.paused = true,
+            Command::Resume => self.paused = false,
+            Command::Seek(position) => self.position_ms = *position,
+            _ => (),
+        }
+    }
+}
+fn load_intent(engine: &Engine, intent: LoadIntent, pending: &mut VecDeque<u64>) -> Result<()> {
+    let uri = SpotifyUri::from_uri(&format!("spotify:track:{}", intent.id))?;
+    crate::diagnostics::take();
+    pending.push_back(intent.generation);
+    engine.player.load(uri, !intent.paused, intent.position_ms);
+    Ok(())
+}
+
 async fn connect(
     tokens: &TokenManager,
     _client_id: &str,
@@ -100,6 +137,7 @@ async fn connect(
         },
         None,
     );
+    let mut guard = ConnectingSession(Some(session.clone()));
     let connection = tokio::time::timeout(
         Duration::from_secs(35),
         session.connect(Credentials::with_access_token(token), false),
@@ -123,6 +161,7 @@ async fn connect(
         move || Box::new(WindowsAudio::new(tx)),
     );
     let events = player.get_player_event_channel();
+    guard.0.take();
     Ok((
         Engine {
             session,
@@ -136,10 +175,31 @@ async fn connect(
 async fn worker(
     tokens: TokenManager,
     client_id: String,
+    volume: u8,
+    commands: mpsc::UnboundedReceiver<Command>,
+    tx: mpsc::UnboundedSender<Event>,
+) -> Result<()> {
+    let event_tx = tx.clone();
+    worker_with_connector(volume, commands, tx, move |volume| {
+        let tokens = tokens.clone();
+        let client_id = client_id.clone();
+        let tx = event_tx.clone();
+        Box::pin(async move { connect(&tokens, &client_id, volume, tx).await })
+    })
+    .await
+}
+
+async fn worker_with_connector<C>(
     mut volume: u8,
     mut commands: mpsc::UnboundedReceiver<Command>,
     tx: mpsc::UnboundedSender<Event>,
-) -> Result<()> {
+    connector: C,
+) -> Result<()>
+where
+    C: Fn(u8) -> ConnectionFuture,
+{
+    let mut connecting: Option<ConnectionFuture> = None;
+    let mut desired: Option<LoadIntent> = None;
     let mut engine: Option<Engine> = None;
     let mut player_events = mpsc::unbounded_channel().1;
     let mut pending = VecDeque::new();
@@ -155,23 +215,46 @@ async fn worker(
                 match cmd {
                     Command::Load { id, position_ms, generation } => {
                         if engine.as_ref().is_some_and(|e| e.session.is_invalid()) { engine = None; }
+                        let intent = LoadIntent { id, position_ms, generation, paused: false };
                         if engine.is_none() {
-                            match connect(&tokens, &client_id, volume, tx.clone()).await {
-                                Ok((e, events)) => { engine = Some(e); player_events = events; pending.clear(); let _ = tx.send(Event::Ready); },
-                                Err(e) => { let _ = tx.send(Event::TrackError { generation, message: format!("{e:#}") }); continue; }
-                            }
+                            active = None; playing = false; loading_since = None; pending.clear();
+                            desired = Some(intent);
+                            if connecting.is_none() { connecting = Some(connector(volume)); }
+                            continue;
                         }
-                        crate::diagnostics::take();
-                        match SpotifyUri::from_uri(&format!("spotify:track:{id}")) {
-                            Ok(uri) => { pending.push_back(generation); active = None; loading_since = Some(Instant::now()); engine.as_ref().unwrap().player.load(uri, true, position_ms); },
-                            Err(_) => { let _ = tx.send(Event::TrackError { generation, message: "Invalid Spotify track ID".into() }); }
+                        active = None; playing = false; loading_since = Some(Instant::now());
+                        if let Err(e) = load_intent(engine.as_ref().unwrap(), intent, &mut pending) {
+                            loading_since = None;
+                            let _ = tx.send(Event::TrackError { generation, message: format!("Invalid track: {e}") });
                         }
                     },
                     Command::Volume(v) => { volume = v.min(100); if let Some(e) = &engine { e.mixer.set_volume((volume as u32 * 65535 / 100) as u16); } let _ = tx.send(Event::Volume(volume)); },
-                    Command::Stop => { active = None; loading_since = None; playing = false; pending.clear(); engine = None; },
+                    Command::Stop => { connecting = None; desired = None; active = None; loading_since = None; playing = false; pending.clear(); engine = None; },
                     #[cfg(test)]
                     Command::SimulateDisconnect => { if let Some(e) = &engine { e.session.shutdown(); } },
-                    other => if let Some(e) = &engine { match other { Command::Pause => e.player.pause(), Command::Resume => e.player.play(), Command::Seek(ms) => e.player.seek(ms), _ => {} } },
+                    other => {
+                        if let Some(intent) = &mut desired { intent.control(&other); }
+                        else if let Some(e) = &engine { match other { Command::Pause => e.player.pause(), Command::Resume => e.player.play(), Command::Seek(ms) => e.player.seek(ms), _ => {} } }
+                    },
+                }
+            },
+            result = async { connecting.as_mut().unwrap().await }, if connecting.is_some() => {
+                connecting = None;
+                let Some(intent) = desired.take() else { continue; };
+                let generation = intent.generation;
+                match result {
+                    Ok((e, events)) => {
+                        e.mixer.set_volume((volume as u32 * 65535 / 100) as u16);
+                        player_events = events; pending.clear(); active = None; playing = false;
+                        loading_since = Some(Instant::now());
+                        let _ = tx.send(Event::Ready);
+                        if let Err(error) = load_intent(&e, intent, &mut pending) {
+                            loading_since = None;
+                            let _ = tx.send(Event::TrackError { generation, message: format!("Invalid track: {error}") });
+                        }
+                        engine = Some(e);
+                    }
+                    Err(error) => { let _ = tx.send(Event::TrackError { generation, message: format!("{error:#}") }); }
                 }
             },
             event = player_events.recv(), if engine.is_some() => {
@@ -335,6 +418,110 @@ mod tests {
         .expect("Live playback event timed out")
     }
 
+    #[tokio::test]
+    async fn connecting_accepts_controls_and_stop_cancels_the_future() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        struct Dropped(Arc<AtomicBool>);
+        impl Drop for Dropped {
+            fn drop(&mut self) {
+                self.0.store(true, Ordering::SeqCst);
+            }
+        }
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let flag = cancelled.clone();
+        let (commands, rx) = mpsc::unbounded_channel();
+        let (events, mut out) = mpsc::unbounded_channel();
+        let (started, mut ready) = mpsc::unbounded_channel();
+        let worker = tokio::spawn(worker_with_connector(40, rx, events, move |_| {
+            let guard = Dropped(flag.clone());
+            let started = started.clone();
+            Box::pin(async move {
+                let _guard = guard;
+                started.send(()).unwrap();
+                std::future::pending::<Result<Connected>>().await
+            })
+        }));
+        commands
+            .send(Command::Load {
+                id: "0".repeat(22),
+                position_ms: 0,
+                generation: 1,
+            })
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(1), ready.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        commands.send(Command::Pause).unwrap();
+        commands.send(Command::Seek(10000)).unwrap();
+        commands.send(Command::Volume(23)).unwrap();
+        assert!(matches!(
+            tokio::time::timeout(Duration::from_secs(1), out.recv())
+                .await
+                .unwrap(),
+            Some(Event::Volume(23))
+        ));
+        commands.send(Command::Stop).unwrap();
+        commands.send(Command::Volume(24)).unwrap();
+        assert!(matches!(
+            tokio::time::timeout(Duration::from_secs(1), out.recv())
+                .await
+                .unwrap(),
+            Some(Event::Volume(24))
+        ));
+        assert!(cancelled.load(Ordering::SeqCst));
+        drop(commands);
+        worker.await.unwrap().unwrap();
+    }
+    #[tokio::test]
+    async fn connecting_keeps_only_latest_load_generation() {
+        let notify = Arc::new(tokio::sync::Notify::new());
+        let gate = notify.clone();
+        let (commands, rx) = mpsc::unbounded_channel();
+        let (events, mut out) = mpsc::unbounded_channel();
+        let worker = tokio::spawn(worker_with_connector(40, rx, events, move |_| {
+            let gate = gate.clone();
+            Box::pin(async move {
+                gate.notified().await;
+                anyhow::bail!("delayed connection failure")
+            })
+        }));
+        for generation in [1, 2] {
+            commands
+                .send(Command::Load {
+                    id: "0".repeat(22),
+                    position_ms: 0,
+                    generation,
+                })
+                .unwrap();
+        }
+        commands.send(Command::Volume(25)).unwrap();
+        assert!(matches!(out.recv().await, Some(Event::Volume(25))));
+        notify.notify_one();
+        assert!(matches!(
+            tokio::time::timeout(Duration::from_secs(1), out.recv())
+                .await
+                .unwrap(),
+            Some(Event::TrackError { generation: 2, .. })
+        ));
+        drop(commands);
+        worker.await.unwrap().unwrap();
+    }
+    #[test]
+    fn pending_load_preserves_pause_and_seek_intent() {
+        let mut intent = LoadIntent {
+            id: "0".repeat(22),
+            generation: 1,
+            position_ms: 0,
+            paused: false,
+        };
+        intent.control(&Command::Pause);
+        intent.control(&Command::Seek(4321));
+        assert!(intent.paused);
+        assert_eq!(intent.position_ms, 4321);
+        intent.control(&Command::Resume);
+        assert!(!intent.paused);
+    }
     #[tokio::test]
     #[ignore = "Requires both Spotify browser logins, Premium, Windows audio; plays audible sound"]
     async fn live_streaming_acceptance() {

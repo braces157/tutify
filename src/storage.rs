@@ -10,7 +10,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
     pub version: u32,
@@ -76,18 +76,30 @@ impl Storage {
         q.validate()?;
         Ok(q)
     }
-    pub fn cache(&self) -> Result<std::collections::HashMap<String, crate::model::Track>> {
-        read_or_default(&self.root.join("cache.json"))
+    pub fn cache(&self) -> Result<crate::cache::MetadataCache> {
+        let mut cache: crate::cache::MetadataCache =
+            read_or_default(&self.root.join("cache.json"))?;
+        cache.validate()?;
+        Ok(cache)
     }
+    #[cfg(test)]
     pub fn save(&self, config: &Config, queue: &Queue) -> Result<()> {
-        atomic_json(&self.root.join("config.json"), config)?;
+        self.save_config(config)?;
+        self.save_queue(queue)
+    }
+    pub fn save_queue(&self, queue: &Queue) -> Result<()> {
+        queue.validate()?;
         atomic_json(&self.root.join("queue.json"), queue)
     }
-    pub fn save_cache(
-        &self,
-        cache: &std::collections::HashMap<String, crate::model::Track>,
-    ) -> Result<()> {
+    pub fn save_cache(&self, cache: &crate::cache::MetadataCache) -> Result<()> {
         atomic_json(&self.root.join("cache.json"), cache)
+    }
+    pub fn clear_cache(&self) -> Result<()> {
+        match fs::remove_file(self.root.join("cache.json")) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(e.into()),
+        }
     }
     pub fn save_config(&self, config: &Config) -> Result<()> {
         atomic_json(&self.root.join("config.json"), config)
@@ -128,7 +140,7 @@ fn atomic_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
 }
 
 pub fn validate_ids(ids: &[String]) -> Result<()> {
-    if ids.len() > 100_000 || ids.iter().any(|id| !valid_id(id)) {
+    if ids.len() > crate::queue::MAX_TRACKS || ids.iter().any(|id| !valid_id(id)) {
         bail!(
             "Invalid queue track IDs or queue exceeds 100,000 tracks; preserve queue.json and move it aside to reset"
         );
@@ -139,6 +151,26 @@ pub fn validate_ids(ids: &[String]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn cache_roundtrips_and_clear_preserves_settings_and_queue() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Storage {
+            root: dir.path().to_owned(),
+        };
+        let mut cache = crate::cache::MetadataCache::default();
+        cache.insert(
+            "0".repeat(22),
+            crate::model::Track::unknown(&"0".repeat(22)),
+        );
+        store.save_cache(&cache).unwrap();
+        store.save(&Config::default(), &Queue::default()).unwrap();
+        assert!(store.cache().unwrap().contains_key(&"0".repeat(22)));
+        store.clear_cache().unwrap();
+        store.clear_cache().unwrap();
+        assert!(!store.root.join("cache.json").exists());
+        assert!(store.root.join("config.json").exists());
+        assert!(store.root.join("queue.json").exists());
+    }
     #[test]
     fn roundtrip_and_corruption_is_preserved() {
         let dir = tempfile::tempdir().unwrap();

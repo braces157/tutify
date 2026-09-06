@@ -3,3 +3,7 @@
 /api-rules.*
 *.tmp
 *.exe
+
+/node_modules/
+/test-results/
+/playwright-report/

@@ -444,6 +444,7 @@ async fn finish_login(
     }
     // Every successful explicit login starts a clean account queue; no cross-account reuse.
     store.clear_queue()?;
+    store.clear_cache()?;
     store.save_config(config)?;
     if !streaming {
         match stream_entry()?.delete_credential() {

@@ -76,3 +76,63 @@ the guided browser flow was not replayed against the rate-limited live account.
   especially CJK glyph fallback, can vary.
 - Windows executable is a personal, unsigned release build. No installer,
   code-signing certificate, updater, or background service is included.
+
+
+## Performance/reliability follow-up — 2026-09-06
+
+The review in PERFORMANCE_REVIEW.md was followed by fixes for visible-row
+rendering and cached filters, quiet paused rendering, bounded streaming metadata
+hydration, explicit metadata errors/retry, independent changed-state writers,
+cache expiry/capacity/account cleanup, J dispatch, lyrics readiness/retry/parsing,
+queue-generation checks, full playlist pagination, cancellable streaming
+connection setup, and wrapping-aware Help/plain-lyrics scrolling.
+
+This follow-up's offline Rust run passed 67 tests with 3 ignored (the two original
+live/terminal acceptance tests and the new manual release rendering benchmark).
+Formatting and Clippy with warnings denied passed. Additional tests exercise
+503 metadata errors, early streaming results, delayed playlist failures, stale
+queue/lyrics responses, save failure/recovery, no-op checkpoints, delayed
+connection controls/cancellation, queue capacity, cache cleanup, and the last
+Help/plain-lyrics line at 32×10.
+
+The optimized Windows executable rebuilt successfully and passed `--help` and
+`--version` smoke checks. `cargo fmt --check` and `git diff --check` passed.
+`npm ci` and all 11 Microsoft Edge browser tests passed; `npm audit` reported
+zero vulnerabilities with Playwright pinned to 1.58.2. Browser coverage includes
+local-only assets, distinct views, idempotent radio counts, track-specific lyrics,
+keyboard focus retention, scoped shortcuts, arrow-key tabs, native range controls,
+all five theme accents, paused/offscreen/reduced-motion animation, mobile width,
+and clipboard rejection or missing API. Desktop (1440 px) and mobile (390 px)
+screenshots were inspected; mobile controls now wrap and mini-bars have explicit
+height. These checks do not establish Core Web Vitals or whole-browser CPU usage.
+The local preview server also passed HTTP smoke checks for root/canonical pages,
+root-relative assets, malformed URI (400), path traversal (403), and missing
+files (404), remaining healthy throughout. Serving is restricted to `docs/`.
+
+The optimized TestBackend benchmark measured a 5,000-entry queue frame at
+0.161 ms and a cached filtered-catalog frame at 0.204 ms. See BENCHMARKS.md for
+all sizes, the earlier review baseline, methodology differences, reproduction,
+and limits. These results do not measure total process CPU, RAM, startup, or
+real terminal output.
+
+The live Spotify/audio and real-terminal acceptance tests were not rerun in this
+follow-up. Earlier live results above describe the earlier build only. Current
+live-service compatibility and physical device behavior remain environment
+acceptance checks; no new claims are made about those measurements.
+
+## Version 0.2.1 release acceptance — 2026-09-06
+
+The 0.2.1 release repeated the 67 offline tests, formatting, Clippy, optimized
+build, 11 Edge tests, and npm audit successfully. The installed PATH executable
+was replaced with the release build and its SHA256 matched. Invoking `tuitify`
+opened the TUI; `tuitify --version` returned 0.2.1. The live launch exposed an
+expired Spotify login; both browser authorization steps succeeded, and the
+installed app then loaded Liked Songs. Explicit reauthorization resets the queue
+under the existing account-isolation policy.
+
+The opt-in real-terminal cleanup test passed normal exit and caught-panic
+restoration. The opt-in live streaming test initially encountered a two-second
+Spotify rate limit; after waiting, it passed audio-start events, pause, seek,
+resume, volume acknowledgment, injected session loss/reconnection, completion,
+and credential reuse. These checks verify playback-engine events and terminal
+behavior on this Windows setup, not a subjective listening-quality assessment.
