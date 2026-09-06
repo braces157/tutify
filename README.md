@@ -94,7 +94,9 @@ Mouse controls (v0.2.2, in terminals with mouse reporting such as Windows Termin
 | `1`–`5` | Search, Playlists, Liked Songs, Queue, Help |
 | `Tab`, `Shift+Tab` | Switch focus between navigation and content |
 | Up/Down or `k`/`j` | Move selection; scroll Help |
-| `/` or `f` | Start search or filter current list (names, URLs, URIs) |
+| `/` or `f` | Filter loaded Liked Songs/playlist rows; `/` edits the query in Search |
+| F2 | Search Spotify's catalog (songs, artists, or a Spotify track link) |
+| F3 | Search all saved Liked Songs and saved playlist tracks |
 | Enter | Submit search, open a playlist, or play the selected track |
 | Space | Pause/resume; retry failed playback from the saved position |
 | `n` / `p` | Next / previous; previous restarts after three seconds |
@@ -113,14 +115,15 @@ Mouse controls (v0.2.2, in terminals with mouse reporting such as Windows Termin
 | `A` | Play Next: insert selected track directly after current track |
 | `K` / `J` | Move selected track up / down in Queue |
 | `C` | Clear the entire queue |
+| `u` / Ctrl+Z | Undo a queue edit; restore the previous queue paused |
 | `.` / `c` | Jump cursor to currently playing track in Queue |
 | Delete / `d` / `x` | Remove the selected Queue entry |
 | Page Down | Fetch and append another catalog page (infinite pagination) |
-| F5 | Refresh or retry catalog/queue metadata |
+| F5 | Refresh/retry catalog or queue metadata; restart saved-library search |
 | Backspace | Return from playlist contents to playlists |
 | `?` / F1 | Help |
 | `q` / Ctrl+C | Save and quit |
-| Esc | Close overlay (lyrics/visualizer), clear filter, or quit |
+| Esc | Close overlay/menu, clear filter, cancel an active library scan, or quit |
 
 The playback bar continuously shows elapsed time, total duration, percentage
 complete, and remaining time. Left/Right seeks while the track is loaded; Home
@@ -147,6 +150,49 @@ The queue supports up to 100,000 entries. Playlist enqueue follows pages in the
 background, shows the number actually added, and retains partial additions if a
 later page fails. Clearing or replacing the queue cancels its pending playlist
 and radio jobs; late responses cannot refill an unrelated queue.
+
+### Queue recovery and search (v0.2.3)
+
+**Preserve the queue after re-login.** After a successful catalog login, Tuitify
+compares the verified Spotify account with the previously saved account. Signing
+back into the **same account** preserves the queue and metadata cache, including
+queue order and saved playback position. A different account, or an unknown prior
+identity, clears the old account's queue/cache. Streaming reauthorization must
+match the catalog account and does not clear these files. Explicit `logout` still
+removes both credentials and the queue/cache.
+
+**Undo queue actions.** Press `u` or Ctrl+Z to recover from accidental removal,
+clearing, or queue replacement. Undo also covers adding tracks/playlists, reordering,
+shuffle changes, and starting radio. The previous order, current track, position,
+and shuffle setting are restored **paused**; press Space to resume. Pending queue
+jobs are cancelled so late playlist/radio results cannot overwrite the restoration.
+Right-click in the Queue view for **Undo queue change**, including when the queue
+is empty. History lasts only for the current session and retains at most ten
+snapshots with a combined limit of 100,000 track IDs; older snapshots are dropped.
+
+**Choose the search scope explicitly:**
+
+| Mode | What it searches | How to use it |
+| --- | --- | --- |
+| Filter loaded rows | Only Liked Songs or playlist rows already fetched into the current view | Press `/` or `f`; the field is labeled **FILTER LOADED**. |
+| Spotify search | Spotify's catalog, including music outside your saved library | Press F2 or click **F2 Spotify**, enter a query, then Enter. |
+| Saved-library search | All pages of saved Liked Songs and saved playlist tracks that Spotify allows the app to read | Press F3 or click **F3 Saved library**, enter a query, then Enter. |
+
+For example, filtering 50 loaded songs cannot find a saved song on a later page.
+F3 scans those later pages and the saved playlists as well. Choosing F2/F3 from an
+active filter carries its text into the selected search mode. Saved-library search
+matches title or artist text without case sensitivity and deduplicates track IDs.
+It fetches pages sequentially, with 200 ms between requests, and displays matches
+and a scanned-track count as results arrive. Scanned counts include duplicate
+occurrences across playlists; matching songs appear only once.
+
+Press Esc to cancel a scan while browsing its results; partial matches remain.
+If editing the query, Esc first leaves the input. F5 starts a fresh scan. Network
+errors, inaccessible playlists, rate limits, or traversal limits leave results
+explicitly marked **partial**, rather than claiming the whole library was searched.
+A scan is capped at 100,000 unique tracks, 100,000 playlists, and 100,000 page
+requests. Large libraries can take time and require network access; this is not
+an offline library index.
 
 The visualizer is a decorative animation, not audio-frequency analysis. The
 unchanged paused screen does not animate or continuously redraw. Long queue and
@@ -198,9 +244,10 @@ a stream. Queue names load into memory on demand.
 
 OAuth access/refresh tokens are stored only in Windows Credential Manager under
 Tuitify (`spotify-oauth` and `spotify-streaming-oauth`). The client ID is public
-configuration; no client secret is required. Each explicit successful login
-clears the old account queue and metadata cache; catalog login also removes the old
-streaming login.
+configuration; no client secret is required. A successful catalog re-login to the
+same verified account preserves the queue and metadata cache. A changed or unknown
+prior account clears those files. Catalog login replaces the streaming login;
+streaming reauthorization must use the same account and preserves queue/cache.
 
 The metadata cache retains tracks encountered during browsing and playback. It
 is not a listening log: it stores no playback times or play counts. It contains no
