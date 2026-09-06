@@ -1,7 +1,7 @@
 {
   "name": "tuitify-website",
   "private": true,
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Build and browser checks for the Tuitify website",
   "scripts": {
     "build:css": "tailwindcss -i ./docs/assets/tailwind.css -o ./docs/assets/tailwind.compiled.css --minify",

@@ -7,7 +7,7 @@ client by default and can be switched to a personal Spotify Developer app.
 
 ## Run on Windows
 
-Extract `Tuitify-0.2.2-windows-x86_64.zip` and open Windows Terminal in the extracted
+Extract `Tuitify-0.2.3-windows-x86_64.zip` and open Windows Terminal in the extracted
 folder. The executable needs no Rust installation. Use a standard font such as
 Consolas or Cascadia Mono; icon fonts are not required.
 

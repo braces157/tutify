@@ -99,6 +99,60 @@ fn credential_saved(result: std::result::Result<String, keyring::Error>) -> Resu
     }
 }
 
+fn known_account_id(id: &str) -> Option<&str> {
+    let id = id.trim();
+    (!id.is_empty() && !id.eq_ignore_ascii_case("unknown")).then_some(id)
+}
+
+fn accounts_match(previous: Option<&str>, verified: &str) -> bool {
+    match (
+        previous.and_then(known_account_id),
+        known_account_id(verified),
+    ) {
+        (Some(previous), Some(verified)) => previous == verified,
+        _ => false,
+    }
+}
+
+/// Read only the account identity from the saved catalog credential. A legacy
+/// credential can still be usable without an account ID; treat that identity
+/// as unknown so a successful re-login cannot reuse its queue accidentally.
+fn saved_catalog_account_id() -> Result<Option<String>> {
+    let value = match entry()?.get_password() {
+        Ok(value) => value,
+        Err(keyring::Error::NoEntry) => return Ok(None),
+        Err(error) => {
+            return Err(error).context(
+                "Cannot read Windows Credential Manager; saved logins have not been changed",
+            );
+        }
+    };
+    let tokens = match serde_json::from_str::<Tokens>(&value) {
+        Ok(tokens) => tokens,
+        Err(_) => return Ok(None),
+    };
+    if tokens.access_token.is_empty() || tokens.refresh_token.is_empty() {
+        return Ok(None);
+    }
+    Ok(known_account_id(&tokens.account_id).map(str::to_owned))
+}
+
+/// Queue and metadata belong to the catalog account. Streaming reauth is
+/// allowed only after its account has been checked against the catalog login,
+/// so it never clears those snapshots itself.
+fn update_account_state(
+    store: &Storage,
+    previous_catalog_account: Option<&str>,
+    verified_account: &str,
+) -> Result<bool> {
+    let preserve = accounts_match(previous_catalog_account, verified_account);
+    if !preserve {
+        store.clear_queue()?;
+        store.clear_cache()?;
+    }
+    Ok(preserve)
+}
+
 /// Check locally first: expired access tokens still have reusable refresh tokens.
 /// Re-running setup never contacts Spotify when both credentials are present.
 pub async fn setup(
@@ -420,6 +474,9 @@ async fn finish_login(
     } else {
         profile_id(&token.access_token).await?
     };
+    let account_id = known_account_id(&account_id)
+        .context("Spotify account ID missing")?
+        .to_owned();
     let tokens = Tokens {
         account_id,
         access_token: token.access_token,
@@ -428,31 +485,43 @@ async fn finish_login(
             .context("Spotify did not issue a refresh token; retry login")?,
         expires_at: now() + token.expires_in,
     };
-    if streaming {
+    let previous_catalog_account = if streaming {
         let catalog = TokenManager::load(config)?;
         let cached_id = catalog.state.lock().await.account_id.clone();
-        let id = if cached_id.is_empty() {
-            profile_id(&catalog.access().await?).await?
+        let id = if let Some(id) = known_account_id(&cached_id) {
+            id.to_owned()
         } else {
-            cached_id
+            profile_id(&catalog.access().await?).await?
         };
-        if id != tokens.account_id {
+        if !accounts_match(Some(&id), &tokens.account_id) {
             bail!(
                 "Streaming and catalog logins belong to different Spotify accounts. Run tuitify auth --streaming and choose the same account."
             );
         }
-    }
-    // Every successful explicit login starts a clean account queue; no cross-account reuse.
-    store.clear_queue()?;
-    store.clear_cache()?;
-    store.save_config(config)?;
+        Some(id)
+    } else {
+        saved_catalog_account_id()?
+    };
+    // Commit the verified replacement before clearing any account-owned
+    // snapshots. A failed credential/config write therefore leaves the old
+    // login and its queue intact for a retry.
+    save_tokens(&tokens, streaming)?;
     if !streaming {
+        store.save_config(config)?;
+        // Queue and metadata survive a verified re-login for the same catalog
+        // account. An account change or unknown prior identity clears both
+        // only after the new credentials have been committed. Streaming
+        // reauth never reaches this branch after its account check above.
+        update_account_state(
+            store,
+            previous_catalog_account.as_deref(),
+            &tokens.account_id,
+        )?;
         match stream_entry()?.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => (),
             Err(e) => return Err(e.into()),
         }
     }
-    save_tokens(&tokens, streaming)?;
     println!("Login saved in Windows Credential Manager.");
     Ok(())
 }
@@ -521,10 +590,10 @@ async fn streaming_account_id(token: &str) -> Result<String> {
     // ID on a fresh session.
     let id = session.username();
     session.shutdown();
-    if id.is_empty() || id == "UNKNOWN" {
+    if known_account_id(&id).is_none() {
         bail!("Spotify streaming did not return an account ID; retry setup");
     }
-    Ok(id)
+    Ok(id.trim().to_owned())
 }
 
 async fn profile_id_at(token: &str, endpoint: &str) -> Result<String> {
@@ -569,10 +638,11 @@ async fn profile_id_at(token: &str, endpoint: &str) -> Result<String> {
             ),
         }
         let profile: serde_json::Value = response.json().await?;
-        return Ok(profile["id"]
+        let id = profile["id"]
             .as_str()
-            .context("Spotify account ID missing")?
-            .to_owned());
+            .and_then(known_account_id)
+            .context("Spotify account ID missing")?;
+        return Ok(id.to_owned());
     }
     unreachable!()
 }
@@ -717,10 +787,58 @@ impl TokenManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{cache::MetadataCache, model::Track, queue::Queue, storage::Storage};
     use wiremock::{
         Mock, MockServer, ResponseTemplate,
         matchers::{body_string_contains, method, path},
     };
+
+    fn snapshot_store() -> (tempfile::TempDir, Storage, String) {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Storage {
+            root: dir.path().to_owned(),
+        };
+        let id = "0".repeat(22);
+        let mut queue = Queue::default();
+        queue.replace(vec![id.clone()], 0, false);
+        store.save_queue(&queue).unwrap();
+        let mut cache = MetadataCache::default();
+        cache.insert(id.clone(), Track::unknown(&id));
+        store.save_cache(&cache).unwrap();
+        (dir, store, id)
+    }
+
+    #[test]
+    fn same_account_relogin_preserves_queue_and_cache() {
+        let (_dir, store, id) = snapshot_store();
+
+        assert!(update_account_state(&store, Some("account"), "account").unwrap());
+        assert_eq!(store.queue().unwrap().ids, vec![id.clone()]);
+        assert!(store.cache().unwrap().contains_key(&id));
+    }
+
+    #[test]
+    fn changed_or_unknown_account_clears_queue_and_cache() {
+        for previous in [Some("different"), None] {
+            let (_dir, store, id) = snapshot_store();
+
+            assert!(!update_account_state(&store, previous, "account").unwrap());
+            assert!(store.queue().unwrap().ids.is_empty());
+            assert!(!store.cache().unwrap().contains_key(&id));
+            assert!(!store.root.join("queue.json").exists());
+            assert!(!store.root.join("cache.json").exists());
+        }
+    }
+
+    #[test]
+    fn account_matching_rejects_unknown_ids_for_streaming_reauth() {
+        assert!(accounts_match(Some("account"), "account"));
+        assert!(!accounts_match(Some("account"), "other"));
+        assert!(!accounts_match(None, "account"));
+        assert!(!accounts_match(Some(""), "account"));
+        assert!(!accounts_match(Some("account"), ""));
+    }
+
     #[test]
     fn setup_only_opens_missing_logins() {
         use LoginStep::*;

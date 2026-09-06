@@ -15,7 +15,7 @@ use crossterm::event::{
 use futures_util::StreamExt;
 use std::{
     cell::{Cell, RefCell},
-    collections::HashSet,
+    collections::{HashSet, VecDeque},
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -53,6 +53,20 @@ impl View {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SearchScope {
+    Spotify,
+    Library,
+}
+impl SearchScope {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Spotify => "Spotify search",
+            Self::Library => "Saved library search",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum State {
     Paused,
     Loading,
@@ -71,6 +85,7 @@ struct FilterCache {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MouseTarget {
     Navigation(View),
+    SearchMode(SearchScope),
     Catalog(usize),
     Queue(usize),
     Prompt,
@@ -92,7 +107,14 @@ pub struct ContextMenu {
     filter: String,
 }
 
+struct QueueUndo {
+    queue: Queue,
+    shuffle: bool,
+}
+
 pub struct App {
+    undo: VecDeque<QueueUndo>,
+
     pub mouse_hits: RefCell<Vec<(ratatui::layout::Rect, MouseTarget)>>,
     pub context_menu: Option<ContextMenu>,
     pub config: Config,
@@ -103,6 +125,8 @@ pub struct App {
     pub rows: Rows,
     pub selected: usize,
     pub query: String,
+    pub search_scope: SearchScope,
+    pub library_scanned: usize,
     pub editing: bool,
     pub status: String,
     pub busy: bool,
@@ -140,12 +164,14 @@ pub struct App {
     pub lyrics_loading: bool,
     pub lyrics_track_id: Option<String>,
     pub animation_frame: u32,
+    pub visualizer: Arc<crate::visualizer::AudioVisualizer>,
 }
 
 impl App {
     pub fn new(config: Config, queue: Queue) -> Self {
         let restored = !queue.ids.is_empty();
         Self {
+            undo: VecDeque::new(),
             mouse_hits: RefCell::new(Vec::new()),
             context_menu: None,
             config,
@@ -156,6 +182,8 @@ impl App {
             rows: Rows::Tracks(vec![]),
             selected: 0,
             query: String::new(),
+            search_scope: SearchScope::Spotify,
+            library_scanned: 0,
             editing: false,
             filter: String::new(),
             filtering: false,
@@ -191,7 +219,51 @@ impl App {
             lyrics_loading: false,
             lyrics_track_id: None,
             animation_frame: 0,
+            visualizer: crate::visualizer::AudioVisualizer::new(),
         }
+    }
+    pub fn can_undo(&self) -> bool {
+        !self.undo.is_empty()
+    }
+    fn remember_queue(&mut self) {
+        self.interpolate_position();
+        // At most ten actions and 100,000 stored IDs across snapshots. Only
+        // mutations take a snapshot; rendering and ordinary navigation do not.
+        let size = self.queue.ids.len();
+        let mut retained: usize = self.undo.iter().map(|entry| entry.queue.ids.len()).sum();
+        while self.undo.len() >= 10 || retained + size > crate::queue::MAX_TRACKS {
+            let Some(oldest) = self.undo.pop_front() else {
+                break;
+            };
+            retained -= oldest.queue.ids.len();
+        }
+        self.undo.push_back(QueueUndo {
+            queue: self.queue.clone(),
+            shuffle: self.config.shuffle,
+        });
+    }
+    fn undo_queue(&mut self, tx: &mpsc::UnboundedSender<Command>) {
+        let Some(mut previous) = self.undo.pop_back() else {
+            self.status = "No queue changes to undo in this session.".into();
+            return;
+        };
+        self.stop(tx);
+        previous.queue.revision = self.queue.revision.wrapping_add(1);
+        previous.queue.epoch = self.queue.epoch.wrapping_add(1);
+        self.queue = previous.queue;
+        self.config.shuffle = previous.shuffle;
+        self.view = View::Queue;
+        self.nav = View::Queue.index();
+        self.sidebar = false;
+        self.editing = false;
+        self.filtering = false;
+        self.filter.clear();
+        self.context_menu = None;
+        self.show_lyrics = false;
+        self.show_visualizer = false;
+        self.status =
+            "Queue restored, paused at its saved position. Space resumes; u undoes another change."
+                .into();
     }
     pub fn is_filtered(&self) -> bool {
         (self.view == View::Liked || self.view == View::Playlists) && !self.filter.is_empty()
@@ -451,6 +523,8 @@ impl App {
 }
 
 enum Background {
+    LibraryProgress(u64, crate::library::LibraryProgress),
+    LibraryDone(u64, Result<()>),
     Page(u64, Result<Page>),
     Metadata(u64, String, Result<Track>),
     MetadataDone(u64),
@@ -587,6 +661,11 @@ impl Tasks {
                 "A playlist is already being added. Clear/replace the queue to cancel.".into();
             return;
         }
+        if app.queue.ids.len() >= crate::queue::MAX_TRACKS {
+            app.status = "Queue limit reached (100,000 tracks).".into();
+            return;
+        }
+        app.remember_queue();
         self.playlist_request += 1;
         self.playlist_added = 0;
         let request = self.playlist_request;
@@ -649,6 +728,45 @@ impl Tasks {
         let browse = app.browse.clone();
         let catalog = self.catalog.clone();
         let tx = self.tx.clone();
+        if app.view == View::Search && app.query.trim().is_empty() {
+            app.busy = false;
+            app.next = None;
+            app.status =
+                "Enter a search. F2: Spotify catalog | F3: all saved Liked Songs and playlists."
+                    .into();
+            return;
+        }
+        if app.view == View::Search && app.search_scope == SearchScope::Library {
+            app.reset_rows();
+            app.selected = 0;
+            app.library_scanned = 0;
+            app.next = None;
+            app.title = "Saved library — scanning".into();
+            app.status = "Scanning saved Liked Songs and playlists. Partial matches appear as pages arrive; Esc cancels.".into();
+            let query = app.query.clone();
+            self.browse = Some(tokio::spawn(async move {
+                let (progress_tx, mut progress_rx) = mpsc::channel(2);
+                let scan = crate::library::search(catalog, query, progress_tx);
+                tokio::pin!(scan);
+                let mut open = true;
+                loop {
+                    tokio::select! {
+                        result = &mut scan => {
+                            while let Ok(progress) = progress_rx.try_recv() { let _ = tx.send(Background::LibraryProgress(request, progress)); }
+                            let _ = tx.send(Background::LibraryDone(request, result));
+                            break;
+                        }
+                        progress = progress_rx.recv(), if open => {
+                            match progress {
+                                Some(progress) => { if tx.send(Background::LibraryProgress(request, progress)).is_err() { break; } }
+                                None => open = false,
+                            }
+                        }
+                    }
+                }
+            }));
+            return;
+        }
         self.browse = Some(tokio::spawn(async move {
             let result = catalog.page(&browse, offset).await;
             let _ = tx.send(Background::Page(request, result));
@@ -746,7 +864,7 @@ impl Tasks {
         match view {
             View::Search => {
                 app.browse = Browse::Search(app.query.clone());
-                app.title = "Search".into();
+                app.title = app.search_scope.label().into();
             }
             View::Playlists => {
                 app.browse = Browse::Playlists;
@@ -766,6 +884,26 @@ impl Tasks {
 
 fn format_time(ms: u32) -> String {
     format!("{}:{:02}", ms / 60_000, ms / 1_000 % 60)
+}
+
+fn choose_search(app: &mut App, scope: SearchScope, tasks: &mut Tasks) {
+    if app.is_filtered() {
+        app.query = app.filter.clone();
+    }
+    app.search_scope = scope;
+    tasks.view(app, View::Search);
+    app.context_menu = None;
+    app.show_lyrics = false;
+    app.show_visualizer = false;
+    app.editing = app.query.trim().is_empty();
+}
+fn perform_undo(app: &mut App, tasks: &mut Tasks, tx: &mpsc::UnboundedSender<Command>) {
+    let existed = app.can_undo();
+    app.undo_queue(tx);
+    if existed {
+        tasks.view(app, View::Queue);
+        tasks.sync_queue_epoch(app.queue.epoch);
+    }
 }
 
 fn activate_menu(
@@ -873,10 +1011,29 @@ fn mouse(
     }
     let right = event.kind == MouseEventKind::Down(MouseButton::Right);
     match target {
+        MouseTarget::SearchMode(scope) if !right => choose_search(app, scope, tasks),
         MouseTarget::Navigation(view) if !right => {
             tasks.view(app, view);
             app.show_lyrics = false;
             app.show_visualizer = false;
+        }
+        MouseTarget::QueueScroll if right && app.can_undo() => {
+            if app.view != View::Queue {
+                tasks.view(app, View::Queue);
+            }
+            app.sidebar = false;
+            app.editing = false;
+            app.filtering = false;
+            app.context_menu = Some(ContextMenu {
+                x: event.column,
+                y: event.row,
+                selected: 0,
+                actions: vec![("Undo queue change", KeyCode::Char('u'))],
+                view: app.view,
+                row: app.selection(),
+                revision: app.queue.revision,
+                filter: app.filter.clone(),
+            });
         }
         MouseTarget::Prompt if !right => {
             app.sidebar = false;
@@ -917,6 +1074,9 @@ fn mouse(
                 };
                 if app.view == View::Queue {
                     actions.push(("Remove from queue", KeyCode::Delete));
+                    if app.can_undo() {
+                        actions.push(("Undo queue change", KeyCode::Char('u')));
+                    }
                 }
                 app.context_menu = Some(ContextMenu {
                     x: event.column,
@@ -969,6 +1129,22 @@ fn key(app: &mut App, key: KeyEvent, tasks: &mut Tasks, tx: &mpsc::UnboundedSend
     }
     if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
         app.quit = true;
+        return;
+    }
+    if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('z') {
+        perform_undo(app, tasks, tx);
+        return;
+    }
+    if matches!(key.code, KeyCode::F(2) | KeyCode::F(3)) {
+        choose_search(
+            app,
+            if key.code == KeyCode::F(2) {
+                SearchScope::Spotify
+            } else {
+                SearchScope::Library
+            },
+            tasks,
+        );
         return;
     }
     if let Some(menu) = &mut app.context_menu {
@@ -1064,7 +1240,22 @@ fn key(app: &mut App, key: KeyEvent, tasks: &mut Tasks, tx: &mpsc::UnboundedSend
         }
     }
     match key.code {
+        KeyCode::Char('u') => perform_undo(app, tasks, tx),
         KeyCode::Char('q') => app.quit = true,
+        KeyCode::Esc
+            if app.view == View::Search && app.search_scope == SearchScope::Library && app.busy =>
+        {
+            if let Some(scan) = tasks.browse.take() {
+                scan.abort();
+            }
+            app.request += 1;
+            app.busy = false;
+            app.title = "Saved library — partial results".into();
+            app.status = format!(
+                "Library search cancelled after {} tracks. Partial results retained; F5 restarts.",
+                app.library_scanned
+            );
+        }
         KeyCode::Esc if app.show_lyrics => {
             app.show_lyrics = false;
             app.status = "Exited lyrics view".into();
@@ -1222,6 +1413,7 @@ fn key(app: &mut App, key: KeyEvent, tasks: &mut Tasks, tx: &mpsc::UnboundedSend
                         app.status = "This list exceeds the 100,000-track queue limit; filter it before playing.".into();
                         return;
                     }
+                    app.remember_queue();
                     app.queue.replace(track_ids, index, app.config.shuffle);
                 }
                 app.cache.insert(track.id.clone(), track);
@@ -1321,6 +1513,7 @@ fn key(app: &mut App, key: KeyEvent, tasks: &mut Tasks, tx: &mpsc::UnboundedSend
             };
         }
         KeyCode::Char('s') => {
+            app.remember_queue();
             app.config.shuffle = !app.config.shuffle;
             app.queue.set_shuffle(app.config.shuffle);
             app.status = format!("Shuffle {}", if app.config.shuffle { "on" } else { "off" });
@@ -1371,6 +1564,9 @@ fn key(app: &mut App, key: KeyEvent, tasks: &mut Tasks, tx: &mpsc::UnboundedSend
             }
             if let Some(track) = app.selected_track() {
                 if track.playable {
+                    if app.queue.ids.len() < crate::queue::MAX_TRACKS {
+                        app.remember_queue();
+                    }
                     app.status = if app.queue.enqueue(track.id) {
                         format!("Added {} to queue", track.name)
                     } else {
@@ -1384,6 +1580,9 @@ fn key(app: &mut App, key: KeyEvent, tasks: &mut Tasks, tx: &mpsc::UnboundedSend
         KeyCode::Char('A') if app.view != View::Help => {
             if let Some(track) = app.selected_track() {
                 if track.playable {
+                    if app.queue.ids.len() < crate::queue::MAX_TRACKS {
+                        app.remember_queue();
+                    }
                     app.status = if app.queue.insert_next(track.id) {
                         format!("Playing next: {}", track.name)
                     } else {
@@ -1404,6 +1603,7 @@ fn key(app: &mut App, key: KeyEvent, tasks: &mut Tasks, tx: &mpsc::UnboundedSend
                 }
                 if track.playable {
                     let selected_track = track.clone();
+                    app.remember_queue();
                     app.queue.replace(vec![selected_track.id.clone()], 0, false);
                     app.load(tx);
                     tasks.fetch_recommendations(&selected_track, app.queue.epoch);
@@ -1417,14 +1617,18 @@ fn key(app: &mut App, key: KeyEvent, tasks: &mut Tasks, tx: &mpsc::UnboundedSend
             }
         }
         KeyCode::Char('C') if app.view == View::Queue => {
+            if !app.queue.ids.is_empty() {
+                app.remember_queue();
+            }
             if app.queue.clear() {
                 app.stop(tx);
             }
-            app.status = "Queue cleared.".into();
+            app.status = "Queue cleared. Press u to undo.".into();
         }
         KeyCode::Char('K') if app.view == View::Queue && app.queue.selected > 0 => {
             let from = app.queue.selected;
             let to = from - 1;
+            app.remember_queue();
             app.queue.move_item(from, to);
             app.status = "Moved track up in queue".into();
         }
@@ -1435,6 +1639,7 @@ fn key(app: &mut App, key: KeyEvent, tasks: &mut Tasks, tx: &mpsc::UnboundedSend
         {
             let from = app.queue.selected;
             let to = from + 1;
+            app.remember_queue();
             app.queue.move_item(from, to);
             app.status = "Moved track down in queue".into();
         }
@@ -1445,10 +1650,13 @@ fn key(app: &mut App, key: KeyEvent, tasks: &mut Tasks, tx: &mpsc::UnboundedSend
             }
         }
         KeyCode::Delete | KeyCode::Char('d') | KeyCode::Char('x') if app.view == View::Queue => {
+            if app.queue.selected < app.queue.order.len() {
+                app.remember_queue();
+            }
             if app.queue.remove(app.queue.selected) {
                 app.stop(tx);
             }
-            app.status = "Queue item removed.".into();
+            app.status = "Queue item removed. Press u to undo.".into();
         }
         _ => (),
     }
@@ -1456,6 +1664,53 @@ fn key(app: &mut App, key: KeyEvent, tasks: &mut Tasks, tx: &mpsc::UnboundedSend
 
 fn background(app: &mut App, tasks: &mut Tasks, event: Background) -> bool {
     match event {
+        Background::LibraryProgress(id, progress) if id == app.request => {
+            app.library_scanned = progress.scanned;
+            let count = progress.tracks.len();
+            if let Rows::Tracks(rows) = &mut app.rows {
+                rows.extend(progress.tracks);
+            }
+            if count > 0 {
+                app.rows_revision = app.rows_revision.wrapping_add(1);
+            }
+            app.title = if progress.complete {
+                "Saved library — complete"
+            } else {
+                "Saved library — scanning"
+            }
+            .into();
+            app.status = format!(
+                "{} matches; {} saved tracks scanned. {}",
+                app.raw_len(),
+                app.library_scanned,
+                if progress.complete {
+                    "Search complete."
+                } else {
+                    "Partial results; Esc cancels."
+                }
+            );
+        }
+        Background::LibraryDone(id, result) if id == app.request => {
+            app.busy = false;
+            tasks.browse = None;
+            match result {
+                Ok(()) => {
+                    app.title = "Saved library — complete".into();
+                    app.status = format!(
+                        "{} matches across {} saved tracks. F2 searches Spotify; / edits the query.",
+                        app.raw_len(),
+                        app.library_scanned
+                    );
+                }
+                Err(error) => {
+                    app.title = "Saved library — partial results".into();
+                    app.status = format!(
+                        "Library search stopped: {error:#}. {} partial matches retained; F5 restarts.",
+                        app.raw_len()
+                    );
+                }
+            }
+        }
         Background::Page(id, result) if id == app.request => {
             app.busy = false;
             match result {
@@ -1671,12 +1926,13 @@ pub async fn run(store: Storage) -> Result<()> {
     let config = store.config()?;
     let queue = store.queue()?;
     let catalog = Catalog::new(TokenManager::load(&config)?)?;
-    let mut playback = playback::Playback::spawn(
-        TokenManager::load_streaming()?,
-        config.client_id.clone(),
-        config.volume,
-    );
     let mut app = App::new(config, queue);
+    let mut playback = playback::Playback::spawn_with_visualizer(
+        TokenManager::load_streaming()?,
+        app.config.client_id.clone(),
+        app.config.volume,
+        app.visualizer.clone(),
+    );
     match store.cache() {
         Ok(cache) => app.cache = cache,
         Err(_) => app.status = "Old or invalid metadata cache ignored; names will reload. Use clear-cache to remove it.".into(),
@@ -2000,6 +2256,192 @@ mod tests {
         assert!(app.status.contains("after 2 additions"));
         assert!(app.status.contains("503"));
     }
+    #[tokio::test]
+    async fn undo_restores_removed_current_and_cleared_queue_paused_with_fresh_epoch() {
+        let mut queue = Queue::default();
+        queue.replace((0..5).map(|i| test_track(i).id).collect(), 2, true);
+        queue.position_ms = 42_000;
+        let original = queue.clone();
+        let mut app = App::new(
+            Config {
+                shuffle: true,
+                ..Config::default()
+            },
+            queue,
+        );
+        let (mut tasks, _) = tasks();
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        app.queue.selected = app.queue.cursor.unwrap();
+        key(
+            &mut app,
+            KeyEvent::new(KeyCode::Delete, KeyModifiers::NONE),
+            &mut tasks,
+            &tx,
+        );
+        assert!(app.queue.current().is_none());
+        let removed_epoch = app.queue.epoch;
+        key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('u'), KeyModifiers::NONE),
+            &mut tasks,
+            &tx,
+        );
+        assert_eq!(app.queue.ids, original.ids);
+        assert_eq!(app.queue.order, original.order);
+        assert_eq!(app.queue.current(), original.current());
+        assert_eq!(app.queue.position_ms, 42_000);
+        assert_eq!(app.state, State::Paused);
+        assert!(!app.loaded);
+        assert!(app.queue.epoch > removed_epoch);
+        app.queue.validate().unwrap();
+        key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('C'), KeyModifiers::SHIFT),
+            &mut tasks,
+            &tx,
+        );
+        assert!(app.queue.ids.is_empty());
+        key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('z'), KeyModifiers::CONTROL),
+            &mut tasks,
+            &tx,
+        );
+        assert_eq!(app.queue.ids, original.ids);
+        assert!(
+            std::iter::from_fn(|| rx.try_recv().ok())
+                .all(|command| matches!(command, Command::Stop))
+        );
+    }
+
+    #[tokio::test]
+    async fn undo_queue_replacement_rejects_late_jobs_and_restores_previous_position() {
+        let mut queue = Queue::default();
+        queue.replace(vec![test_track(1).id], 0, false);
+        queue.position_ms = 8000;
+        let mut app = App::new(Config::default(), queue);
+        let (mut tasks, _) = tasks();
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        app.view = View::Search;
+        app.rows = Rows::Tracks(vec![test_track(2)]);
+        key(
+            &mut app,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+            &mut tasks,
+            &tx,
+        );
+        let replaced_epoch = app.queue.epoch;
+        assert_eq!(app.queue.current(), Some(test_track(2).id.as_str()));
+        key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('u'), KeyModifiers::NONE),
+            &mut tasks,
+            &tx,
+        );
+        background(
+            &mut app,
+            &mut tasks,
+            Background::Recommendations(replaced_epoch, Ok(vec![test_track(3)])),
+        );
+        assert_eq!(app.queue.ids, vec![test_track(1).id]);
+        assert_eq!(app.queue.position_ms, 8000);
+        assert_eq!(app.state, State::Paused);
+    }
+
+    #[test]
+    fn undo_history_is_bounded_by_action_count_and_total_tracks() {
+        let mut app = App::new(Config::default(), Queue::default());
+        for _ in 0..20 {
+            app.remember_queue();
+        }
+        assert_eq!(app.undo.len(), 10);
+        app.queue
+            .replace((0..50_000).map(|i| test_track(i).id).collect(), 0, false);
+        for _ in 0..4 {
+            app.remember_queue();
+        }
+        assert_eq!(
+            app.undo
+                .iter()
+                .map(|entry| entry.queue.ids.len())
+                .sum::<usize>(),
+            100_000
+        );
+        assert_eq!(app.undo.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn library_progress_keeps_partial_matches_and_ignores_results_after_cancel_or_scope_change()
+     {
+        let mut app = App::new(Config::default(), Queue::default());
+        let (mut tasks, _) = tasks();
+        let (tx, _) = mpsc::unbounded_channel();
+        app.search_scope = SearchScope::Library;
+        app.busy = true;
+        app.request = 10;
+        background(
+            &mut app,
+            &mut tasks,
+            Background::LibraryProgress(
+                10,
+                crate::library::LibraryProgress {
+                    tracks: vec![test_track(1)],
+                    scanned: 150,
+                    complete: false,
+                },
+            ),
+        );
+        assert_eq!(app.len(), 1);
+        assert!(app.busy);
+        assert_eq!(app.library_scanned, 150);
+        key(
+            &mut app,
+            KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+            &mut tasks,
+            &tx,
+        );
+        assert!(!app.busy);
+        assert!(!app.quit);
+        assert!(app.title.contains("partial"));
+        background(
+            &mut app,
+            &mut tasks,
+            Background::LibraryProgress(
+                10,
+                crate::library::LibraryProgress {
+                    tracks: vec![test_track(2)],
+                    scanned: 200,
+                    complete: true,
+                },
+            ),
+        );
+        assert_eq!(app.len(), 1);
+        let request = app.request;
+        background(
+            &mut app,
+            &mut tasks,
+            Background::LibraryDone(request, Err(anyhow::anyhow!("rate limit"))),
+        );
+        assert_eq!(app.len(), 1);
+        assert!(app.status.contains("partial matches retained"));
+        app.query.clear();
+        key(
+            &mut app,
+            KeyEvent::new(KeyCode::F(2), KeyModifiers::NONE),
+            &mut tasks,
+            &tx,
+        );
+        assert_eq!(app.search_scope, SearchScope::Spotify);
+        assert!(app.editing);
+        assert!(!app.busy);
+        background(
+            &mut app,
+            &mut tasks,
+            Background::LibraryDone(request, Ok(())),
+        );
+        assert_eq!(app.title, "Spotify search");
+    }
+
     fn draw_mouse(app: &App, width: u16, height: u16) {
         let mut terminal =
             ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, height)).unwrap();
