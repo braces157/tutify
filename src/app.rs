@@ -53,9 +53,17 @@ impl View {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SearchScope { Spotify, Library }
+pub enum SearchScope {
+    Spotify,
+    Library,
+}
 impl SearchScope {
-    pub fn label(self) -> &'static str { match self { Self::Spotify => "Spotify search", Self::Library => "Saved library search" } }
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Spotify => "Spotify search",
+            Self::Library => "Saved library search",
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -721,12 +729,18 @@ impl Tasks {
         let catalog = self.catalog.clone();
         let tx = self.tx.clone();
         if app.view == View::Search && app.query.trim().is_empty() {
-            app.busy = false; app.next = None;
-            app.status = "Enter a search. F2: Spotify catalog | F3: all saved Liked Songs and playlists.".into();
+            app.busy = false;
+            app.next = None;
+            app.status =
+                "Enter a search. F2: Spotify catalog | F3: all saved Liked Songs and playlists."
+                    .into();
             return;
         }
         if app.view == View::Search && app.search_scope == SearchScope::Library {
-            app.reset_rows(); app.selected = 0; app.library_scanned = 0; app.next = None;
+            app.reset_rows();
+            app.selected = 0;
+            app.library_scanned = 0;
+            app.next = None;
             app.title = "Saved library — scanning".into();
             app.status = "Scanning saved Liked Songs and playlists. Partial matches appear as pages arrive; Esc cancels.".into();
             let query = app.query.clone();
@@ -873,16 +887,23 @@ fn format_time(ms: u32) -> String {
 }
 
 fn choose_search(app: &mut App, scope: SearchScope, tasks: &mut Tasks) {
-    if app.is_filtered() { app.query = app.filter.clone(); }
+    if app.is_filtered() {
+        app.query = app.filter.clone();
+    }
     app.search_scope = scope;
     tasks.view(app, View::Search);
-    app.context_menu = None; app.show_lyrics = false; app.show_visualizer = false;
+    app.context_menu = None;
+    app.show_lyrics = false;
+    app.show_visualizer = false;
     app.editing = app.query.trim().is_empty();
 }
 fn perform_undo(app: &mut App, tasks: &mut Tasks, tx: &mpsc::UnboundedSender<Command>) {
     let existed = app.can_undo();
     app.undo_queue(tx);
-    if existed { tasks.view(app, View::Queue); tasks.sync_queue_epoch(app.queue.epoch); }
+    if existed {
+        tasks.view(app, View::Queue);
+        tasks.sync_queue_epoch(app.queue.epoch);
+    }
 }
 
 fn activate_menu(
@@ -1115,7 +1136,15 @@ fn key(app: &mut App, key: KeyEvent, tasks: &mut Tasks, tx: &mpsc::UnboundedSend
         return;
     }
     if matches!(key.code, KeyCode::F(2) | KeyCode::F(3)) {
-        choose_search(app, if key.code == KeyCode::F(2) { SearchScope::Spotify } else { SearchScope::Library }, tasks);
+        choose_search(
+            app,
+            if key.code == KeyCode::F(2) {
+                SearchScope::Spotify
+            } else {
+                SearchScope::Library
+            },
+            tasks,
+        );
         return;
     }
     if let Some(menu) = &mut app.context_menu {
@@ -1213,11 +1242,19 @@ fn key(app: &mut App, key: KeyEvent, tasks: &mut Tasks, tx: &mpsc::UnboundedSend
     match key.code {
         KeyCode::Char('u') => perform_undo(app, tasks, tx),
         KeyCode::Char('q') => app.quit = true,
-        KeyCode::Esc if app.view == View::Search && app.search_scope == SearchScope::Library && app.busy => {
-            if let Some(scan) = tasks.browse.take() { scan.abort(); }
-            app.request += 1; app.busy = false;
+        KeyCode::Esc
+            if app.view == View::Search && app.search_scope == SearchScope::Library && app.busy =>
+        {
+            if let Some(scan) = tasks.browse.take() {
+                scan.abort();
+            }
+            app.request += 1;
+            app.busy = false;
             app.title = "Saved library — partial results".into();
-            app.status = format!("Library search cancelled after {} tracks. Partial results retained; F5 restarts.", app.library_scanned);
+            app.status = format!(
+                "Library search cancelled after {} tracks. Partial results retained; F5 restarts.",
+                app.library_scanned
+            );
         }
         KeyCode::Esc if app.show_lyrics => {
             app.show_lyrics = false;
@@ -1630,17 +1667,48 @@ fn background(app: &mut App, tasks: &mut Tasks, event: Background) -> bool {
         Background::LibraryProgress(id, progress) if id == app.request => {
             app.library_scanned = progress.scanned;
             let count = progress.tracks.len();
-            if let Rows::Tracks(rows) = &mut app.rows { rows.extend(progress.tracks); }
-            if count > 0 { app.rows_revision = app.rows_revision.wrapping_add(1); }
-            app.title = if progress.complete { "Saved library — complete" } else { "Saved library — scanning" }.into();
-            app.status = format!("{} matches; {} saved tracks scanned. {}", app.raw_len(), app.library_scanned,
-                if progress.complete { "Search complete." } else { "Partial results; Esc cancels." });
+            if let Rows::Tracks(rows) = &mut app.rows {
+                rows.extend(progress.tracks);
+            }
+            if count > 0 {
+                app.rows_revision = app.rows_revision.wrapping_add(1);
+            }
+            app.title = if progress.complete {
+                "Saved library — complete"
+            } else {
+                "Saved library — scanning"
+            }
+            .into();
+            app.status = format!(
+                "{} matches; {} saved tracks scanned. {}",
+                app.raw_len(),
+                app.library_scanned,
+                if progress.complete {
+                    "Search complete."
+                } else {
+                    "Partial results; Esc cancels."
+                }
+            );
         }
         Background::LibraryDone(id, result) if id == app.request => {
-            app.busy = false; tasks.browse = None;
+            app.busy = false;
+            tasks.browse = None;
             match result {
-                Ok(()) => { app.title = "Saved library — complete".into(); app.status = format!("{} matches across {} saved tracks. F2 searches Spotify; / edits the query.", app.raw_len(), app.library_scanned); }
-                Err(error) => { app.title = "Saved library — partial results".into(); app.status = format!("Library search stopped: {error:#}. {} partial matches retained; F5 restarts.", app.raw_len()); }
+                Ok(()) => {
+                    app.title = "Saved library — complete".into();
+                    app.status = format!(
+                        "{} matches across {} saved tracks. F2 searches Spotify; / edits the query.",
+                        app.raw_len(),
+                        app.library_scanned
+                    );
+                }
+                Err(error) => {
+                    app.title = "Saved library — partial results".into();
+                    app.status = format!(
+                        "Library search stopped: {error:#}. {} partial matches retained; F5 restarts.",
+                        app.raw_len()
+                    );
+                }
             }
         }
         Background::Page(id, result) if id == app.request => {
@@ -2188,6 +2256,192 @@ mod tests {
         assert!(app.status.contains("after 2 additions"));
         assert!(app.status.contains("503"));
     }
+    #[tokio::test]
+    async fn undo_restores_removed_current_and_cleared_queue_paused_with_fresh_epoch() {
+        let mut queue = Queue::default();
+        queue.replace((0..5).map(|i| test_track(i).id).collect(), 2, true);
+        queue.position_ms = 42_000;
+        let original = queue.clone();
+        let mut app = App::new(
+            Config {
+                shuffle: true,
+                ..Config::default()
+            },
+            queue,
+        );
+        let (mut tasks, _) = tasks();
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        app.queue.selected = app.queue.cursor.unwrap();
+        key(
+            &mut app,
+            KeyEvent::new(KeyCode::Delete, KeyModifiers::NONE),
+            &mut tasks,
+            &tx,
+        );
+        assert!(app.queue.current().is_none());
+        let removed_epoch = app.queue.epoch;
+        key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('u'), KeyModifiers::NONE),
+            &mut tasks,
+            &tx,
+        );
+        assert_eq!(app.queue.ids, original.ids);
+        assert_eq!(app.queue.order, original.order);
+        assert_eq!(app.queue.current(), original.current());
+        assert_eq!(app.queue.position_ms, 42_000);
+        assert_eq!(app.state, State::Paused);
+        assert!(!app.loaded);
+        assert!(app.queue.epoch > removed_epoch);
+        app.queue.validate().unwrap();
+        key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('C'), KeyModifiers::SHIFT),
+            &mut tasks,
+            &tx,
+        );
+        assert!(app.queue.ids.is_empty());
+        key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('z'), KeyModifiers::CONTROL),
+            &mut tasks,
+            &tx,
+        );
+        assert_eq!(app.queue.ids, original.ids);
+        assert!(
+            std::iter::from_fn(|| rx.try_recv().ok())
+                .all(|command| matches!(command, Command::Stop))
+        );
+    }
+
+    #[tokio::test]
+    async fn undo_queue_replacement_rejects_late_jobs_and_restores_previous_position() {
+        let mut queue = Queue::default();
+        queue.replace(vec![test_track(1).id], 0, false);
+        queue.position_ms = 8000;
+        let mut app = App::new(Config::default(), queue);
+        let (mut tasks, _) = tasks();
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        app.view = View::Search;
+        app.rows = Rows::Tracks(vec![test_track(2)]);
+        key(
+            &mut app,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+            &mut tasks,
+            &tx,
+        );
+        let replaced_epoch = app.queue.epoch;
+        assert_eq!(app.queue.current(), Some(test_track(2).id.as_str()));
+        key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('u'), KeyModifiers::NONE),
+            &mut tasks,
+            &tx,
+        );
+        background(
+            &mut app,
+            &mut tasks,
+            Background::Recommendations(replaced_epoch, Ok(vec![test_track(3)])),
+        );
+        assert_eq!(app.queue.ids, vec![test_track(1).id]);
+        assert_eq!(app.queue.position_ms, 8000);
+        assert_eq!(app.state, State::Paused);
+    }
+
+    #[test]
+    fn undo_history_is_bounded_by_action_count_and_total_tracks() {
+        let mut app = App::new(Config::default(), Queue::default());
+        for _ in 0..20 {
+            app.remember_queue();
+        }
+        assert_eq!(app.undo.len(), 10);
+        app.queue
+            .replace((0..50_000).map(|i| test_track(i).id).collect(), 0, false);
+        for _ in 0..4 {
+            app.remember_queue();
+        }
+        assert_eq!(
+            app.undo
+                .iter()
+                .map(|entry| entry.queue.ids.len())
+                .sum::<usize>(),
+            100_000
+        );
+        assert_eq!(app.undo.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn library_progress_keeps_partial_matches_and_ignores_results_after_cancel_or_scope_change()
+     {
+        let mut app = App::new(Config::default(), Queue::default());
+        let (mut tasks, _) = tasks();
+        let (tx, _) = mpsc::unbounded_channel();
+        app.search_scope = SearchScope::Library;
+        app.busy = true;
+        app.request = 10;
+        background(
+            &mut app,
+            &mut tasks,
+            Background::LibraryProgress(
+                10,
+                crate::library::LibraryProgress {
+                    tracks: vec![test_track(1)],
+                    scanned: 150,
+                    complete: false,
+                },
+            ),
+        );
+        assert_eq!(app.len(), 1);
+        assert!(app.busy);
+        assert_eq!(app.library_scanned, 150);
+        key(
+            &mut app,
+            KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+            &mut tasks,
+            &tx,
+        );
+        assert!(!app.busy);
+        assert!(!app.quit);
+        assert!(app.title.contains("partial"));
+        background(
+            &mut app,
+            &mut tasks,
+            Background::LibraryProgress(
+                10,
+                crate::library::LibraryProgress {
+                    tracks: vec![test_track(2)],
+                    scanned: 200,
+                    complete: true,
+                },
+            ),
+        );
+        assert_eq!(app.len(), 1);
+        let request = app.request;
+        background(
+            &mut app,
+            &mut tasks,
+            Background::LibraryDone(request, Err(anyhow::anyhow!("rate limit"))),
+        );
+        assert_eq!(app.len(), 1);
+        assert!(app.status.contains("partial matches retained"));
+        app.query.clear();
+        key(
+            &mut app,
+            KeyEvent::new(KeyCode::F(2), KeyModifiers::NONE),
+            &mut tasks,
+            &tx,
+        );
+        assert_eq!(app.search_scope, SearchScope::Spotify);
+        assert!(app.editing);
+        assert!(!app.busy);
+        background(
+            &mut app,
+            &mut tasks,
+            Background::LibraryDone(request, Ok(())),
+        );
+        assert_eq!(app.title, "Spotify search");
+    }
+
     fn draw_mouse(app: &App, width: u16, height: u16) {
         let mut terminal =
             ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, height)).unwrap();

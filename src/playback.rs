@@ -313,8 +313,15 @@ struct WindowsAudio {
     visualizer: Arc<crate::visualizer::AudioVisualizer>,
 }
 impl WindowsAudio {
-    fn new(tx: mpsc::UnboundedSender<Event>, visualizer: Arc<crate::visualizer::AudioVisualizer>) -> Self {
-        Self { output: None, tx, visualizer }
+    fn new(
+        tx: mpsc::UnboundedSender<Event>,
+        visualizer: Arc<crate::visualizer::AudioVisualizer>,
+    ) -> Self {
+        Self {
+            output: None,
+            tx,
+            visualizer,
+        }
     }
     fn fail(&self, detail: impl std::fmt::Display) -> SinkError {
         let message = format!(

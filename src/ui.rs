@@ -680,7 +680,10 @@ fn visualizer(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let display_track = if track_info.chars().count() > available_track && available_track > 3 {
         format!(
             "{}...",
-            track_info.chars().take(available_track - 3).collect::<String>()
+            track_info
+                .chars()
+                .take(available_track - 3)
+                .collect::<String>()
         )
     } else {
         track_info
@@ -761,10 +764,7 @@ fn visualizer(frame: &mut Frame<'_>, app: &App, area: Rect) {
                     "  50Hz   120Hz   300Hz   800Hz   2kHz   4.5kHz   9kHz",
                     Style::default().fg(theme.primary()),
                 ),
-                Span::styled(
-                    " • Real-time FFT",
-                    Style::default().fg(MUTED),
-                ),
+                Span::styled(" • Real-time FFT", Style::default().fg(MUTED)),
             ])
         } else {
             Line::from(vec![
@@ -772,10 +772,7 @@ fn visualizer(frame: &mut Frame<'_>, app: &App, area: Rect) {
                     "  50Hz  200Hz  800Hz  2.5kHz  9kHz",
                     Style::default().fg(theme.primary()),
                 ),
-                Span::styled(
-                    " • Real-time FFT",
-                    Style::default().fg(MUTED),
-                ),
+                Span::styled(" • Real-time FFT", Style::default().fg(MUTED)),
             ])
         }
     } else {
@@ -796,7 +793,10 @@ fn wrap_lyric_line(text: &str, max_width: usize) -> Vec<String> {
     let mut current_line = String::new();
     let mut current_len = 0;
 
-    let push_word_chunked = |lines: &mut Vec<String>, current_line: &mut String, current_len: &mut usize, word: &str| {
+    let push_word_chunked = |lines: &mut Vec<String>,
+                             current_line: &mut String,
+                             current_len: &mut usize,
+                             word: &str| {
         let mut chunk = String::new();
         let mut chunk_width = 0;
         for c in word.chars() {
@@ -947,11 +947,7 @@ fn lyrics(frame: &mut Frame<'_>, app: &App, area: Rect) {
         let height = inner.height as usize;
         let half = height / 2;
         let scroll = active_visual_start.saturating_sub(half);
-        let visible: Vec<Line<'static>> = all_lines
-            .into_iter()
-            .skip(scroll)
-            .take(height)
-            .collect();
+        let visible: Vec<Line<'static>> = all_lines.into_iter().skip(scroll).take(height).collect();
         frame.render_widget(Paragraph::new(visible), inner);
     } else if let Some(plain) = &lyr.plain {
         let p = Paragraph::new(plain.as_str())
@@ -1078,22 +1074,52 @@ fn center(frame: &mut Frame<'_>, app: &App, area: Rect) {
         return;
     }
     let body = if app.view == View::Search {
-        let split = Layout::vertical([Constraint::Length(1), Constraint::Length(3), Constraint::Min(1)]).split(area);
-        let modes = [(SearchScope::Spotify, " F2 Spotify "), (SearchScope::Library, " F3 Saved library ")];
-        let spans = modes.iter().map(|(scope, label)| Span::styled(*label,
-            if app.search_scope == *scope { Style::default().fg(theme.primary()).bg(theme.highlight_bg()).bold() } else { Style::default().fg(MUTED) })).collect::<Vec<_>>();
+        let split = Layout::vertical([
+            Constraint::Length(1),
+            Constraint::Length(3),
+            Constraint::Min(1),
+        ])
+        .split(area);
+        let modes = [
+            (SearchScope::Spotify, " F2 Spotify "),
+            (SearchScope::Library, " F3 Saved library "),
+        ];
+        let spans = modes
+            .iter()
+            .map(|(scope, label)| {
+                Span::styled(
+                    *label,
+                    if app.search_scope == *scope {
+                        Style::default()
+                            .fg(theme.primary())
+                            .bg(theme.highlight_bg())
+                            .bold()
+                    } else {
+                        Style::default().fg(MUTED)
+                    },
+                )
+            })
+            .collect::<Vec<_>>();
         frame.render_widget(Paragraph::new(Line::from(spans)), split[0]);
         let mut x = split[0].x;
         for (scope, label) in modes {
             let width = (label.len() as u16).min(split[0].right().saturating_sub(x));
-            hit(app, Rect::new(x, split[0].y, width, split[0].height), MouseTarget::SearchMode(scope));
+            hit(
+                app,
+                Rect::new(x, split[0].y, width, split[0].height),
+                MouseTarget::SearchMode(scope),
+            );
             x += width;
         }
         let prompt_line = if app.query.is_empty() && !app.editing {
             Line::from(vec![
                 Span::styled(" 🔍 ", Style::default().fg(theme.primary())),
                 Span::styled(
-                    if app.search_scope == SearchScope::Library { "Search all saved Liked Songs and playlist tracks" } else { "Search Spotify songs/artists, or paste a track link" },
+                    if app.search_scope == SearchScope::Library {
+                        "Search all saved Liked Songs and playlist tracks"
+                    } else {
+                        "Search Spotify songs/artists, or paste a track link"
+                    },
                     Style::default().fg(MUTED).italic(),
                 ),
             ])
@@ -2067,12 +2093,12 @@ mod tests {
     fn test_wrap_lyric_line_basics() {
         assert_eq!(wrap_lyric_line("", 20), vec![""]);
         assert_eq!(wrap_lyric_line("   ", 20), vec![""]);
+        assert_eq!(wrap_lyric_line("Hello world", 20), vec!["Hello world"]);
         assert_eq!(
-            wrap_lyric_line("Hello world", 20),
-            vec!["Hello world"]
-        );
-        assert_eq!(
-            wrap_lyric_line("And tasted the sweet perfume of the mountain grass I rolled down", 30),
+            wrap_lyric_line(
+                "And tasted the sweet perfume of the mountain grass I rolled down",
+                30
+            ),
             vec![
                 "And tasted the sweet perfume",
                 "of the mountain grass I rolled",
