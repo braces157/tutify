@@ -3,9 +3,15 @@ use anyhow::{Result, bail};
 use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
 
+pub const MAX_TRACKS: usize = 100_000;
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Queue {
+    #[serde(skip)]
+    pub revision: u64,
+    #[serde(skip)]
+    pub epoch: u64,
     pub version: u32,
     pub ids: Vec<String>,
     pub order: Vec<usize>,
@@ -17,6 +23,8 @@ pub struct Queue {
 impl Default for Queue {
     fn default() -> Self {
         Self {
+            revision: 0,
+            epoch: 0,
             version: 1,
             ids: vec![],
             order: vec![],
@@ -30,10 +38,17 @@ impl Default for Queue {
 impl Queue {
     pub fn validate(&self) -> Result<()> {
         validate_ids(&self.ids)?;
-        let mut order = self.order.clone();
-        order.sort_unstable();
+        let mut seen = vec![false; self.ids.len()];
+        let valid_order = self.order.len() == self.ids.len()
+            && self.order.iter().all(|&i| {
+                if i >= seen.len() || seen[i] {
+                    return false;
+                }
+                seen[i] = true;
+                true
+            });
         if self.version != 1
-            || order != (0..self.ids.len()).collect::<Vec<_>>()
+            || !valid_order
             || self.cursor.is_some_and(|i| i >= self.order.len())
             || (!self.ids.is_empty() && self.selected >= self.ids.len())
         {
@@ -49,7 +64,10 @@ impl Queue {
             .and_then(|i| self.ids.get(*i))
             .map(String::as_str)
     }
-    pub fn replace(&mut self, ids: Vec<String>, index: usize, shuffle: bool) {
+    pub fn replace(&mut self, mut ids: Vec<String>, index: usize, shuffle: bool) {
+        ids.truncate(MAX_TRACKS);
+        self.revision += 1;
+        self.epoch += 1;
         self.ids = ids;
         self.order = (0..self.ids.len()).collect();
         self.cursor = (!self.ids.is_empty()).then_some(index.min(self.ids.len().saturating_sub(1)));
@@ -60,6 +78,7 @@ impl Queue {
         }
     }
     pub fn set_shuffle(&mut self, enabled: bool) {
+        self.revision += 1;
         let current = self.cursor.map(|c| self.order[c]);
         self.order = (0..self.ids.len()).collect();
         if enabled {
@@ -72,9 +91,14 @@ impl Queue {
         self.cursor = current.and_then(|i| self.order.iter().position(|x| *x == i));
         self.selected = self.cursor.unwrap_or(0);
     }
-    pub fn enqueue(&mut self, id: String) {
+    pub fn enqueue(&mut self, id: String) -> bool {
+        if self.ids.len() >= MAX_TRACKS {
+            return false;
+        }
+        self.revision += 1;
         self.order.push(self.ids.len());
         self.ids.push(id);
+        true
     }
     pub fn select(&mut self, at: usize) {
         if at < self.order.len() {
@@ -113,6 +137,7 @@ impl Queue {
         if at >= self.order.len() {
             return false;
         }
+        self.revision += 1;
         let removed_current = self.cursor == Some(at);
         let original = self.order.remove(at);
         self.ids.remove(original);
@@ -132,11 +157,14 @@ impl Queue {
         self.selected = self.selected.min(self.order.len().saturating_sub(1));
         removed_current
     }
-    pub fn insert_next(&mut self, id: String) {
-        if self.order.is_empty() || self.cursor.is_none() {
-            self.enqueue(id);
-            return;
+    pub fn insert_next(&mut self, id: String) -> bool {
+        if self.ids.len() >= MAX_TRACKS {
+            return false;
         }
+        if self.order.is_empty() || self.cursor.is_none() {
+            return self.enqueue(id);
+        }
+        self.revision += 1;
         let new_idx = self.ids.len();
         self.ids.push(id);
         let insert_at = self.cursor.unwrap() + 1;
@@ -144,8 +172,11 @@ impl Queue {
         if self.selected >= insert_at {
             self.selected += 1;
         }
+        true
     }
     pub fn clear(&mut self) -> bool {
+        self.revision += 1;
+        self.epoch += 1;
         let had_playing = self.cursor.is_some();
         self.ids.clear();
         self.order.clear();
@@ -158,6 +189,7 @@ impl Queue {
         if from >= self.order.len() || to >= self.order.len() || from == to {
             return false;
         }
+        self.revision += 1;
         let item = self.order.remove(from);
         self.order.insert(to, item);
         self.cursor = match self.cursor {
@@ -178,6 +210,19 @@ mod tests {
         let mut q = Queue::default();
         q.replace((0..5).map(|i| format!("{i:022}")).collect(), 2, false);
         q
+    }
+    #[test]
+    fn queue_mutations_never_exceed_restore_limit() {
+        let mut q = Queue::default();
+        q.replace(vec!["0".repeat(22); MAX_TRACKS + 1], MAX_TRACKS, false);
+        assert_eq!(q.ids.len(), MAX_TRACKS);
+        assert!(!q.enqueue("1".repeat(22)));
+        assert!(!q.insert_next("2".repeat(22)));
+        q.validate().unwrap();
+        let restored: Queue = serde_json::from_str(&serde_json::to_string(&q).unwrap()).unwrap();
+        restored.validate().unwrap();
+        assert_eq!(restored.revision, 0);
+        assert_eq!(restored.epoch, 0);
     }
     #[test]
     fn shuffle_preserves_current_and_unshuffle_restores_order() {

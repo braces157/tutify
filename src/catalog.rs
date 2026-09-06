@@ -3,9 +3,19 @@ use crate::{
     model::{Playlist, Track, track_id, valid_id},
 };
 use anyhow::{Context, Result, bail};
+use futures_util::{Stream, StreamExt};
 use serde_json::Value;
 use std::{sync::Arc, time::Instant};
 use tokio::sync::Mutex;
+
+#[derive(Debug)]
+pub struct MissingItem;
+impl std::fmt::Display for MissingItem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Track or playlist not available to this account. Choose another item.")
+    }
+}
+impl std::error::Error for MissingItem {}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Browse {
@@ -35,6 +45,13 @@ pub struct Catalog {
 }
 
 impl Catalog {
+    #[cfg(test)]
+    pub fn mock(base: &str) -> Self {
+        let mut catalog = Self::new(TokenManager::mock(format!("{base}/token"), false)).unwrap();
+        catalog.base = base.to_owned();
+        catalog
+    }
+
     pub fn new(tokens: TokenManager) -> Result<Self> {
         Ok(Self {
             client: http_client()?,
@@ -48,7 +65,7 @@ impl Catalog {
             if until > Instant::now() {
                 bail!(
                     "Spotify rate limit: wait {} seconds, then press F5 to retry",
-                    until.duration_since(Instant::now()).as_secs() + 1
+                    until.saturating_duration_since(Instant::now()).as_secs() + 1
                 );
             }
         }
@@ -75,9 +92,7 @@ impl Catalog {
                 403 => bail!(
                     "Spotify denied access. Playlist items require ownership or collaboration in development mode. Also check app user access, scopes, and the app owner's Premium subscription."
                 ),
-                404 => {
-                    bail!("Track or playlist not available to this account. Choose another item.")
-                }
+                404 => return Err(MissingItem.into()),
                 429 => {
                     let wait = retry_delay(
                         response
@@ -105,36 +120,22 @@ impl Catalog {
         parse_track(&self.get(&format!("/tracks/{id}"), &[]).await?)
             .context("Spotify returned no playable track metadata")
     }
-    pub async fn tracks(&self, ids: &[String]) -> Result<Vec<Track>> {
-        if ids.is_empty() {
-            return Ok(vec![]);
-        }
-        let valid: Vec<String> = ids.iter().filter(|id| valid_id(id)).cloned().collect();
-        if valid.is_empty() {
-            return Ok(vec![]);
-        }
-
-        // Fetch tracks concurrently using individual /tracks/{id} endpoints.
-        // Spotify's batch /v1/tracks?ids=... endpoint returns HTTP 403 Forbidden for apps in Development Mode,
-        // but individual /v1/tracks/{id} endpoints are fully supported (HTTP 200 OK).
-        // Bound concurrent requests to 5 to avoid triggering HTTP 429 rate limit backoffs.
-        let semaphore = Arc::new(tokio::sync::Semaphore::new(5));
-        let mut set = tokio::task::JoinSet::new();
-        for id in valid {
-            let cat = self.clone();
-            let sem = semaphore.clone();
-            set.spawn(async move {
-                let _permit = sem.acquire().await;
-                cat.track(&id).await
-            });
-        }
-        let mut tracks = Vec::new();
-        while let Some(res) = set.join_next().await {
-            if let Ok(Ok(track)) = res {
-                tracks.push(track);
-            }
-        }
-        Ok(tracks)
+    /// Individual endpoints are required for development-mode Spotify apps.
+    /// Only five futures exist at once; yield successes AND errors immediately.
+    pub fn tracks(
+        &self,
+        ids: Vec<String>,
+    ) -> impl Stream<Item = (String, Result<Track>)> + Send + 'static {
+        let catalog = self.clone();
+        futures_util::stream::iter(ids)
+            .map(move |id| {
+                let catalog = catalog.clone();
+                async move {
+                    let result = catalog.track(&id).await;
+                    (id, result)
+                }
+            })
+            .buffer_unordered(5)
     }
     pub async fn recommendations(&self, seed: &Track) -> Result<Vec<Track>> {
         let normalized_seed = normalize_title(&seed.name);
@@ -178,6 +179,7 @@ impl Catalog {
         }
 
         let mut candidates = Vec::new();
+        let mut search_error = None;
         for q in queries {
             for offset in [0, 10] {
                 let search_query = [
@@ -186,15 +188,29 @@ impl Catalog {
                     ("type", "track".into()),
                     ("q", q.clone()),
                 ];
-                if let Ok(val) = self.get("/search", &search_query).await {
-                    if let Some(items) = val["tracks"]["items"].as_array() {
-                        for item in items {
-                            if let Some(t) = parse_track(item) {
-                                candidates.push(t);
+                match self.get("/search", &search_query).await {
+                    Ok(val) => {
+                        if let Some(items) = val["tracks"]["items"].as_array() {
+                            for item in items {
+                                if let Some(t) = parse_track(item) {
+                                    candidates.push(t);
+                                }
                             }
                         }
                     }
+                    Err(e) => {
+                        search_error = Some(e);
+                        break;
+                    }
                 }
+            }
+            if search_error.is_some() {
+                break;
+            }
+        }
+        if candidates.is_empty() {
+            if let Some(e) = search_error {
+                return Err(e);
             }
         }
 
@@ -374,6 +390,32 @@ mod tests {
     }
     fn track() -> Value {
         serde_json::json!({"id":"0000000000000000000001","name":"Example","artists":[{"name":"Artist"}],"type":"track","duration_ms":200000})
+    }
+    #[tokio::test]
+    async fn metadata_stream_reports_errors_and_yields_without_waiting_for_slow_tracks() {
+        let (server, catalog) = catalog().await;
+        Mock::given(path("/tracks/0000000000000000000001"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(track())
+                    .set_delay(std::time::Duration::from_secs(2)),
+            )
+            .mount(&server)
+            .await;
+        Mock::given(path("/tracks/0000000000000000000002"))
+            .respond_with(ResponseTemplate::new(503))
+            .mount(&server)
+            .await;
+        let mut stream = catalog.tracks(vec![
+            "0000000000000000000001".into(),
+            "0000000000000000000002".into(),
+        ]);
+        let (id, result) = tokio::time::timeout(std::time::Duration::from_secs(1), stream.next())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(id.ends_with('2'));
+        assert!(result.unwrap_err().to_string().contains("503"));
     }
     #[tokio::test]
     async fn search_uses_ten_and_offsets() {

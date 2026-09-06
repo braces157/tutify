@@ -7,7 +7,7 @@ client by default and can be switched to a personal Spotify Developer app.
 
 ## Run on Windows
 
-Extract `Tuitify-0.2.0-windows-x86_64.zip` and open Windows Terminal in the extracted
+Extract `Tuitify-0.2.1-windows-x86_64.zip` and open Windows Terminal in the extracted
 folder. The executable needs no Rust installation. Use a standard font such as
 Consolas or Cascadia Mono; icon fonts are not required.
 
@@ -92,10 +92,10 @@ To use `tuitify` without the `.exe` path, add its folder to your user PATH.
 | `s` | Toggle shuffle, preserving the current occurrence |
 | `r` | Cycle repeat off → queue → track |
 | `t` | Cycle retro color themes (Classic, Phosphor Green, Amber, Mono, Cyberpunk) |
-| `v` | Toggle 30 FPS high-resolution audio spectrum visualizer |
+| `v` | Toggle decorative retro visualizer (up to 30 FPS while playing) |
 | `l` | Toggle live synchronized lyrics (Lrclib auto-scroll) |
 | `R` | Track Radio: queue related recommendations for selected song |
-| `a` | Append selected track to end of queue without interrupting playback |
+| `a` | Append selected track, or fetch and append an entire playlist |
 | `A` | Play Next: insert selected track directly after current track |
 | `K` / `J` | Move selected track up / down in Queue |
 | `C` | Clear the entire queue |
@@ -117,7 +117,8 @@ While entering a search, ordinary keys (including Space and `q`) enter text.
 Submit with Enter before using playback shortcuts. Clipboard paste is supported.
 
 Playing from a list replaces the local queue with its **loaded pages**, starting
-at the selected track. Page Down loads more before playing. Explicitly unavailable
+at the selected track. Page Down loads more before playing. Search follows the same list behavior;
+press `R` explicitly to replace the queue with a track and related recommendations. Explicitly unavailable
 tracks are excluded. Appending does not move or restart the current track.
 Shuffle randomizes the order with the current occurrence first; disabling it
 restores list/insertion order. Appended songs go to the end of the current order.
@@ -128,9 +129,26 @@ At wider sizes the queue is also visible alongside the catalog. At narrow sizes
 use `4` for the queue. Minimum useful size is 32 columns × 10 rows; 80 × 24 or
 larger is recommended. Long names truncate to the available terminal width.
 
+The queue supports up to 100,000 entries. Playlist enqueue follows pages in the
+background, shows the number actually added, and retains partial additions if a
+later page fails. Clearing or replacing the queue cancels its pending playlist
+and radio jobs; late responses cannot refill an unrelated queue.
+
+The visualizer is a decorative animation, not audio-frequency analysis. The
+unchanged paused screen does not animate or continuously redraw. Long queue and
+catalog views build only visible rows, and filters reuse their results until
+rows or filter text change.
+
+Lyrics are requested from **Lrclib only when you open the lyrics view** and real
+track metadata is available. Requests send the track title, artist names, and
+duration to `lrclib.net`; no Spotify tokens are sent there. Lyrics are kept in
+memory. F5 retries failures. Plain lyrics scroll with Up/Down or Page Up/Down.
+
 ## Spotify API behavior
 
-Search requests use `limit=10` and paginate with offsets. Playlists use
+Search requests use `limit=10` and paginate with offsets. Restored queue metadata
+loads current/visible entries first, using at most five individual track requests
+at a time. Failures stop further hydration until F5; there is no automatic retry loop. Playlists use
 `GET /playlists/{id}/items`, including the renamed `item` response field. Liked
 songs and playlists use pages of up to 50 items. Null, local-file, and podcast
 entries are skipped. Missing optional metadata is tolerated.
@@ -147,25 +165,33 @@ for current rules, including changes made after February 2026.
 
 `%LOCALAPPDATA%\Tuitify` contains:
 
-- `config.json`: version, client ID, volume, shuffle, repeat.
+- `config.json`: version, client ID, volume, shuffle, repeat, and theme.
 - `queue.json`: version, track IDs, play order, current/selected queue indexes,
   and playback position in milliseconds.
+- `cache.json`: versioned track names, artists, duration, availability, and metadata
+  fetch timestamps; at most 3,000 entries, expiring after 24 hours.
 - `instance.lock`: prevents two processes from racing on the same queue.
 
 JSON writes use a flushed temporary file followed by same-volume atomic
-replacement. Changes are saved asynchronously; playback position is checkpointed
-every two seconds and flushed on normal exit. A hard kill can lose the last two
-seconds. Settings and queue are separate atomic files, not a two-file transaction.
+replacement. Changed settings, queue, and metadata are checkpointed asynchronously every two
+seconds and flushed on normal exit. Each file has its own coalescing background
+writer; unchanged files are not rewritten. Failed writes are reported and retried
+at the next checkpoint. A hard kill can lose changes since the last successful
+checkpoint, normally about two seconds. These are separate atomic files, not a
+multi-file transaction.
 Startup always restores **paused**, without opening an audio device or starting
 a stream. Queue names load into memory on demand.
 
 OAuth access/refresh tokens are stored only in Windows Credential Manager under
 Tuitify (`spotify-oauth` and `spotify-streaming-oauth`). The client ID is public
 configuration; no client secret is required. Each explicit successful login
-clears the old account queue; catalog login also removes the old streaming login.
+clears the old account queue and metadata cache; catalog login also removes the old
+streaming login.
 
-There is no persistent metadata cache, listening history, analytics, or audio
-download cache. Librespot uses temporary encrypted streaming buffers; normal
+The metadata cache retains tracks encountered during browsing and playback. It
+is not a listening log: it stores no playback times or play counts. It contains no
+credentials. There is no listening-history log, analytics, or audio download cache.
+Librespot uses temporary encrypted streaming buffers; normal
 stream teardown removes them. No offline playback is provided. Operational
 diagnostics retain only classified errors in RAM, not raw upstream URLs or tokens.
 
@@ -173,12 +199,17 @@ diagnostics retain only classified errors in RAM, not raw upstream URLs or token
 .\tuitify.exe logout
 ```
 
-Logout deletes both credentials and `queue.json`, retaining device settings and
-the public client ID. Close the player before logging in or out.
+Logout deletes both credentials, `queue.json`, and `cache.json`, retaining device
+settings and the public client ID. Explicit account replacement also clears the
+cache. Run `tuitify clear-cache` to remove cached metadata without logging out.
+Close the player before logging in, logging out, or clearing its cache.
 
-If JSON is corrupted or from an unsupported version, Tuitify exits with its path
+If config or queue JSON is corrupted or from an unsupported version, Tuitify exits with its path
 and preserves it. Move the affected file aside and start again to reset it. A
 leftover uncommitted temporary write does not replace the previous valid snapshot.
+An old or invalid metadata cache is ignored with a status message and rebuilt as
+names load. F5 invalidates current/visible queue metadata and retries failed
+metadata and lyrics requests.
 
 ## Troubleshooting
 
@@ -238,6 +269,18 @@ cargo test --locked terminal_cleanup_acceptance -- --ignored --nocapture --test-
 ```
 
 The intentional panic message is expected; the test must finish with `ok`.
+
+Website assets and browser tests use Node.js 22 or later:
+
+```powershell
+npm ci
+npm run build:css
+npm test
+```
+
+The generated stylesheet is committed for static hosting; the website needs no
+runtime Tailwind CDN or font service. See [BENCHMARKS.md](BENCHMARKS.md) for the
+reproducible offline rendering benchmark and limits of those measurements.
 
 Normal tests use mocked HTTP servers and do not require Spotify or audio. They
 cover queue order and duplicate IDs, shuffle/repeat, completion handling, stale

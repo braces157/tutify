@@ -1,5 +1,6 @@
 mod app;
 mod auth;
+mod cache;
 mod catalog;
 mod diagnostics;
 mod lyrics;
@@ -37,6 +38,8 @@ enum Command {
     },
     /// Remove saved credentials and the account queue.
     Logout,
+    /// Delete cached track names and availability; keep credentials and queue.
+    ClearCache,
     /// Stream one track with a minimal interface for first-stage audio validation.
     Probe { track: String },
 }
@@ -60,7 +63,13 @@ async fn main() -> Result<()> {
         Some(Command::Logout) => {
             auth::delete_tokens()?;
             store.clear_queue()?;
+            store.clear_cache()?;
             println!("Logged out. Credentials and account queue removed.");
+            Ok(())
+        }
+        Some(Command::ClearCache) => {
+            store.clear_cache()?;
+            println!("Metadata cache cleared.");
             Ok(())
         }
         Some(Command::Probe { track }) => {

@@ -20,12 +20,9 @@ use ratatui::{
 };
 use std::io::{Stdout, stdout};
 
-const GREEN: Color = Color::Rgb(30, 215, 96);
 const BG: Color = Color::Rgb(14, 17, 16);
 const MUTED: Color = Color::Rgb(143, 155, 147);
 const FG: Color = Color::Rgb(227, 234, 229);
-const HIGHLIGHT_BG: Color = Color::Rgb(24, 45, 32);
-const ACCENT_DIM: Color = Color::Rgb(85, 160, 110);
 
 pub struct TerminalGuard {
     pub terminal: Terminal<CrosstermBackend<Stdout>>,
@@ -181,10 +178,6 @@ pub fn generate_bars(frame: u32, count: usize, is_playing: bool) -> String {
     s
 }
 
-fn block(title: impl Into<Line<'static>>, focused: bool) -> Block<'static> {
-    block_themed(title, focused, Theme::Spotify)
-}
-
 fn block_themed(title: impl Into<Line<'static>>, focused: bool, theme: Theme) -> Block<'static> {
     Block::default()
         .title(title)
@@ -207,20 +200,23 @@ fn time(ms: u32) -> String {
 
 pub fn draw(frame: &mut Frame<'_>, app: &App) {
     let area = frame.area();
+    app.terminal_size.set((area.width, area.height));
+    let theme = Theme::from_str(&app.config.theme);
     frame.render_widget(Block::default().style(Style::default().fg(FG).bg(BG)), area);
     if area.width < 32 || area.height < 10 {
         frame.render_widget(
             Paragraph::new("TUITIFY\nResize to 32x10 or larger.\nq quit | Space pause")
-                .style(Style::default().fg(GREEN)),
+                .style(Style::default().fg(theme.primary())),
             area,
         );
         return;
     }
+    let compact = area.height < 18;
     let vertical = Layout::vertical([
-        Constraint::Length(2),
-        Constraint::Min(2),
+        Constraint::Length(if compact { 1 } else { 2 }),
+        Constraint::Min(3),
         Constraint::Length(4),
-        Constraint::Length(3),
+        Constraint::Length(if compact { 1 } else { 3 }),
     ])
     .split(area);
 
@@ -316,7 +312,7 @@ pub fn draw(frame: &mut Frame<'_>, app: &App) {
                     Style::default()
                         .fg(
                             if (app.sidebar && app.nav == i) || (!app.sidebar && app.view == *v) {
-                                GREEN
+                                theme.primary()
                             } else {
                                 MUTED
                             },
@@ -363,7 +359,7 @@ pub fn draw(frame: &mut Frame<'_>, app: &App) {
         ])
     } else {
         Line::from(vec![
-            Span::styled(" * ", Style::default().fg(GREEN)),
+            Span::styled(" * ", Style::default().fg(theme.primary())),
             Span::styled(&app.status, Style::default().fg(MUTED)),
         ])
     };
@@ -378,7 +374,7 @@ pub fn draw(frame: &mut Frame<'_>, app: &App) {
                 " Space ",
                 Style::default()
                     .fg(Color::Rgb(14, 17, 16))
-                    .bg(ACCENT_DIM)
+                    .bg(theme.accent_dim())
                     .bold(),
             ),
             Span::styled(" Play/Pause  ", Style::default().fg(MUTED)),
@@ -386,7 +382,7 @@ pub fn draw(frame: &mut Frame<'_>, app: &App) {
                 " / ",
                 Style::default()
                     .fg(Color::Rgb(14, 17, 16))
-                    .bg(ACCENT_DIM)
+                    .bg(theme.accent_dim())
                     .bold(),
             ),
             Span::styled(
@@ -401,7 +397,7 @@ pub fn draw(frame: &mut Frame<'_>, app: &App) {
                 " 1-5 ",
                 Style::default()
                     .fg(Color::Rgb(14, 17, 16))
-                    .bg(ACCENT_DIM)
+                    .bg(theme.accent_dim())
                     .bold(),
             ),
             Span::styled(" Views  ", Style::default().fg(MUTED)),
@@ -409,7 +405,7 @@ pub fn draw(frame: &mut Frame<'_>, app: &App) {
                 " Tab ",
                 Style::default()
                     .fg(Color::Rgb(14, 17, 16))
-                    .bg(ACCENT_DIM)
+                    .bg(theme.accent_dim())
                     .bold(),
             ),
             Span::styled(" Focus  ", Style::default().fg(MUTED)),
@@ -417,7 +413,7 @@ pub fn draw(frame: &mut Frame<'_>, app: &App) {
                 " n/p ",
                 Style::default()
                     .fg(Color::Rgb(14, 17, 16))
-                    .bg(ACCENT_DIM)
+                    .bg(theme.accent_dim())
                     .bold(),
             ),
             Span::styled(" Next/Prev  ", Style::default().fg(MUTED)),
@@ -425,7 +421,7 @@ pub fn draw(frame: &mut Frame<'_>, app: &App) {
                 " +/- ",
                 Style::default()
                     .fg(Color::Rgb(14, 17, 16))
-                    .bg(ACCENT_DIM)
+                    .bg(theme.accent_dim())
                     .bold(),
             ),
             Span::styled(" Vol  ", Style::default().fg(MUTED)),
@@ -433,7 +429,7 @@ pub fn draw(frame: &mut Frame<'_>, app: &App) {
                 " ? ",
                 Style::default()
                     .fg(Color::Rgb(14, 17, 16))
-                    .bg(ACCENT_DIM)
+                    .bg(theme.accent_dim())
                     .bold(),
             ),
             Span::styled(" Help  ", Style::default().fg(MUTED)),
@@ -441,7 +437,7 @@ pub fn draw(frame: &mut Frame<'_>, app: &App) {
                 " q ",
                 Style::default()
                     .fg(Color::Rgb(14, 17, 16))
-                    .bg(ACCENT_DIM)
+                    .bg(theme.accent_dim())
                     .bold(),
             ),
             Span::styled(" Quit", Style::default().fg(MUTED)),
@@ -452,7 +448,7 @@ pub fn draw(frame: &mut Frame<'_>, app: &App) {
                 " Space ",
                 Style::default()
                     .fg(Color::Rgb(14, 17, 16))
-                    .bg(ACCENT_DIM)
+                    .bg(theme.accent_dim())
                     .bold(),
             ),
             Span::styled(" Play  ", Style::default().fg(MUTED)),
@@ -460,7 +456,7 @@ pub fn draw(frame: &mut Frame<'_>, app: &App) {
                 " / ",
                 Style::default()
                     .fg(Color::Rgb(14, 17, 16))
-                    .bg(ACCENT_DIM)
+                    .bg(theme.accent_dim())
                     .bold(),
             ),
             Span::styled(
@@ -475,7 +471,7 @@ pub fn draw(frame: &mut Frame<'_>, app: &App) {
                 " Tab ",
                 Style::default()
                     .fg(Color::Rgb(14, 17, 16))
-                    .bg(ACCENT_DIM)
+                    .bg(theme.accent_dim())
                     .bold(),
             ),
             Span::styled(" Focus  ", Style::default().fg(MUTED)),
@@ -483,7 +479,7 @@ pub fn draw(frame: &mut Frame<'_>, app: &App) {
                 " q ",
                 Style::default()
                     .fg(Color::Rgb(14, 17, 16))
-                    .bg(ACCENT_DIM)
+                    .bg(theme.accent_dim())
                     .bold(),
             ),
             Span::styled(" Quit", Style::default().fg(MUTED)),
@@ -543,7 +539,7 @@ fn navigation(frame: &mut Frame<'_>, app: &App, area: Rect) {
 
 fn visualizer(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let theme = Theme::from_str(&app.config.theme);
-    let outer = block_themed(" RETRO AUDIO SPECTRUM [v exit] ", true, theme);
+    let outer = block_themed(" RETRO VISUALIZER [v exit] ", true, theme);
     let inner = outer.inner(area);
     frame.render_widget(outer, area);
 
@@ -571,7 +567,7 @@ fn visualizer(frame: &mut Frame<'_>, app: &App, area: Rect) {
         ),
         Span::styled(track_info, Style::default().fg(FG).bold()),
         Span::styled(
-            "   [STEREO 44.1kHz • 320kbps Hi-Fi]",
+            "   [DECORATIVE ANIMATION]",
             Style::default().fg(theme.accent_dim()).italic(),
         ),
     ]);
@@ -584,21 +580,23 @@ fn visualizer(frame: &mut Frame<'_>, app: &App, area: Rect) {
         let bar_count = (width / 3).clamp(8, 32);
         let t = app.animation_frame as f64 * 0.16;
 
+        let heights: Vec<usize> = (0..bar_count)
+            .map(|col| {
+                if !is_playing {
+                    return 0;
+                }
+                let x = col as f64;
+                let freq = 1.1 + x * 0.12;
+                let wave = (t * freq + x * 0.7).sin() * 0.42
+                    + (t * 0.6 - x * 0.35).cos() * 0.35
+                    + (t * 2.3 + x * 1.4).sin() * 0.23;
+                ((wave + 1.0) * 0.5 * height as f64).round() as usize
+            })
+            .collect();
         let mut lines = Vec::new();
         for row in (1..=height).rev() {
-            let mut spans = Vec::new();
-            spans.push(Span::raw("  "));
-            for col in 0..bar_count {
-                let x = col as f64;
-                let val = if is_playing {
-                    let freq = 1.1 + (x * 0.12);
-                    let wave = (t * freq + x * 0.7).sin() * 0.42
-                        + (t * 0.6 - x * 0.35).cos() * 0.35
-                        + (t * 2.3 + x * 1.4).sin() * 0.23;
-                    ((wave + 1.0) * 0.5 * (height as f64)).round() as usize
-                } else {
-                    0
-                };
+            let mut spans = vec![Span::raw("  ")];
+            for &val in &heights {
                 if val >= row {
                     let color = if row > height * 3 / 4 {
                         Color::Red
@@ -620,7 +618,7 @@ fn visualizer(frame: &mut Frame<'_>, app: &App, area: Rect) {
     }
 
     let labels = Line::from(vec![Span::styled(
-        "  32Hz 64Hz 125Hz 250Hz 500Hz 1kHz 2kHz 4kHz 8kHz 16kHz",
+        "  Decorative bars • not audio frequency analysis",
         Style::default().fg(MUTED),
     )]);
     frame.render_widget(Paragraph::new(labels), parts[2]);
@@ -638,6 +636,15 @@ fn lyrics(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let inner = outer.inner(area);
     frame.render_widget(outer, area);
 
+    if let Some(error) = &app.lyrics_error {
+        frame.render_widget(
+            Paragraph::new(error.as_str())
+                .wrap(Wrap { trim: false })
+                .style(Style::default().fg(MUTED)),
+            inner,
+        );
+        return;
+    }
     if app.lyrics_loading {
         let p = Paragraph::new("\n  ⟳ Loading synchronized lyrics from Lrclib...")
             .style(Style::default().fg(theme.primary()).italic());
@@ -653,7 +660,8 @@ fn lyrics(frame: &mut Frame<'_>, app: &App, area: Rect) {
     };
 
     if !lyr.lines.is_empty() {
-        let current_idx = lyr.current_line_index(app.queue.position_ms).unwrap_or(0);
+        let active = lyr.current_line_index(app.queue.position_ms);
+        let current_idx = active.unwrap_or(0);
         let height = inner.height as usize;
         let half = height / 2;
         let start = current_idx.saturating_sub(half);
@@ -661,7 +669,7 @@ fn lyrics(frame: &mut Frame<'_>, app: &App, area: Rect) {
 
         let items: Vec<Line<'static>> = visible
             .map(|(i, l)| {
-                if i == current_idx {
+                if Some(i) == active {
                     Line::from(vec![
                         Span::styled("► ", Style::default().fg(theme.primary()).bold()),
                         Span::styled(
@@ -669,7 +677,7 @@ fn lyrics(frame: &mut Frame<'_>, app: &App, area: Rect) {
                             Style::default().fg(FG).bg(theme.highlight_bg()).bold(),
                         ),
                     ])
-                } else if i < current_idx {
+                } else if active.is_some_and(|active| i < active) {
                     Line::from(vec![
                         Span::raw("  "),
                         Span::styled(l.text.clone(), Style::default().fg(MUTED)),
@@ -687,12 +695,41 @@ fn lyrics(frame: &mut Frame<'_>, app: &App, area: Rect) {
         let p = Paragraph::new(plain.as_str())
             .wrap(Wrap { trim: true })
             .style(Style::default().fg(FG));
-        frame.render_widget(p, inner);
+        let max_scroll = p
+            .line_count(inner.width)
+            .saturating_sub(inner.height as usize);
+        app.lyrics_length.set(max_scroll + 1);
+        frame.render_widget(
+            p.scroll((
+                app.lyrics_scroll.min(max_scroll).min(u16::MAX as usize) as u16,
+                0,
+            )),
+            inner,
+        );
     } else {
         let p = Paragraph::new("\n  No lyrics found for this track. Press l to return.")
             .style(Style::default().fg(MUTED));
         frame.render_widget(p, inner);
     }
+}
+
+fn viewport(
+    selected: usize,
+    len: usize,
+    height: usize,
+    offset: &std::cell::Cell<usize>,
+) -> std::ops::Range<usize> {
+    let height = height.max(1);
+    let selected = selected.min(len.saturating_sub(1));
+    let mut start = offset.get().min(len.saturating_sub(height));
+    if selected < start {
+        start = selected;
+    }
+    if selected >= start + height {
+        start = selected + 1 - height;
+    }
+    offset.set(start);
+    start..(start + height).min(len)
 }
 
 fn center(frame: &mut Frame<'_>, app: &App, area: Rect) {
@@ -734,7 +771,7 @@ fn center(frame: &mut Frame<'_>, app: &App, area: Rect) {
         r              Cycle repeat: Off -> Queue -> Track\n\n\
         RETRO FEATURES & THEMES\n\
         t              Cycle Retro Theme (Spotify, Amber CRT, Matrix, Cyberpunk, Monochrome)\n\
-        v              Toggle Retro ASCII Audio Spectrum Visualizer\n\
+        v              Toggle Decorative Retro Visualizer\n\
         l              Toggle Synced Real-Time Lyrics View (Lrclib)\n\n\
         CATALOG & NETWORK\n\
         / or f         Filter current view (Liked/Playlists) or Search catalog\n\
@@ -745,12 +782,20 @@ fn center(frame: &mut Frame<'_>, app: &App, area: Rect) {
         Login issue? Exit and run `tuitify auth --force`.\n\
         Streaming issue? Run `tuitify auth --streaming --force`.\n\
         No audio? Check Windows default output device and Spotify Premium.";
+        let outer = block_themed(" HELP & SHORTCUTS ", !app.sidebar, theme);
+        let inner = outer.inner(area);
+        let paragraph = Paragraph::new(text).wrap(Wrap { trim: false });
+        let max_scroll = paragraph
+            .line_count(inner.width)
+            .saturating_sub(inner.height as usize);
+        app.help_length.set(max_scroll + 1);
+        frame.render_widget(outer, area);
         frame.render_widget(
-            Paragraph::new(text)
-                .block(block_themed(" HELP & SHORTCUTS ", !app.sidebar, theme))
-                .wrap(Wrap { trim: false })
-                .scroll((app.selected.min(30) as u16, 0)),
-            area,
+            paragraph.scroll((
+                app.selected.min(max_scroll).min(u16::MAX as usize) as u16,
+                0,
+            )),
+            inner,
         );
         return;
     }
@@ -762,7 +807,7 @@ fn center(frame: &mut Frame<'_>, app: &App, area: Rect) {
         let split = Layout::vertical([Constraint::Length(3), Constraint::Min(1)]).split(area);
         let prompt_line = if app.query.is_empty() && !app.editing {
             Line::from(vec![
-                Span::styled(" 🔍 ", Style::default().fg(GREEN)),
+                Span::styled(" 🔍 ", Style::default().fg(theme.primary())),
                 Span::styled(
                     "Press / to search songs, artists, or paste a Spotify link",
                     Style::default().fg(MUTED).italic(),
@@ -779,18 +824,19 @@ fn center(frame: &mut Frame<'_>, app: &App, area: Rect) {
                 .rev()
                 .collect::<String>();
             Line::from(vec![
-                Span::styled(" ❯ ", Style::default().fg(GREEN).bold()),
+                Span::styled(" ❯ ", Style::default().fg(theme.primary()).bold()),
                 Span::styled(visible, Style::default().fg(FG).bold()),
             ])
         };
         frame.render_widget(
-            Paragraph::new(prompt_line).block(block(
+            Paragraph::new(prompt_line).block(block_themed(
                 if app.editing {
                     " 🔍 SEARCH • Enter submit • Esc cancel "
                 } else {
                     " 🔍 SEARCH "
                 },
                 app.editing,
+                theme,
             )),
             split[0],
         );
@@ -801,7 +847,7 @@ fn center(frame: &mut Frame<'_>, app: &App, area: Rect) {
         let split = Layout::vertical([Constraint::Length(3), Constraint::Min(1)]).split(area);
         let prompt_line = if app.filter.is_empty() && !app.filtering {
             Line::from(vec![
-                Span::styled(" 🔍 ", Style::default().fg(GREEN)),
+                Span::styled(" 🔍 ", Style::default().fg(theme.primary())),
                 Span::styled(
                     "Press / or f to filter",
                     Style::default().fg(MUTED).italic(),
@@ -818,10 +864,10 @@ fn center(frame: &mut Frame<'_>, app: &App, area: Rect) {
                 .rev()
                 .collect::<String>();
             Line::from(vec![
-                Span::styled(" ❯ ", Style::default().fg(GREEN).bold()),
+                Span::styled(" ❯ ", Style::default().fg(theme.primary()).bold()),
                 Span::styled(visible, Style::default().fg(FG).bold()),
                 if app.filtering {
-                    Span::styled("▎", Style::default().fg(GREEN))
+                    Span::styled("▎", Style::default().fg(theme.primary()))
                 } else {
                     Span::raw("")
                 },
@@ -833,7 +879,7 @@ fn center(frame: &mut Frame<'_>, app: &App, area: Rect) {
             " 🔍 FILTER • [/] edit • Esc clear "
         };
         frame.render_widget(
-            Paragraph::new(prompt_line).block(block(filter_title, app.filtering)),
+            Paragraph::new(prompt_line).block(block_themed(filter_title, app.filtering, theme)),
             split[0],
         );
         split[1]
@@ -862,6 +908,12 @@ fn center(frame: &mut Frame<'_>, app: &App, area: Rect) {
     match &app.rows {
         Rows::Tracks(tracks) => {
             let indices = app.filtered_indices();
+            let visible = viewport(
+                app.selected,
+                indices.len(),
+                body.height.saturating_sub(4) as usize,
+                &app.catalog_scroll,
+            );
             if tracks.is_empty() || (app.is_filtered() && indices.is_empty()) {
                 let empty_msg = if app.busy {
                     "\n  ⟳ Fetching tracks from Spotify..."
@@ -872,7 +924,7 @@ fn center(frame: &mut Frame<'_>, app: &App, area: Rect) {
                 };
                 frame.render_widget(
                     Paragraph::new(empty_msg)
-                        .block(block(title, !app.sidebar))
+                        .block(block_themed(title, !app.sidebar, theme))
                         .style(Style::default().fg(MUTED))
                         .wrap(Wrap { trim: false }),
                     body,
@@ -881,6 +933,8 @@ fn center(frame: &mut Frame<'_>, app: &App, area: Rect) {
                 let rows: Vec<Row> = indices
                     .iter()
                     .enumerate()
+                    .skip(visible.start)
+                    .take(visible.len())
                     .filter_map(|(display_idx, &track_idx)| {
                         let t = tracks.get(track_idx)?;
                         let current = app.queue.current() == Some(t.id.as_str());
@@ -896,7 +950,7 @@ fn center(frame: &mut Frame<'_>, app: &App, area: Rect) {
                         let index_cell =
                             Cell::from(format!(" {:>2} {:>3} ", indicator, display_idx + 1)).style(
                                 Style::default()
-                                    .fg(if current { GREEN } else { MUTED })
+                                    .fg(if current { theme.primary() } else { MUTED })
                                     .bold(),
                             );
                         let title_cell = Cell::from(format!(
@@ -907,7 +961,7 @@ fn center(frame: &mut Frame<'_>, app: &App, area: Rect) {
                         .style(
                             Style::default()
                                 .fg(if current {
-                                    GREEN
+                                    theme.primary()
                                 } else if t.playable {
                                     FG
                                 } else {
@@ -916,7 +970,11 @@ fn center(frame: &mut Frame<'_>, app: &App, area: Rect) {
                                 .bold(),
                         );
                         let artist_cell = Cell::from(t.artists.as_str()).style(
-                            Style::default().fg(if t.playable { ACCENT_DIM } else { MUTED }),
+                            Style::default().fg(if t.playable {
+                                theme.accent_dim()
+                            } else {
+                                MUTED
+                            }),
                         );
                         let time_cell = Cell::from(if t.duration_ms > 0 {
                             time(t.duration_ms)
@@ -958,12 +1016,18 @@ fn center(frame: &mut Frame<'_>, app: &App, area: Rect) {
                 .style(Style::default().fg(MUTED).bold())
                 .bottom_margin(1);
 
-                let mut state = TableState::default().with_selected(Some(app.selected));
+                let mut state = TableState::default()
+                    .with_selected(Some(app.selected.saturating_sub(visible.start)));
                 frame.render_stateful_widget(
                     Table::new(rows, widths)
                         .header(header)
-                        .block(block(title, !app.sidebar))
-                        .row_highlight_style(Style::default().fg(GREEN).bg(HIGHLIGHT_BG).bold()),
+                        .block(block_themed(title, !app.sidebar, theme))
+                        .row_highlight_style(
+                            Style::default()
+                                .fg(theme.primary())
+                                .bg(theme.highlight_bg())
+                                .bold(),
+                        ),
                     body,
                     &mut state,
                 );
@@ -971,6 +1035,12 @@ fn center(frame: &mut Frame<'_>, app: &App, area: Rect) {
         }
         Rows::Playlists(playlists) => {
             let indices = app.filtered_indices();
+            let visible = viewport(
+                app.selected,
+                indices.len(),
+                body.height.saturating_sub(4) as usize,
+                &app.catalog_scroll,
+            );
             if playlists.is_empty() || (app.is_filtered() && indices.is_empty()) {
                 let empty_msg = if app.busy {
                     "\n  ⟳ Fetching playlists from Spotify..."
@@ -981,7 +1051,7 @@ fn center(frame: &mut Frame<'_>, app: &App, area: Rect) {
                 };
                 frame.render_widget(
                     Paragraph::new(empty_msg)
-                        .block(block(title, !app.sidebar))
+                        .block(block_themed(title, !app.sidebar, theme))
                         .style(Style::default().fg(MUTED))
                         .wrap(Wrap { trim: false }),
                     body,
@@ -990,14 +1060,16 @@ fn center(frame: &mut Frame<'_>, app: &App, area: Rect) {
                 let rows: Vec<Row> = indices
                     .iter()
                     .enumerate()
+                    .skip(visible.start)
+                    .take(visible.len())
                     .filter_map(|(display_idx, &p_idx)| {
                         let p = playlists.get(p_idx)?;
                         let index_cell = Cell::from(format!("  {:>3}", display_idx + 1))
                             .style(Style::default().fg(MUTED));
                         let name_cell =
                             Cell::from(p.name.as_str()).style(Style::default().fg(FG).bold());
-                        let owner_cell =
-                            Cell::from(p.owner.as_str()).style(Style::default().fg(ACCENT_DIM));
+                        let owner_cell = Cell::from(p.owner.as_str())
+                            .style(Style::default().fg(theme.accent_dim()));
                         Some(Row::new(vec![index_cell, name_cell, owner_cell]))
                     })
                     .collect();
@@ -1013,12 +1085,18 @@ fn center(frame: &mut Frame<'_>, app: &App, area: Rect) {
                 ])
                 .style(Style::default().fg(MUTED).bold())
                 .bottom_margin(1);
-                let mut state = TableState::default().with_selected(Some(app.selected));
+                let mut state = TableState::default()
+                    .with_selected(Some(app.selected.saturating_sub(visible.start)));
                 frame.render_stateful_widget(
                     Table::new(rows, widths)
                         .header(header)
-                        .block(block(title, !app.sidebar))
-                        .row_highlight_style(Style::default().fg(GREEN).bg(HIGHLIGHT_BG).bold()),
+                        .block(block_themed(title, !app.sidebar, theme))
+                        .row_highlight_style(
+                            Style::default()
+                                .fg(theme.primary())
+                                .bg(theme.highlight_bg())
+                                .bold(),
+                        ),
                     body,
                     &mut state,
                 );
@@ -1028,6 +1106,7 @@ fn center(frame: &mut Frame<'_>, app: &App, area: Rect) {
 }
 
 fn queue(frame: &mut Frame<'_>, app: &App, area: Rect, main: bool) {
+    let theme = Theme::from_str(&app.config.theme);
     if app.queue.order.is_empty() {
         let msg = if main {
             "\n  Your queue is empty.\n\n  • Play a track or playlist from Search or Playlists\n  • Press a on any song to append it to the queue"
@@ -1036,7 +1115,7 @@ fn queue(frame: &mut Frame<'_>, app: &App, area: Rect, main: bool) {
         };
         frame.render_widget(
             Paragraph::new(msg)
-                .block(block(" QUEUE ", main && !app.sidebar))
+                .block(block_themed(" QUEUE ", main && !app.sidebar, theme))
                 .style(Style::default().fg(MUTED)),
             area,
         );
@@ -1047,11 +1126,21 @@ fn queue(frame: &mut Frame<'_>, app: &App, area: Rect, main: bool) {
         || app.status.contains("auth --force")
         || app.status.contains("Catalog login failed");
 
+    let selected = if main {
+        app.queue.selected
+    } else {
+        app.queue.cursor.unwrap_or(0)
+    };
+    let height = area.height.saturating_sub(if main { 4 } else { 2 }) as usize;
+    app.queue_height.set(height);
+    let visible = viewport(selected, app.queue.order.len(), height, &app.queue_scroll);
     let rows: Vec<Row> = app
         .queue
         .order
         .iter()
         .enumerate()
+        .skip(visible.start)
+        .take(visible.len())
         .map(|(at, i)| {
             let id = &app.queue.ids[*i];
             let is_current = app.queue.cursor == Some(at);
@@ -1076,6 +1165,13 @@ fn queue(frame: &mut Frame<'_>, app: &App, area: Rect, main: bool) {
                     },
                     false,
                 )
+            } else if app.metadata_error.is_some() {
+                (
+                    "Track info unavailable; F5 retry",
+                    "—",
+                    "--:--".to_string(),
+                    true,
+                )
             } else if auth_expired {
                 (
                     "Track info unavailable (auth expired)",
@@ -1089,11 +1185,11 @@ fn queue(frame: &mut Frame<'_>, app: &App, area: Rect, main: bool) {
 
             let index_cell = Cell::from(format!(" {:>2} {:>3} ", indicator, at + 1)).style(
                 Style::default()
-                    .fg(if is_current { GREEN } else { MUTED })
+                    .fg(if is_current { theme.primary() } else { MUTED })
                     .bold(),
             );
             let name_cell = Cell::from(name).style(if is_current {
-                Style::default().fg(GREEN).bold()
+                Style::default().fg(theme.primary()).bold()
             } else if is_placeholder {
                 Style::default().fg(MUTED).italic()
             } else {
@@ -1101,8 +1197,12 @@ fn queue(frame: &mut Frame<'_>, app: &App, area: Rect, main: bool) {
             });
 
             if main {
-                let artist_cell = Cell::from(artist)
-                    .style(Style::default().fg(if is_placeholder { MUTED } else { ACCENT_DIM }));
+                let artist_cell =
+                    Cell::from(artist).style(Style::default().fg(if is_placeholder {
+                        MUTED
+                    } else {
+                        theme.accent_dim()
+                    }));
                 let time_cell = Cell::from(duration).style(Style::default().fg(MUTED));
                 Row::new(vec![index_cell, name_cell, artist_cell, time_cell])
             } else {
@@ -1114,9 +1214,9 @@ fn queue(frame: &mut Frame<'_>, app: &App, area: Rect, main: bool) {
 
     let title = format!(" QUEUE • {} ", app.queue.ids.len());
     let mut state = TableState::default().with_selected(if main {
-        Some(app.queue.selected)
+        Some(app.queue.selected.saturating_sub(visible.start))
     } else {
-        app.queue.cursor
+        app.queue.cursor.map(|c| c.saturating_sub(visible.start))
     });
 
     if main {
@@ -1147,8 +1247,13 @@ fn queue(frame: &mut Frame<'_>, app: &App, area: Rect, main: bool) {
         frame.render_stateful_widget(
             Table::new(rows, widths)
                 .header(header)
-                .block(block(title, main && !app.sidebar))
-                .row_highlight_style(Style::default().fg(GREEN).bg(HIGHLIGHT_BG).bold()),
+                .block(block_themed(title, main && !app.sidebar, theme))
+                .row_highlight_style(
+                    Style::default()
+                        .fg(theme.primary())
+                        .bg(theme.highlight_bg())
+                        .bold(),
+                ),
             area,
             &mut state,
         );
@@ -1160,8 +1265,12 @@ fn queue(frame: &mut Frame<'_>, app: &App, area: Rect, main: bool) {
         ];
         frame.render_stateful_widget(
             Table::new(rows, widths)
-                .block(block(title, main && !app.sidebar))
-                .row_highlight_style(Style::default().fg(GREEN).bg(HIGHLIGHT_BG)),
+                .block(block_themed(title, main && !app.sidebar, theme))
+                .row_highlight_style(
+                    Style::default()
+                        .fg(theme.primary())
+                        .bg(theme.highlight_bg()),
+                ),
             area,
             &mut state,
         );
@@ -1342,6 +1451,114 @@ mod tests {
     use super::*;
     use crate::{model::Track, queue::Queue, storage::Config};
     use ratatui::backend::TestBackend;
+    #[test]
+    fn help_and_plain_lyrics_can_scroll_to_last_line_in_small_terminal() {
+        let mut app = App::new(Config::default(), Queue::default());
+        app.view = View::Help;
+        app.selected = usize::MAX;
+        let mut terminal = Terminal::new(TestBackend::new(32, 10)).unwrap();
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        let text = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|c| c.symbol())
+            .collect::<String>();
+        assert!(text.contains("Premium."), "{text}");
+        assert!(app.help_length.get() > 30);
+        app.show_lyrics = true;
+        app.lyrics = Some(crate::lyrics::Lyrics {
+            lines: vec![],
+            plain: Some(
+                (0..100)
+                    .map(|i| format!("Line {i}"))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            ),
+        });
+        app.lyrics_scroll = usize::MAX;
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        let text = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|c| c.symbol())
+            .collect::<String>();
+        assert!(text.contains("Line 99"), "{text}");
+    }
+    #[test]
+    fn viewport_tracks_selection_without_building_offscreen_rows() {
+        let offset = std::cell::Cell::new(0);
+        assert_eq!(viewport(4999, 5000, 12, &offset), 4988..5000);
+        assert_eq!(viewport(4998, 5000, 12, &offset), 4988..5000);
+        assert_eq!(viewport(0, 5000, 12, &offset), 0..12);
+    }
+    #[test]
+    fn queue_uses_selected_theme_accent() {
+        let mut app = App::new(Config::default(), Queue::default());
+        app.config.theme = "amber".into();
+        app.queue.replace(vec!["0".repeat(22)], 0, false);
+        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        let buffer = terminal.backend().buffer();
+        assert!(
+            buffer
+                .content
+                .iter()
+                .any(|c| c.fg == Theme::Amber.primary())
+        );
+        assert!(
+            !buffer
+                .content
+                .iter()
+                .any(|c| c.fg == Theme::Spotify.primary())
+        );
+    }
+    #[test]
+    #[ignore = "Release microbenchmark; run with --release --ignored --nocapture"]
+    fn benchmark_render_scaling() {
+        for count in [50, 500, 5000] {
+            let mut app = App::new(Config::default(), Queue::default());
+            app.queue
+                .replace((0..count).map(|i| format!("{i:022}")).collect(), 0, false);
+            let tracks: Vec<Track> = (0..count)
+                .map(|i| Track {
+                    id: format!("{i:022}"),
+                    name: format!("Benchmark song {i}"),
+                    artists: "Benchmark artist".into(),
+                    duration_ms: 200000,
+                    playable: true,
+                })
+                .collect();
+            for track in tracks.iter().take(50) {
+                app.cache.insert(track.id.clone(), track.clone());
+            }
+            for mode in ["queue", "filtered"] {
+                app.view = if mode == "queue" {
+                    View::Queue
+                } else {
+                    View::Liked
+                };
+                if mode == "filtered" {
+                    app.rows = Rows::Tracks(tracks.clone());
+                    app.filter = "benchmark artist".into();
+                }
+                let mut terminal = Terminal::new(TestBackend::new(120, 35)).unwrap();
+                terminal.draw(|f| draw(f, &app)).unwrap();
+                let start = std::time::Instant::now();
+                for _ in 0..100 {
+                    terminal.draw(|f| draw(f, &app)).unwrap();
+                }
+                println!(
+                    "mode={mode} rows={count} mean_frame_ms={:.3} release={}",
+                    start.elapsed().as_secs_f64() * 10.0,
+                    !cfg!(debug_assertions)
+                );
+            }
+        }
+    }
     #[test]
     fn render_all_views_normal_narrow_and_tiny() {
         for (w, h) in [(120, 35), (80, 24), (48, 18), (32, 10), (20, 6)] {

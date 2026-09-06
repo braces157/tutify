@@ -21,41 +21,51 @@ impl Lyrics {
     }
 
     pub fn current_line_index(&self, position_ms: u32) -> Option<usize> {
-        if self.lines.is_empty() {
-            return None;
-        }
-        let mut best = 0;
-        for (i, line) in self.lines.iter().enumerate() {
-            if line.position_ms <= position_ms {
-                best = i;
-            } else {
-                break;
-            }
-        }
-        Some(best)
+        self.lines
+            .partition_point(|line| line.position_ms <= position_ms)
+            .checked_sub(1)
     }
+}
+
+fn timestamp(value: &str) -> Option<u32> {
+    let (minutes, seconds) = value.split_once(':')?;
+    let minutes = minutes.parse::<u32>().ok()?;
+    let (seconds, fraction) = seconds.split_once('.').unwrap_or((seconds, ""));
+    let seconds = seconds.parse::<u32>().ok()?;
+    if seconds >= 60 || !fraction.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let millis = format!("{fraction:0<3}").get(..3)?.parse::<u32>().ok()?;
+    minutes
+        .checked_mul(60_000)?
+        .checked_add(seconds * 1000)?
+        .checked_add(millis)
 }
 
 pub fn parse_lrc(lrc: &str) -> Vec<LyricLine> {
     let mut lines = Vec::new();
     for line in lrc.lines() {
-        let line = line.trim();
-        if !line.starts_with('[') {
-            continue;
-        }
-        if let Some(close) = line.find(']') {
-            let time_part = &line[1..close];
-            let text_part = line[close + 1..].trim();
-            let parts: Vec<&str> = time_part.split(':').collect();
-            if parts.len() == 2 {
-                if let (Ok(min), Ok(sec)) = (parts[0].parse::<u32>(), parts[1].parse::<f32>()) {
-                    let position_ms = min * 60_000 + (sec * 1000.0) as u32;
-                    lines.push(LyricLine {
-                        position_ms,
-                        text: text_part.to_string(),
-                    });
-                }
+        let mut rest = line.trim();
+        let mut times = Vec::new();
+        while let Some(content) = rest.strip_prefix('[') {
+            let Some((time, tail)) = content.split_once(']') else {
+                break;
+            };
+            if let Some(position) = timestamp(time) {
+                times.push(position);
             }
+            rest = tail;
+        }
+        let text = rest
+            .trim()
+            .chars()
+            .filter(|c| !c.is_control())
+            .collect::<String>();
+        for position_ms in times {
+            lines.push(LyricLine {
+                position_ms,
+                text: text.clone(),
+            });
         }
     }
     lines.sort_by_key(|l| l.position_ms);
@@ -67,7 +77,7 @@ pub async fn fetch(
     track_name: &str,
     artist_name: &str,
     duration_ms: u32,
-) -> Result<Lyrics> {
+) -> Result<Option<Lyrics>> {
     let duration_s = (duration_ms / 1000).to_string();
     let query = [
         ("track_name", track_name),
@@ -78,17 +88,29 @@ pub async fn fetch(
     let resp = client
         .get("https://lrclib.net/api/get")
         .query(&query)
-        .header("User-Agent", "Tuitify/0.1.1 (terminal spotify player)")
+        .header(
+            "User-Agent",
+            concat!(
+                "Tuitify/",
+                env!("CARGO_PKG_VERSION"),
+                " (terminal spotify player)"
+            ),
+        )
         .send()
         .await?;
 
-    if !resp.status().is_success() {
-        anyhow::bail!("No lyrics found");
+    if resp.status() == reqwest::StatusCode::NOT_FOUND {
+        return Ok(None);
     }
+    let resp = resp.error_for_status()?;
 
     let json: Value = resp.json().await?;
     let synced = json["syncedLyrics"].as_str();
-    let plain = json["plainLyrics"].as_str().map(|s| s.to_string());
+    let plain = json["plainLyrics"].as_str().map(|s| {
+        s.chars()
+            .filter(|c| !c.is_control() || matches!(c, '\n' | '\t'))
+            .collect::<String>()
+    });
 
     let lines = if let Some(synced_text) = synced {
         parse_lrc(synced_text)
@@ -96,13 +118,23 @@ pub async fn fetch(
         vec![]
     };
 
-    Ok(Lyrics { lines, plain })
+    Ok(Some(Lyrics { lines, plain }))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    #[test]
+    fn multiple_timestamps_and_invalid_times_are_handled_safely() {
+        let lines = parse_lrc(
+            "[00:01.5][00:05.050] Chorus\n[9999999999:00] overflow\n[00:60] bad seconds\n[00:NaN] bad float\n[00:-1] negative\n[00:03.日] unicode fraction",
+        );
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0].position_ms, 1500);
+        assert_eq!(lines[1].position_ms, 5050);
+        assert_eq!(lines[1].text, "Chorus");
+    }
     #[test]
     fn parse_lrc_lines() {
         let sample = "[00:01.50] Line one\n[00:04.25] Line two\n[01:10.00] Line three";
@@ -121,7 +153,7 @@ mod tests {
             lines: parse_lrc(sample),
             plain: None,
         };
-        assert_eq!(lyrics.current_line_index(500), Some(0));
+        assert_eq!(lyrics.current_line_index(500), None);
         assert_eq!(lyrics.current_line_index(2000), Some(0));
         assert_eq!(lyrics.current_line_index(6000), Some(1));
         assert_eq!(lyrics.current_line_index(15000), Some(2));
