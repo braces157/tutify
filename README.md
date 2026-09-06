@@ -7,7 +7,7 @@ client by default and can be switched to a personal Spotify Developer app.
 
 ## Run on Windows
 
-Extract `Tuitify-0.2.1-windows-x86_64.zip` and open Windows Terminal in the extracted
+Extract `Tuitify-0.2.2-windows-x86_64.zip` and open Windows Terminal in the extracted
 folder. The executable needs no Rust installation. Use a standard font such as
 Consolas or Cascadia Mono; icon fonts are not required.
 
@@ -74,6 +74,20 @@ reused when checking the streaming login to avoid an unnecessary profile request
 To use `tuitify` without the `.exe` path, add its folder to your user PATH.
 
 ## Controls
+
+Mouse controls (v0.2.2, in terminals with mouse reporting such as Windows Terminal):
+
+- Left-click a song/playlist to select it, or a navigation label to switch views.
+- Right-click a song for **Play**, **Add to queue**, or **Play next**. Queue rows
+  also offer **Remove from queue**; playlists offer **Open** and **Add playlist**.
+- Scroll the wheel over a list to move three rows; Help and plain lyrics scroll too.
+- Click the playing/paused badge to toggle playback, or the progress bar to seek.
+- Click outside the menu or press Esc to dismiss it; Up/Down and Enter also work.
+- Mouse capture prevents right-click from pasting clipboard text into the filter.
+  Use Ctrl+Shift+V for an intentional terminal paste into the search/filter field.
+  Mouse capture is released on normal exit and unwinding panic. Keyboard controls
+  remain available in terminals that do not send mouse events.
+
 
 | Key | Action |
 | --- | --- |

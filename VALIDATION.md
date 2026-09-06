@@ -136,3 +136,22 @@ Spotify rate limit; after waiting, it passed audio-start events, pause, seek,
 resume, volume acknowledgment, injected session loss/reconnection, completion,
 and credential reuse. These checks verify playback-engine events and terminal
 behavior on this Windows setup, not a subjective listening-quality assessment.
+
+## Version 0.2.2 mouse controls — 2026-09-06
+
+Mouse support adds row/view selection, right-click action menus, wheel navigation,
+click-to-edit search/filter, playback badge toggling, and progress-bar seeking.
+The menu supports keyboard navigation and rejects actions after its underlying
+list changes. Hit regions are generated only for rendered rows and reset when
+the layout/data changes; mouse movement alone does not schedule a redraw.
+
+Validation: 71 offline Rust tests passed (four new mouse regressions), along with
+formatting, Clippy, optimized build, and 11 Edge tests. Regressions cover filtered
+track actions, scrolled queue indices, stale menus, queue-sidebar selection,
+menu bounds at 32x10, wheel navigation, and playback-badge dispatch. A live PTY
+launch of the installed executable accepted an SGR right-click and displayed the
+queue-row action menu; Esc dismissed it and q exited. The real-terminal cleanup
+test exposed Windows mouse capture restoring raw mode, which was fixed by
+releasing mouse capture before disabling raw mode. The test then passed both
+normal exit and caught-panic restoration. Live audio was not rerun for this
+mouse-only update; the 0.2.1 live results above describe the preceding build.
