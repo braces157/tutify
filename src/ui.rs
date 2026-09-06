@@ -1,11 +1,11 @@
 use crate::{
-    app::{App, State, View},
+    app::{App, MouseTarget, State, View},
     catalog::Rows,
     model::Repeat,
 };
 use anyhow::Result;
 use crossterm::{
-    event::{DisableBracketedPaste, EnableBracketedPaste},
+    event::{DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture},
     execute,
     terminal::{
         EnterAlternateScreen, LeaveAlternateScreen, SetTitle, disable_raw_mode, enable_raw_mode,
@@ -14,8 +14,8 @@ use crossterm::{
 use ratatui::{
     prelude::*,
     widgets::{
-        Block, BorderType, Borders, Cell, Gauge, List, ListItem, ListState, Paragraph, Row, Table,
-        TableState, Wrap,
+        Block, BorderType, Borders, Cell, Clear, Gauge, List, ListItem, ListState, Paragraph, Row,
+        Table, TableState, Wrap,
     },
 };
 use std::io::{Stdout, stdout};
@@ -28,6 +28,9 @@ pub struct TerminalGuard {
     pub terminal: Terminal<CrosstermBackend<Stdout>>,
 }
 fn restore() {
+    // On Windows mouse capture restores the console mode saved while raw mode
+    // was active. Release it first so it cannot re-enable raw input after exit.
+    let _ = execute!(stdout(), DisableMouseCapture);
     let _ = disable_raw_mode();
     let _ = execute!(
         stdout(),
@@ -50,6 +53,7 @@ impl TerminalGuard {
             crossterm::style::Print("\x1b[22;0t"),
             EnterAlternateScreen,
             EnableBracketedPaste,
+            EnableMouseCapture,
             SetTitle("Tuitify")
         ) {
             restore();
@@ -200,6 +204,7 @@ fn time(ms: u32) -> String {
 
 pub fn draw(frame: &mut Frame<'_>, app: &App) {
     let area = frame.area();
+    app.mouse_hits.borrow_mut().clear();
     app.terminal_size.set((area.width, area.height));
     let theme = Theme::from_str(&app.config.theme);
     frame.render_widget(Block::default().style(Style::default().fg(FG).bg(BG)), area);
@@ -321,6 +326,16 @@ pub fn draw(frame: &mut Frame<'_>, app: &App) {
                 )
             })
             .collect::<Vec<_>>();
+        let mut x = body[0].x;
+        for (index, span) in nav.iter().enumerate() {
+            let width = (span.width() as u16).min(body[0].right().saturating_sub(x));
+            hit(
+                app,
+                Rect::new(x, body[0].y, width, body[0].height),
+                MouseTarget::Navigation(View::ALL[index]),
+            );
+            x += width;
+        }
         frame.render_widget(Paragraph::new(Line::from(nav)), body[0]);
         center(frame, app, body[1]);
     }
@@ -486,6 +501,70 @@ pub fn draw(frame: &mut Frame<'_>, app: &App) {
         ])
     };
     frame.render_widget(Paragraph::new(shortcuts), status_split[1]);
+    if let Some(menu) = &app.context_menu {
+        let width = 28.min(area.width);
+        let height = (menu.actions.len() as u16 + 2).min(area.height);
+        let rect = Rect::new(
+            menu.x.min(area.right().saturating_sub(width)).max(area.x),
+            menu.y.min(area.bottom().saturating_sub(height)).max(area.y),
+            width,
+            height,
+        );
+        frame.render_widget(Clear, rect);
+        let items = menu.actions.iter().map(|(label, _)| ListItem::new(*label));
+        let mut state = ListState::default().with_selected(Some(menu.selected));
+        frame.render_stateful_widget(
+            List::new(items)
+                .block(block_themed(" Actions • Esc close ", true, theme))
+                .style(Style::default().fg(FG).bg(BG))
+                .highlight_style(
+                    Style::default()
+                        .fg(theme.primary())
+                        .bg(theme.highlight_bg())
+                        .bold(),
+                ),
+            rect,
+            &mut state,
+        );
+        // While a menu is open, clicks cannot activate the covered controls.
+        app.mouse_hits.borrow_mut().clear();
+        for index in 0..menu.actions.len().min(height.saturating_sub(2) as usize) {
+            hit(
+                app,
+                Rect::new(
+                    rect.x + 1,
+                    rect.y + 1 + index as u16,
+                    width.saturating_sub(2),
+                    1,
+                ),
+                MouseTarget::Menu(index),
+            );
+        }
+    }
+}
+
+fn hit(app: &App, area: Rect, target: MouseTarget) {
+    if area.width > 0 && area.height > 0 {
+        app.mouse_hits.borrow_mut().push((area, target));
+    }
+}
+fn row_hits(app: &App, area: Rect, visible: &std::ops::Range<usize>, queue: bool, header: bool) {
+    let top = area.y + if header { 3 } else { 1 };
+    for (line, index) in visible.clone().enumerate() {
+        let y = top + line as u16;
+        if y >= area.bottom().saturating_sub(1) {
+            break;
+        }
+        hit(
+            app,
+            Rect::new(area.x + 1, y, area.width.saturating_sub(2), 1),
+            if queue {
+                MouseTarget::Queue(index)
+            } else {
+                MouseTarget::Catalog(index)
+            },
+        );
+    }
 }
 
 fn navigation(frame: &mut Frame<'_>, app: &App, area: Rect) {
@@ -535,6 +614,23 @@ fn navigation(frame: &mut Frame<'_>, app: &App, area: Rect) {
         area,
         &mut state,
     );
+    for (line, view) in View::ALL
+        .iter()
+        .skip(state.offset())
+        .take(area.height.saturating_sub(2) as usize)
+        .enumerate()
+    {
+        hit(
+            app,
+            Rect::new(
+                area.x + 1,
+                area.y + 1 + line as u16,
+                area.width.saturating_sub(2),
+                1,
+            ),
+            MouseTarget::Navigation(*view),
+        );
+    }
 }
 
 fn visualizer(frame: &mut Frame<'_>, app: &App, area: Rect) {
@@ -733,6 +829,7 @@ fn viewport(
 }
 
 fn center(frame: &mut Frame<'_>, app: &App, area: Rect) {
+    hit(app, area, MouseTarget::CatalogScroll);
     let theme = Theme::from_str(&app.config.theme);
     if app.show_visualizer {
         visualizer(frame, app, area);
@@ -750,6 +847,12 @@ fn center(frame: &mut Frame<'_>, app: &App, area: Rect) {
         Enter          Play track or open playlist\n\
         Backspace      Return from playlist to playlists index\n\
         Esc            Close Help / exit Lyrics or Visualizer\n\n\
+        MOUSE CONTROLS\n\
+        Left click     Select row / switch view / edit search\n\
+        Right click    Track or playlist actions (Esc closes)\n\
+        Wheel          Move three rows; scroll Help/plain lyrics\n\
+        Badge / bar    Play-pause / seek\n\
+        Ctrl+Shift+V   Intentional terminal paste into search/filter\n\n\
         PLAYBACK CONTROLS\n\
         Space          Play, pause, or retry failed playback\n\
         n / p          Next / previous track (restarts after 3s)\n\
@@ -840,6 +943,7 @@ fn center(frame: &mut Frame<'_>, app: &App, area: Rect) {
             )),
             split[0],
         );
+        hit(app, split[0], MouseTarget::Prompt);
         split[1]
     } else if (app.view == View::Liked || app.view == View::Playlists)
         && (app.filtering || !app.filter.is_empty())
@@ -882,6 +986,7 @@ fn center(frame: &mut Frame<'_>, app: &App, area: Rect) {
             Paragraph::new(prompt_line).block(block_themed(filter_title, app.filtering, theme)),
             split[0],
         );
+        hit(app, split[0], MouseTarget::Prompt);
         split[1]
     } else {
         area
@@ -914,6 +1019,7 @@ fn center(frame: &mut Frame<'_>, app: &App, area: Rect) {
                 body.height.saturating_sub(4) as usize,
                 &app.catalog_scroll,
             );
+            row_hits(app, body, &visible, false, true);
             if tracks.is_empty() || (app.is_filtered() && indices.is_empty()) {
                 let empty_msg = if app.busy {
                     "\n  ⟳ Fetching tracks from Spotify..."
@@ -1041,6 +1147,7 @@ fn center(frame: &mut Frame<'_>, app: &App, area: Rect) {
                 body.height.saturating_sub(4) as usize,
                 &app.catalog_scroll,
             );
+            row_hits(app, body, &visible, false, true);
             if playlists.is_empty() || (app.is_filtered() && indices.is_empty()) {
                 let empty_msg = if app.busy {
                     "\n  ⟳ Fetching playlists from Spotify..."
@@ -1106,6 +1213,7 @@ fn center(frame: &mut Frame<'_>, app: &App, area: Rect) {
 }
 
 fn queue(frame: &mut Frame<'_>, app: &App, area: Rect, main: bool) {
+    hit(app, area, MouseTarget::QueueScroll);
     let theme = Theme::from_str(&app.config.theme);
     if app.queue.order.is_empty() {
         let msg = if main {
@@ -1134,6 +1242,7 @@ fn queue(frame: &mut Frame<'_>, app: &App, area: Rect, main: bool) {
     let height = area.height.saturating_sub(if main { 4 } else { 2 }) as usize;
     app.queue_height.set(height);
     let visible = viewport(selected, app.queue.order.len(), height, &app.queue_scroll);
+    row_hits(app, area, &visible, true, main);
     let rows: Vec<Row> = app
         .queue
         .order
@@ -1348,6 +1457,12 @@ fn playback(frame: &mut Frame<'_>, app: &App, area: Rect) {
         ));
     }
     frame.render_widget(Paragraph::new(Line::from(track_spans)), row[0]);
+    hit(
+        app,
+        Rect::new(row[0].x, row[0].y, 10.min(row[0].width), row[0].height),
+        MouseTarget::PlayPause,
+    );
+    hit(app, parts[1], MouseTarget::Seek);
 
     if ctrl_width > 0 {
         let mut ctrl_spans = Vec::new();

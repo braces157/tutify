@@ -9,7 +9,8 @@ use crate::{
 };
 use anyhow::Result;
 use crossterm::event::{
-    Event as Input, EventStream, KeyCode, KeyEvent, KeyEventKind, KeyModifiers,
+    Event as Input, EventStream, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton,
+    MouseEvent, MouseEventKind,
 };
 use futures_util::StreamExt;
 use std::{
@@ -67,7 +68,33 @@ struct FilterCache {
     indices: Arc<Vec<usize>>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MouseTarget {
+    Navigation(View),
+    Catalog(usize),
+    Queue(usize),
+    Prompt,
+    CatalogScroll,
+    QueueScroll,
+    PlayPause,
+    Seek,
+    Menu(usize),
+}
+
+pub struct ContextMenu {
+    pub x: u16,
+    pub y: u16,
+    pub selected: usize,
+    pub actions: Vec<(&'static str, KeyCode)>,
+    view: View,
+    row: usize,
+    revision: u64,
+    filter: String,
+}
+
 pub struct App {
+    pub mouse_hits: RefCell<Vec<(ratatui::layout::Rect, MouseTarget)>>,
+    pub context_menu: Option<ContextMenu>,
     pub config: Config,
     pub queue: Queue,
     pub view: View,
@@ -119,6 +146,8 @@ impl App {
     pub fn new(config: Config, queue: Queue) -> Self {
         let restored = !queue.ids.is_empty();
         Self {
+            mouse_hits: RefCell::new(Vec::new()),
+            context_menu: None,
             config,
             queue,
             view: if restored { View::Queue } else { View::Search },
@@ -739,12 +768,223 @@ fn format_time(ms: u32) -> String {
     format!("{}:{:02}", ms / 60_000, ms / 1_000 % 60)
 }
 
+fn activate_menu(
+    app: &mut App,
+    action: usize,
+    tasks: &mut Tasks,
+    tx: &mpsc::UnboundedSender<Command>,
+) {
+    let Some(menu) = app.context_menu.take() else {
+        return;
+    };
+    let revision = if menu.view == View::Queue {
+        app.queue.revision
+    } else {
+        app.rows_revision
+    };
+    if app.view != menu.view
+        || app.selection() != menu.row
+        || revision != menu.revision
+        || app.filter != menu.filter
+    {
+        app.status = "List changed; right-click the track again.".into();
+        return;
+    }
+    if let Some((_, code)) = menu.actions.get(action) {
+        key(app, KeyEvent::new(*code, KeyModifiers::NONE), tasks, tx);
+    }
+}
+
+fn mouse(
+    app: &mut App,
+    event: MouseEvent,
+    tasks: &mut Tasks,
+    tx: &mpsc::UnboundedSender<Command>,
+) -> bool {
+    if !matches!(
+        event.kind,
+        MouseEventKind::Down(MouseButton::Left | MouseButton::Right)
+            | MouseEventKind::ScrollUp
+            | MouseEventKind::ScrollDown
+    ) {
+        return false;
+    }
+    let hit = app
+        .mouse_hits
+        .borrow()
+        .iter()
+        .rev()
+        .find(|(area, _)| area.contains((event.column, event.row).into()))
+        .copied();
+    if app.context_menu.is_some() {
+        if event.kind == MouseEventKind::Down(MouseButton::Left) {
+            if let Some((_, MouseTarget::Menu(index))) = hit {
+                activate_menu(app, index, tasks, tx);
+                return true;
+            }
+        }
+        app.context_menu = None;
+        return true;
+    }
+    let Some((area, target)) = hit else {
+        return false;
+    };
+    if matches!(
+        event.kind,
+        MouseEventKind::ScrollUp | MouseEventKind::ScrollDown
+    ) {
+        if app.show_visualizer
+            || (app.show_lyrics
+                && app
+                    .lyrics
+                    .as_ref()
+                    .is_none_or(|lyrics| !lyrics.lines.is_empty()))
+        {
+            return false;
+        }
+        if !matches!(
+            target,
+            MouseTarget::Catalog(_)
+                | MouseTarget::Queue(_)
+                | MouseTarget::CatalogScroll
+                | MouseTarget::QueueScroll
+        ) {
+            return false;
+        }
+        if matches!(target, MouseTarget::Queue(_) | MouseTarget::QueueScroll)
+            && app.view != View::Queue
+        {
+            tasks.view(app, View::Queue);
+            app.show_lyrics = false;
+            app.show_visualizer = false;
+        }
+        app.editing = false;
+        app.filtering = false;
+        app.sidebar = false;
+        let code = if event.kind == MouseEventKind::ScrollUp {
+            KeyCode::Up
+        } else {
+            KeyCode::Down
+        };
+        for _ in 0..3 {
+            key(app, KeyEvent::new(code, KeyModifiers::NONE), tasks, tx);
+        }
+        return true;
+    }
+    let right = event.kind == MouseEventKind::Down(MouseButton::Right);
+    match target {
+        MouseTarget::Navigation(view) if !right => {
+            tasks.view(app, view);
+            app.show_lyrics = false;
+            app.show_visualizer = false;
+        }
+        MouseTarget::Prompt if !right => {
+            app.sidebar = false;
+            if app.view == View::Search {
+                app.editing = true;
+            } else {
+                app.filtering = true;
+            }
+        }
+        MouseTarget::Catalog(index) | MouseTarget::Queue(index) => {
+            if matches!(target, MouseTarget::Queue(_)) {
+                if app.view != View::Queue {
+                    tasks.view(app, View::Queue);
+                }
+                app.show_lyrics = false;
+                app.show_visualizer = false;
+                app.queue.selected = index.min(app.queue.order.len().saturating_sub(1));
+            } else {
+                app.selected = index;
+            }
+            app.editing = false;
+            app.filtering = false;
+            app.sidebar = false;
+            if right {
+                let playlist =
+                    app.view == View::Playlists && matches!(app.rows, Rows::Playlists(_));
+                let mut actions = if playlist {
+                    vec![
+                        ("Open playlist", KeyCode::Enter),
+                        ("Add playlist to queue", KeyCode::Char('a')),
+                    ]
+                } else {
+                    vec![
+                        ("Play", KeyCode::Enter),
+                        ("Add to queue", KeyCode::Char('a')),
+                        ("Play next", KeyCode::Char('A')),
+                    ]
+                };
+                if app.view == View::Queue {
+                    actions.push(("Remove from queue", KeyCode::Delete));
+                }
+                app.context_menu = Some(ContextMenu {
+                    x: event.column,
+                    y: event.row,
+                    selected: 0,
+                    actions,
+                    view: app.view,
+                    row: app.selection(),
+                    filter: app.filter.clone(),
+                    revision: if app.view == View::Queue {
+                        app.queue.revision
+                    } else {
+                        app.rows_revision
+                    },
+                });
+            } else {
+                app.status = "Selected. Right-click for actions; Enter plays/opens.".into();
+            }
+        }
+        MouseTarget::PlayPause if !right => {
+            app.editing = false;
+            app.filtering = false;
+            key(
+                app,
+                KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE),
+                tasks,
+                tx,
+            );
+        }
+        MouseTarget::Seek if !right && app.loaded => {
+            if let Some(track) = app.current_track().filter(|t| t.duration_ms > 0) {
+                let fraction = event.column.saturating_sub(area.x) as u64;
+                let position = (fraction * track.duration_ms.saturating_sub(1) as u64
+                    / area.width.saturating_sub(1).max(1) as u64)
+                    as u32;
+                app.queue.position_ms = position;
+                app.position_anchor =
+                    (app.state == State::Playing).then_some((Instant::now(), position));
+                app.send(tx, Command::Seek(position));
+            }
+        }
+        _ => return false,
+    }
+    true
+}
+
 fn key(app: &mut App, key: KeyEvent, tasks: &mut Tasks, tx: &mpsc::UnboundedSender<Command>) {
     if key.kind == KeyEventKind::Release {
         return;
     }
     if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
         app.quit = true;
+        return;
+    }
+    if let Some(menu) = &mut app.context_menu {
+        match key.code {
+            KeyCode::Esc => app.context_menu = None,
+            KeyCode::Down => menu.selected = (menu.selected + 1) % menu.actions.len(),
+            KeyCode::Up => {
+                menu.selected = (menu.selected + menu.actions.len() - 1) % menu.actions.len()
+            }
+            KeyCode::Enter => {
+                let action = menu.selected;
+                activate_menu(app, action, tasks, tx);
+            }
+            KeyCode::Char('q') => app.quit = true,
+            _ => (),
+        }
         return;
     }
     if app.editing {
@@ -1496,23 +1736,28 @@ pub async fn run(store: Storage) -> Result<()> {
                 key_event = keys.next() => {
                     match key_event {
                         Some(Ok(Input::Key(event))) if event.kind != KeyEventKind::Release => key(&mut app, event, &mut tasks, &playback.commands),
+                        Some(Ok(Input::Mouse(event))) if !mouse(&mut app, event, &mut tasks, &playback.commands) => continue,
+                        Some(Ok(Input::Resize(_, _))) => { app.context_menu = None; },
                         Some(Ok(Input::Paste(text))) if app.editing => app.query.extend(text.chars().filter(|c| !c.is_control()).take(500usize.saturating_sub(app.query.chars().count()))),
                         Some(Ok(Input::Paste(text))) if app.filtering => { app.filter.extend(text.chars().filter(|c| !c.is_control()).take(100usize.saturating_sub(app.filter.chars().count()))); app.selected = 0; }
                         Some(Err(e)) => return Err(e.into()), None => break,
                         Some(Ok(Input::Key(_))) => continue,
                         _ => (),
                     }
+                    app.mouse_hits.borrow_mut().clear();
                     dirty = true; metadata_dirty = true; lyrics_dirty = true;
                 }
                 event = playback.events.recv(), if playback_open => {
                     if let Some(event) = event { app.playback_event(event, &playback.commands); }
                     else { playback_open = false; app.loaded = false; app.state = State::Failed; app.status = "Playback worker exited; restart Tuitify.".into(); }
+                    app.mouse_hits.borrow_mut().clear();
                     dirty = true; metadata_dirty = true; lyrics_dirty = true;
                 }
                 Some(event) = bg_rx.recv() => {
                     checkpoints.retry |= background(&mut app, &mut tasks, event);
                     // Process bursts together; bound the batch so keyboard input stays fair.
                     for _ in 0..63 { match bg_rx.try_recv() { Ok(event) => checkpoints.retry |= background(&mut app, &mut tasks, event), Err(_) => break } }
+                    app.mouse_hits.borrow_mut().clear();
                     dirty = true; metadata_dirty = true; lyrics_dirty = true;
                 }
                 _ = tokio::time::sleep_until(tokio::time::Instant::from_std(last_draw + delay)), if dirty || animation.is_some() => {
@@ -1755,6 +2000,203 @@ mod tests {
         assert!(app.status.contains("after 2 additions"));
         assert!(app.status.contains("503"));
     }
+    fn draw_mouse(app: &App, width: u16, height: u16) {
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, height)).unwrap();
+        terminal.draw(|frame| ui::draw(frame, app)).unwrap();
+    }
+    fn click_target(
+        app: &mut App,
+        target: MouseTarget,
+        button: MouseButton,
+        tasks: &mut Tasks,
+        tx: &mpsc::UnboundedSender<Command>,
+    ) {
+        let area = app
+            .mouse_hits
+            .borrow()
+            .iter()
+            .find(|(_, hit)| *hit == target)
+            .unwrap()
+            .0;
+        assert!(mouse(
+            app,
+            MouseEvent {
+                kind: MouseEventKind::Down(button),
+                column: area.x,
+                row: area.y,
+                modifiers: KeyModifiers::NONE
+            },
+            tasks,
+            tx
+        ));
+    }
+
+    #[tokio::test]
+    async fn right_click_filtered_row_opens_actions_without_pasting_and_enqueues_that_track() {
+        let mut app = App::new(Config::default(), Queue::default());
+        app.view = View::Liked;
+        let mut first = test_track(1);
+        first.name = "Other".into();
+        let mut second = test_track(2);
+        second.name = "Wanted".into();
+        app.rows = Rows::Tracks(vec![first, second.clone()]);
+        app.filter = "Wanted".into();
+        app.filtering = true;
+        let (mut tasks, _) = tasks();
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        draw_mouse(&app, 120, 35);
+        click_target(
+            &mut app,
+            MouseTarget::Catalog(0),
+            MouseButton::Right,
+            &mut tasks,
+            &tx,
+        );
+        assert!(!app.filtering);
+        assert_eq!(app.filter, "Wanted");
+        assert!(app.context_menu.is_some());
+        assert!(app.queue.ids.is_empty());
+        draw_mouse(&app, 120, 35);
+        click_target(
+            &mut app,
+            MouseTarget::Menu(1),
+            MouseButton::Left,
+            &mut tasks,
+            &tx,
+        );
+        assert_eq!(app.queue.ids, vec![second.id]);
+        assert!(app.context_menu.is_none());
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn mouse_maps_scrolled_queue_rows_and_rejects_stale_menu_actions() {
+        let mut app = App::new(Config::default(), Queue::default());
+        for i in 0..70 {
+            app.queue.enqueue(test_track(i).id);
+        }
+        app.view = View::Queue;
+        app.queue.selected = 55;
+        let (mut tasks, _) = tasks();
+        let (tx, _) = mpsc::unbounded_channel();
+        draw_mouse(&app, 80, 24);
+        assert!(app.queue_scroll.get() > 0);
+        click_target(
+            &mut app,
+            MouseTarget::Queue(55),
+            MouseButton::Right,
+            &mut tasks,
+            &tx,
+        );
+        app.queue.enqueue(test_track(80).id);
+        activate_menu(&mut app, 3, &mut tasks, &tx);
+        assert_eq!(app.queue.ids.len(), 71);
+        assert!(app.status.contains("List changed"));
+        draw_mouse(&app, 80, 24);
+        click_target(
+            &mut app,
+            MouseTarget::Queue(55),
+            MouseButton::Right,
+            &mut tasks,
+            &tx,
+        );
+        activate_menu(&mut app, 3, &mut tasks, &tx);
+        assert_eq!(app.queue.ids.len(), 70);
+        assert!(!app.queue.ids.contains(&test_track(55).id));
+    }
+
+    #[tokio::test]
+    async fn mouse_queue_sidebar_selection_and_small_terminal_menu_stay_in_bounds() {
+        let mut app = App::new(Config::default(), Queue::default());
+        for i in 0..5 {
+            app.queue.enqueue(test_track(i).id);
+        }
+        let (mut tasks, _) = tasks();
+        let (tx, _) = mpsc::unbounded_channel();
+        draw_mouse(&app, 120, 35);
+        click_target(
+            &mut app,
+            MouseTarget::Queue(3),
+            MouseButton::Right,
+            &mut tasks,
+            &tx,
+        );
+        assert_eq!(app.view, View::Queue);
+        assert_eq!(app.queue.selected, 3);
+        let menu = app.context_menu.as_mut().unwrap();
+        menu.x = 119;
+        menu.y = 34;
+        for (width, height) in [(120, 35), (80, 24), (32, 10)] {
+            draw_mouse(&app, width, height);
+            let hits = app.mouse_hits.borrow();
+            assert_eq!(hits.len(), 4);
+            assert!(
+                hits.iter()
+                    .all(|(rect, _)| rect.right() <= width && rect.bottom() <= height)
+            );
+        }
+        key(
+            &mut app,
+            KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+            &mut tasks,
+            &tx,
+        );
+        assert!(app.context_menu.is_none());
+        assert!(!app.quit);
+    }
+
+    #[tokio::test]
+    async fn mouse_wheel_and_playback_badge_use_existing_controls() {
+        let mut app = App::new(Config::default(), Queue::default());
+        app.rows = Rows::Tracks((0..30).map(test_track).collect());
+        let (mut tasks, _) = tasks();
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        draw_mouse(&app, 80, 24);
+        let row = app
+            .mouse_hits
+            .borrow()
+            .iter()
+            .find(|(_, target)| *target == MouseTarget::Catalog(0))
+            .unwrap()
+            .0;
+        assert!(mouse(
+            &mut app,
+            MouseEvent {
+                kind: MouseEventKind::ScrollDown,
+                column: row.x,
+                row: row.y,
+                modifiers: KeyModifiers::NONE
+            },
+            &mut tasks,
+            &tx
+        ));
+        assert_eq!(app.selected, 3);
+        app.state = State::Playing;
+        app.loaded = true;
+        draw_mouse(&app, 80, 24);
+        click_target(
+            &mut app,
+            MouseTarget::PlayPause,
+            MouseButton::Left,
+            &mut tasks,
+            &tx,
+        );
+        assert_eq!(app.state, State::Paused);
+        assert!(matches!(rx.try_recv(), Ok(Command::Pause)));
+        assert!(!mouse(
+            &mut app,
+            MouseEvent {
+                kind: MouseEventKind::Moved,
+                column: row.x,
+                row: row.y,
+                modifiers: KeyModifiers::NONE
+            },
+            &mut tasks,
+            &tx
+        ));
+    }
+
     #[test]
     fn checkpoint_sends_only_changed_components() {
         let mut app = App::new(Config::default(), Queue::default());
