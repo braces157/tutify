@@ -109,7 +109,7 @@ password or token is requested.
 
 Artwork comes from Spotify catalog metadata. If it is missing, the worker can
 request the track's public Spotify oEmbed metadata; no Spotify tokens are sent.
-Discord resolves artwork URLs, including the PreMiD-hosted Spotify fallback logo.
+Discord resolves artwork URLs, including the hosted Tuitify brand logo.
 Artwork lookups and their failures are cached in memory with a bounded size.
 
 Mouse controls (v0.2.2, in terminals with mouse reporting such as Windows Terminal):

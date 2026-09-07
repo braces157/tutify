@@ -12,7 +12,7 @@ use tokio::{
 };
 
 pub const DEFAULT_CLIENT_ID: &str = "1522058393898975252";
-pub const SPOTIFY_LOGO_URL: &str = "https://cdn.rcd.gg/PreMiD/websites/S/Spotify/assets/logo.png";
+pub const TUITIFY_LOGO_URL: &str = "https://raw.githubusercontent.com/braces157/tutify/78c5fbb9eed0f0a6d17bb390c3fab086fe229340/docs/assets/brand/tuitify-discord-minimal-v2-512.png";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Snapshot {
@@ -217,7 +217,7 @@ pub fn build_activity(
     let (large_image, small_image, small_text) = if let Some(art) = art_url {
         (
             art,
-            Some(SPOTIFY_LOGO_URL),
+            Some(TUITIFY_LOGO_URL),
             Some(if is_playing {
                 "Playing on Tuitify"
             } else {
@@ -225,7 +225,7 @@ pub fn build_activity(
             }),
         )
     } else {
-        (SPOTIFY_LOGO_URL, None, None)
+        (TUITIFY_LOGO_URL, None, None)
     };
 
     let large_text = if let Some(album) = &track.album {
@@ -545,7 +545,7 @@ mod tests {
         let activity = build_activity(&snapshot, 1700000000, None).unwrap();
         assert!(activity["details"].as_str().unwrap().len() <= 128);
         assert_eq!(activity["state"], "X ");
-        assert_eq!(activity["assets"]["large_image"], SPOTIFY_LOGO_URL);
+        assert_eq!(activity["assets"]["large_image"], TUITIFY_LOGO_URL);
         assert_eq!(activity["timestamps"]["end"], 1700000000);
         snapshot.state = State::Loading;
         assert!(build_activity(&snapshot, 1700000000, None).is_none());
@@ -755,7 +755,7 @@ mod tests {
             act["assets"]["large_text"],
             "Whenever You Need Somebody • Tuitify"
         );
-        assert_eq!(act["assets"]["small_image"], SPOTIFY_LOGO_URL);
+        assert_eq!(act["assets"]["small_image"], TUITIFY_LOGO_URL);
         assert_eq!(act["assets"]["small_text"], "Playing on Tuitify");
         assert_eq!(act["timestamps"]["start"], now_sec - 30);
         assert_eq!(act["name"], "Tuitify");
@@ -802,7 +802,7 @@ mod tests {
         let now_sec = 1700000000;
         let act = build_activity(&snapshot, now_sec, None).expect("activity exists");
 
-        assert_eq!(act["assets"]["large_image"], SPOTIFY_LOGO_URL);
+        assert_eq!(act["assets"]["large_image"], TUITIFY_LOGO_URL);
         assert_eq!(
             act["assets"]["large_text"],
             "Never Gonna Give You Up • Tuitify"
@@ -827,5 +827,13 @@ mod tests {
             position_ms: 0,
         };
         assert!(build_activity(&snapshot_failed, now_sec, None).is_none());
+    }
+
+    #[test]
+    fn test_tuitify_logo_url_valid() {
+        assert!(valid_art(TUITIFY_LOGO_URL));
+        assert!(
+            TUITIFY_LOGO_URL.starts_with("https://raw.githubusercontent.com/braces157/tutify/")
+        );
     }
 }
