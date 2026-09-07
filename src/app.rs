@@ -1,6 +1,7 @@
 use crate::{
     auth::TokenManager,
     catalog::{Browse, Catalog, Page, Rows},
+    media_controls::{self, Action as MediaAction},
     model::Track,
     playback::{self, Command, Event},
     queue::Queue,
@@ -398,6 +399,20 @@ impl App {
                 .unwrap_or_else(|| Track::unknown(id))
         })
     }
+    fn discord_snapshot(&self) -> crate::discord::Snapshot {
+        crate::discord::Snapshot {
+            // Restoring a queue is not a listening event. Require real metadata
+            // and a loaded stream before publishing a listening activity.
+            track: self
+                .queue
+                .current()
+                .filter(|_| self.loaded)
+                .and_then(|id| self.cache.get(id))
+                .cloned(),
+            state: self.state,
+            position_ms: self.queue.position_ms,
+        }
+    }
     pub fn window_title(&self) -> String {
         if let Some(track) = self.current_track() {
             let symbol = match self.state {
@@ -468,6 +483,44 @@ impl App {
         self.loaded = false;
         self.position_anchor = None;
         self.send(tx, Command::Stop);
+    }
+    fn media_action(&mut self, action: MediaAction, tx: &mpsc::UnboundedSender<Command>) {
+        let active = matches!(self.state, State::Playing | State::Loading);
+        match action {
+            MediaAction::Play if active => (),
+            MediaAction::Pause if !active => (),
+            MediaAction::Pause | MediaAction::Toggle if active => {
+                self.interpolate_position();
+                self.state = State::Paused;
+                self.send(tx, Command::Pause);
+            }
+            MediaAction::Play | MediaAction::Toggle => {
+                if self.loaded {
+                    self.state = State::Loading;
+                    self.send(tx, Command::Resume);
+                } else {
+                    if self.queue.current().is_none() && !self.queue.ids.is_empty() {
+                        self.queue.select(0);
+                    }
+                    self.load(tx);
+                }
+            }
+            MediaAction::Next => {
+                if self.queue.advance(self.config.repeat, false) {
+                    self.load(tx);
+                } else {
+                    self.stop(tx);
+                    self.status = "End of queue.".into();
+                }
+            }
+            MediaAction::Previous => {
+                self.interpolate_position();
+                if self.queue.previous() {
+                    self.load(tx);
+                }
+            }
+            MediaAction::Pause => (),
+        }
     }
     pub fn playback_event(&mut self, event: Event, tx: &mpsc::UnboundedSender<Command>) {
         match event {
@@ -1420,29 +1473,9 @@ fn key(app: &mut App, key: KeyEvent, tasks: &mut Tasks, tx: &mpsc::UnboundedSend
                 app.load(tx);
             }
         }
-        KeyCode::Char(' ') => {
-            if app.state == State::Playing || app.state == State::Loading {
-                app.send(tx, Command::Pause);
-                app.state = State::Paused;
-            } else if app.loaded {
-                app.send(tx, Command::Resume);
-                app.state = State::Loading;
-            } else {
-                if app.queue.current().is_none() && !app.queue.ids.is_empty() {
-                    app.queue.select(0);
-                }
-                app.load(tx);
-            }
-        }
-        KeyCode::Char('n') => {
-            if app.queue.advance(app.config.repeat, false) {
-                app.load(tx);
-            } else {
-                app.stop(tx);
-                app.status = "End of queue.".into();
-            }
-        }
-        KeyCode::Char('p') if app.queue.previous() => app.load(tx),
+        KeyCode::Char(' ') => app.media_action(MediaAction::Toggle, tx),
+        KeyCode::Char('n') => app.media_action(MediaAction::Next, tx),
+        KeyCode::Char('p') => app.media_action(MediaAction::Previous, tx),
         KeyCode::Home | KeyCode::End | KeyCode::Left | KeyCode::Right => {
             let Some(track) = app.current_track() else {
                 app.status = "Choose a track before seeking.".into();
@@ -1962,6 +1995,18 @@ pub async fn run(store: Storage) -> Result<()> {
         cache_tx,
     };
     let mut terminal = ui::TerminalGuard::enter()?;
+    let (media_tx, mut media_rx) = mpsc::unbounded_channel();
+    let mut media_controls = match media_controls::MediaControls::spawn(media_tx) {
+        Ok(controls) => Some(controls),
+        Err(_) => {
+            app.status = "Windows media controls unavailable; terminal controls still work.".into();
+            None
+        }
+    };
+    let mut discord_presence = crate::discord::DiscordPresence::spawn(
+        app.config.discord_rpc,
+        app.config.discord_client_id.clone(),
+    );
     let mut current_window_title = String::new();
     let mut keys = EventStream::new();
     let mut save_tick = tokio::time::interval(Duration::from_secs(2));
@@ -1974,6 +2019,12 @@ pub async fn run(store: Storage) -> Result<()> {
     let mut last_draw = Instant::now() - Duration::from_millis(33);
     let result: Result<()> = async {
         loop {
+            if let Some(controls) = &mut media_controls {
+                controls.update(media_controls::Snapshot {
+                    track: app.current_track(), state: app.state, position_ms: app.queue.position_ms,
+                });
+            }
+            discord_presence.update(app.discord_snapshot());
             tasks.sync_queue_epoch(app.queue.epoch);
             if lyrics_dirty { tasks.update_lyrics(&mut app); lyrics_dirty = false; }
             if dirty && last_draw.elapsed() >= Duration::from_millis(33) {
@@ -1989,6 +2040,17 @@ pub async fn run(store: Storage) -> Result<()> {
             let animation = app.animation_interval();
             let delay = if dirty { Duration::from_millis(33) } else { animation.unwrap_or(Duration::from_secs(1)) };
             tokio::select! {
+                Some(event) = media_rx.recv() => {
+                    match event {
+                        media_controls::Event::Action(action) => app.media_action(action, &playback.commands),
+                        media_controls::Event::Unavailable => {
+                            media_controls = None;
+                            app.status = "Windows media controls unavailable; terminal controls still work.".into();
+                        }
+                    }
+                    app.mouse_hits.borrow_mut().clear();
+                    dirty = true; metadata_dirty = true; lyrics_dirty = true;
+                }
                 key_event = keys.next() => {
                     match key_event {
                         Some(Ok(Input::Key(event))) if event.kind != KeyEventKind::Release => key(&mut app, event, &mut tasks, &playback.commands),
@@ -2037,6 +2099,8 @@ pub async fn run(store: Storage) -> Result<()> {
     drop(checkpoints);
     drop(tasks);
     drop(terminal);
+    drop(media_controls);
+    discord_presence.close().await;
     let (config_saved, queue_saved, cache_saved) =
         tokio::join!(config_writer, queue_writer, cache_writer);
     config_saved??;
@@ -2048,6 +2112,86 @@ pub async fn run(store: Storage) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn discord_does_not_publish_restored_unknown_or_stopped_tracks() {
+        let mut queue = Queue::default();
+        queue.replace(vec![test_track(1).id], 0, false);
+        let mut app = App::new(Config::default(), queue);
+        assert!(app.discord_snapshot().track.is_none());
+        let (tx, _rx) = mpsc::unbounded_channel();
+        app.media_action(MediaAction::Play, &tx);
+        assert!(app.discord_snapshot().track.is_none());
+        app.cache.insert(test_track(1).id, test_track(1));
+        assert!(crate::discord::build_activity(&app.discord_snapshot(), 1000, None).is_none());
+        app.playback_event(
+            Event::Playing {
+                generation: app.generation,
+                position_ms: 0,
+            },
+            &tx,
+        );
+        assert!(crate::discord::build_activity(&app.discord_snapshot(), 1000, None).is_some());
+        app.media_action(MediaAction::Pause, &tx);
+        assert!(crate::discord::build_activity(&app.discord_snapshot(), 1000, None).is_some());
+        app.stop(&tx);
+        assert!(app.discord_snapshot().track.is_none());
+    }
+    #[test]
+    fn media_actions_work_during_text_entry_and_are_idempotent() {
+        let mut queue = Queue::default();
+        queue.replace(vec![test_track(1).id, test_track(2).id], 0, false);
+        let mut app = App::new(Config::default(), queue);
+        app.editing = true;
+        app.filtering = true;
+        app.query = "my search".into();
+        app.filter = "my filter".into();
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        app.media_action(MediaAction::Pause, &tx);
+        assert!(rx.try_recv().is_err());
+        app.media_action(MediaAction::Play, &tx);
+        assert!(matches!(
+            rx.try_recv().unwrap(),
+            Command::Load { position_ms: 0, .. }
+        ));
+        app.media_action(MediaAction::Play, &tx);
+        assert!(rx.try_recv().is_err());
+        app.media_action(MediaAction::Pause, &tx);
+        assert!(matches!(rx.try_recv().unwrap(), Command::Pause));
+        app.media_action(MediaAction::Pause, &tx);
+        assert!(rx.try_recv().is_err());
+        app.media_action(MediaAction::Play, &tx);
+        assert!(matches!(rx.try_recv().unwrap(), Command::Resume));
+        assert_eq!(app.query, "my search");
+        assert_eq!(app.filter, "my filter");
+        assert!(app.editing && app.filtering);
+    }
+
+    #[test]
+    fn media_navigation_preserves_manual_repeat_and_previous_behavior() {
+        let mut queue = Queue::default();
+        queue.replace(vec![test_track(1).id, test_track(2).id], 0, false);
+        let mut app = App::new(Config::default(), queue);
+        app.config.repeat = crate::model::Repeat::Track;
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        app.media_action(MediaAction::Next, &tx);
+        assert_eq!(app.queue.current(), Some(test_track(2).id.as_str()));
+        assert!(matches!(rx.try_recv().unwrap(), Command::Load { .. }));
+        app.queue.position_ms = 5000;
+        app.media_action(MediaAction::Previous, &tx);
+        assert_eq!(app.queue.current(), Some(test_track(2).id.as_str()));
+        assert!(matches!(
+            rx.try_recv().unwrap(),
+            Command::Load { position_ms: 0, .. }
+        ));
+        app.media_action(MediaAction::Previous, &tx);
+        assert_eq!(app.queue.current(), Some(test_track(1).id.as_str()));
+        assert!(matches!(rx.try_recv().unwrap(), Command::Load { .. }));
+        app.media_action(MediaAction::Next, &tx);
+        rx.try_recv().unwrap();
+        app.media_action(MediaAction::Next, &tx);
+        assert!(matches!(rx.try_recv().unwrap(), Command::Stop));
+        assert_eq!(app.state, State::Paused);
+    }
     fn tasks() -> (Tasks, mpsc::UnboundedReceiver<Background>) {
         let (tx, rx) = mpsc::unbounded_channel();
         (
@@ -2062,6 +2206,7 @@ mod tests {
             artists: "Artist".into(),
             duration_ms: 200000,
             playable: true,
+            ..Default::default()
         }
     }
     #[tokio::test]
@@ -2819,6 +2964,7 @@ mod tests {
                 artists: "Queen".into(),
                 duration_ms: 354000,
                 playable: true,
+                ..Default::default()
             },
             Track {
                 id: "2".into(),
@@ -2826,6 +2972,7 @@ mod tests {
                 artists: "Coldplay".into(),
                 duration_ms: 269000,
                 playable: true,
+                ..Default::default()
             },
             Track {
                 id: "3".into(),
@@ -2833,6 +2980,7 @@ mod tests {
                 artists: "Queen, David Bowie".into(),
                 duration_ms: 248000,
                 playable: true,
+                ..Default::default()
             },
         ]);
 
@@ -2900,6 +3048,7 @@ mod tests {
             artists: "银临, Aki阿杰".into(),
             duration_ms: 239000,
             playable: true,
+            ..Default::default()
         };
         app.cache.insert("t1".into(), track);
         app.queue.replace(vec!["t1".into()], 0, false);

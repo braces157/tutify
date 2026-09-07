@@ -155,3 +155,52 @@ test exposed Windows mouse capture restoring raw mode, which was fixed by
 releasing mouse capture before disabling raw mode. The test then passed both
 normal exit and caught-panic restoration. Live audio was not rerun for this
 mouse-only update; the 0.2.1 live results above describe the preceding build.
+
+## Windows media controls — 2026-09-07
+
+Added a Windows System Media Transport Controls session backed by a metadata-only
+MediaPlayer. Librespot remains responsible for audio. Media actions share the
+terminal's playback/queue logic and bypass search/filter text entry. The session
+publishes title, artist, playback state, and timeline; it disables itself for an
+empty queue and unregisters callbacks/closes on exit. WinRT work runs on a
+dedicated thread with bounded snapshot delivery.
+
+Validation: 92 offline Rust tests passed, including new command-idempotence,
+search-entry isolation, manual next/repeat, previous/restart, and bounded update
+tests. Clippy with warnings denied, formatting, diff checks, and the release build
+passed; the release executable passed its version smoke check.
+The opt-in silent Windows acceptance test passed on this desktop: it
+discovered the session through the Windows global media-session API, checked
+title/artist/position/state, delivered Play/Pause/Next/Previous through Windows,
+observed state updates, and verified session removal after cleanup. The test
+does not stream audio or exercise physical keyboard/headset hardware. Live
+Spotify playback and manual hardware-key routing with competing players were
+not rerun for this change.
+
+## Version 0.2.4 release review — 2026-09-07
+
+Reviewed Discord IPC framing, response matching, reconnect timing, shutdown,
+activity disclosure, metadata compatibility, Windows media controls, and release
+version/download references. Fixed unbounded IPC reads and allocations; added
+READY/nonce/error validation and ping replies; replaced buffered activity updates
+with a latest-state watch channel; corrected stale reconnect timestamps and
+same-track metadata updates; bounded RPC frequency, artwork response size, and
+shutdown. Restored queues and unloaded, unknown, loading, or failed tracks do not
+publish listening activity. Album fields remain optional in older metadata caches.
+
+Removed the normal test that could publish a synthetic activity to real Discord.
+All Discord protocol tests use private in-memory transports or an isolated
+Windows named pipe. Coverage includes interrupted connections, reconnect without
+a track change, activity clearing, ping/pong, unrelated responses, rejected
+commands, oversized packets, timeouts, coalescing, Unicode field limits, and
+forced cancellation of stalled shutdown. No Discord credentials are used.
+
+Release checks: 106 offline Rust tests passed (four opt-in tests excluded),
+Clippy with warnings denied and formatting passed, and all 11 Edge browser tests
+passed after npm ci. npm audit reported zero vulnerabilities. The silent Windows
+media-session acceptance test passed again for v0.2.4, including metadata, state,
+timeline, all four media commands, and cleanup.
+
+Live Spotify/audio playback, physical media keys, and the actual Discord profile
+appearance/application registration were not exercised for this release. Mock
+IPC acceptance does not establish Discord server-side presentation or policy.

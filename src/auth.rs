@@ -222,7 +222,7 @@ pub fn http_client() -> Result<reqwest::Client> {
         .timeout(Duration::from_secs(25))
         .connect_timeout(Duration::from_secs(10))
         .redirect(reqwest::redirect::Policy::none())
-        .user_agent("Tuitify/0.1.0")
+        .user_agent(concat!("Tuitify/", env!("CARGO_PKG_VERSION")))
         .build()?)
 }
 

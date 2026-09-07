@@ -7,6 +7,10 @@ pub struct Track {
     pub artists: String,
     pub duration_ms: u32,
     pub playable: bool,
+    #[serde(default)]
+    pub album: Option<String>,
+    #[serde(default)]
+    pub album_art_url: Option<String>,
 }
 
 impl Track {

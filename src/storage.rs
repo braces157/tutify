@@ -19,6 +19,8 @@ pub struct Config {
     pub shuffle: bool,
     pub repeat: Repeat,
     pub theme: String,
+    pub discord_rpc: bool,
+    pub discord_client_id: Option<String>,
 }
 
 impl Default for Config {
@@ -30,6 +32,8 @@ impl Default for Config {
             shuffle: false,
             repeat: Repeat::Off,
             theme: "spotify".into(),
+            discord_rpc: true,
+            discord_client_id: None,
         }
     }
 }
@@ -202,6 +206,39 @@ mod tests {
         assert_eq!(fs::read(dir.path().join("queue.json")).unwrap(), b"broken");
         store.clear_queue().unwrap();
         assert!(store.queue().unwrap().ids.is_empty());
+    }
+    #[test]
+    fn config_discord_defaults_and_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Storage {
+            root: dir.path().to_owned(),
+        };
+        // Verify default config has discord_rpc enabled
+        let default_config = Config::default();
+        assert!(default_config.discord_rpc);
+        assert_eq!(default_config.discord_client_id, None);
+
+        // Older config without discord fields should deserialize with defaults
+        let older_json = r#"{"version":1,"client_id":"test","volume":60}"#;
+        fs::write(dir.path().join("config.json"), older_json).unwrap();
+        let loaded = store.config().unwrap();
+        assert!(loaded.discord_rpc);
+        assert_eq!(loaded.discord_client_id, None);
+        assert_eq!(loaded.volume, 60);
+
+        // Custom config saves and loads properly
+        let custom = Config {
+            discord_rpc: false,
+            discord_client_id: Some("123456789".into()),
+            ..Default::default()
+        };
+        store.save_config(&custom).unwrap();
+        let loaded_custom = store.config().unwrap();
+        assert!(!loaded_custom.discord_rpc);
+        assert_eq!(
+            loaded_custom.discord_client_id.as_deref(),
+            Some("123456789")
+        );
     }
     #[test]
     fn instance_lock_releases_and_uncommitted_temp_does_not_replace_snapshot() {
