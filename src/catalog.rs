@@ -5,6 +5,7 @@ use crate::{
 use anyhow::{Context, Result, bail};
 use futures_util::{Stream, StreamExt};
 use serde_json::Value;
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::{sync::Arc, time::Instant};
 use tokio::sync::Mutex;
 
@@ -36,12 +37,44 @@ pub struct Page {
     pub next: Option<usize>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RecommendationSource {
+    Spotify,
+    ArtistSearch,
+}
+
+impl RecommendationSource {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Spotify => "Spotify recommendations",
+            Self::ArtistSearch => "Artist-search suggestions",
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Recommendations {
+    pub tracks: Vec<Track>,
+    pub source: RecommendationSource,
+}
+
+/// Shared across catalog clones; transient UI messages cannot erase service health.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Health {
+    #[default]
+    Unknown,
+    Ready,
+    Unavailable,
+    AuthenticationRequired,
+}
+
 #[derive(Clone)]
 pub struct Catalog {
     client: reqwest::Client,
     tokens: TokenManager,
     base: String,
     cooldown: Arc<Mutex<Option<Instant>>>,
+    health: Arc<AtomicU8>,
 }
 
 impl Catalog {
@@ -58,9 +91,36 @@ impl Catalog {
             tokens,
             base: "https://api.spotify.com/v1".into(),
             cooldown: Arc::new(Mutex::new(None)),
+            health: Arc::new(AtomicU8::new(0)),
         })
     }
+    pub fn health(&self) -> Health {
+        match self.health.load(Ordering::Relaxed) {
+            1 => Health::Ready,
+            2 => Health::Unavailable,
+            3 => Health::AuthenticationRequired,
+            _ => Health::Unknown,
+        }
+    }
+
     async fn get(&self, path: &str, query: &[(&str, String)]) -> Result<Value> {
+        let result = self.request(path, query).await;
+        match &result {
+            Ok(_) => self.health.store(1, Ordering::Relaxed),
+            Err(error) if error.is::<crate::auth::AuthenticationRequired>() => {
+                self.health.store(3, Ordering::Relaxed);
+            }
+            Err(_) => {
+                // A network outage does not resolve a known authentication failure.
+                if self.health() != Health::AuthenticationRequired {
+                    self.health.store(2, Ordering::Relaxed);
+                }
+            }
+        }
+        result
+    }
+
+    async fn request(&self, path: &str, query: &[(&str, String)]) -> Result<Value> {
         if let Some(until) = *self.cooldown.lock().await {
             if until > Instant::now() {
                 bail!(
@@ -88,7 +148,7 @@ impl Catalog {
                 401 if attempt == 0 => {
                     token = self.tokens.refresh_rejected(&token).await?;
                 }
-                401 => bail!("Spotify login expired; exit and run tuitify auth --force"),
+                401 => return Err(crate::auth::AuthenticationRequired.into()),
                 403 => bail!(
                     "Spotify denied access. Playlist items require ownership or collaboration in development mode. Also check app user access, scopes, and the app owner's Premium subscription."
                 ),
@@ -137,7 +197,7 @@ impl Catalog {
             })
             .buffer_unordered(5)
     }
-    pub async fn recommendations(&self, seed: &Track) -> Result<Vec<Track>> {
+    pub async fn recommendations(&self, seed: &Track) -> Result<Recommendations> {
         let normalized_seed = normalize_title(&seed.name);
 
         // 1. Try official /v1/recommendations endpoint first
@@ -146,19 +206,28 @@ impl Catalog {
             if let Some(items) = value["tracks"].as_array() {
                 let mut tracks = Vec::new();
                 let mut seen_titles = std::collections::HashSet::new();
+                let mut seen_ids = std::collections::HashSet::new();
                 seen_titles.insert(normalized_seed.clone());
 
                 for item in items {
                     if let Some(t) = parse_track(item) {
                         let norm = normalize_title(&t.name);
-                        if t.playable && t.id != seed.id && !seen_titles.contains(&norm) {
+                        if t.playable
+                            && t.id != seed.id
+                            && !seen_titles.contains(&norm)
+                            && seen_ids.insert(t.id.clone())
+                        {
                             seen_titles.insert(norm);
                             tracks.push(t);
                         }
                     }
                 }
-                if tracks.len() >= 5 {
-                    return Ok(tracks);
+                // Keep Spotify's ordering, including small recommendation pools.
+                if !tracks.is_empty() {
+                    return Ok(Recommendations {
+                        tracks,
+                        source: RecommendationSource::Spotify,
+                    });
                 }
             }
         }
@@ -232,7 +301,10 @@ impl Catalog {
             }
         }
 
-        Ok(final_tracks)
+        Ok(Recommendations {
+            tracks: final_tracks,
+            source: RecommendationSource::ArtistSearch,
+        })
     }
     pub async fn page(&self, browse: &Browse, offset: usize) -> Result<Page> {
         if let Browse::Search(query) = browse {
@@ -399,6 +471,44 @@ mod tests {
     }
     fn track() -> Value {
         serde_json::json!({"id":"0000000000000000000001","name":"Example","artists":[{"name":"Artist"}],"type":"track","duration_ms":200000})
+    }
+    #[tokio::test]
+    async fn health_tracks_authentication_and_recovery_across_clones() {
+        let (server, catalog) = catalog().await;
+        let observer = catalog.clone();
+        Mock::given(path("/me/tracks"))
+            .respond_with(ResponseTemplate::new(401))
+            .mount(&server)
+            .await;
+        Mock::given(path("/token"))
+            .respond_with(ResponseTemplate::new(400))
+            .mount(&server)
+            .await;
+        let error = catalog.page(&Browse::Liked, 0).await.unwrap_err();
+        assert!(error.is::<crate::auth::AuthenticationRequired>());
+        assert_eq!(observer.health(), Health::AuthenticationRequired);
+
+        server.reset().await;
+        Mock::given(path("/me/tracks"))
+            .respond_with(ResponseTemplate::new(503))
+            .mount(&server)
+            .await;
+        assert!(catalog.page(&Browse::Liked, 0).await.is_err());
+        assert_eq!(observer.health(), Health::AuthenticationRequired);
+        let fresh = Catalog::mock(&server.uri());
+        assert!(fresh.page(&Browse::Liked, 0).await.is_err());
+        assert_eq!(fresh.health(), Health::Unavailable);
+
+        server.reset().await;
+        Mock::given(path("/me/tracks"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({"items": [{"track": track()}]})),
+            )
+            .mount(&server)
+            .await;
+        assert!(catalog.page(&Browse::Liked, 0).await.is_ok());
+        assert_eq!(observer.health(), Health::Ready);
     }
     #[test]
     fn album_metadata_is_optional_and_old_cached_tracks_still_load() {
@@ -634,9 +744,54 @@ mod tests {
         };
         let recs = c.recommendations(&seed).await.unwrap();
         // The seed and the acoustic variant MUST be filtered out; only Shape of You remains!
-        assert_eq!(recs.len(), 1);
-        assert_eq!(recs[0].name, "Shape of You");
-        assert_eq!(recs[0].id, "0000000000000000000003");
+        assert_eq!(recs.source, RecommendationSource::ArtistSearch);
+        assert_eq!(recs.tracks.len(), 1);
+        assert_eq!(recs.tracks[0].name, "Shape of You");
+        assert_eq!(recs.tracks[0].id, "0000000000000000000003");
+    }
+
+    #[tokio::test]
+    async fn recommendations_preserve_small_spotify_pool_and_order() {
+        let (server, catalog) = catalog().await;
+        let item = |id: usize, name: &str| {
+            serde_json::json!({
+                "id": format!("{id:022}"), "name": name,
+                "artists": [{"name": "Artist"}], "is_playable": true,
+                "duration_ms": 200000, "type": "track"
+            })
+        };
+        Mock::given(path("/recommendations"))
+            .and(query_param("seed_tracks", format!("{:022}", 1)))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "tracks": [item(3, "Zulu"), item(2, "Alpha"), item(3, "Duplicate"), item(1, "Seed")]
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(path("/search"))
+            .respond_with(ResponseTemplate::new(500))
+            .expect(0)
+            .mount(&server)
+            .await;
+        let result = catalog
+            .recommendations(&Track {
+                id: format!("{:022}", 1),
+                name: "Seed".into(),
+                artists: "Artist".into(),
+                playable: true,
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        assert_eq!(result.source, RecommendationSource::Spotify);
+        assert_eq!(
+            result
+                .tracks
+                .iter()
+                .map(|t| t.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Zulu", "Alpha"]
+        );
     }
     #[test]
     fn spotify_links() {

@@ -1,5 +1,5 @@
 //! Discord Rich Presence integration via local Windows IPC named pipe.
-use crate::{app::State, model::Track};
+use crate::model::{PlaybackState as State, Track};
 use serde_json::{Value, json};
 use std::{
     io,

@@ -70,3 +70,11 @@ pub fn track_id(input: &str) -> Option<String> {
         .filter(|id| valid_id(id))
         .map(str::to_owned)
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PlaybackState {
+    Paused,
+    Loading,
+    Playing,
+    Failed,
+}

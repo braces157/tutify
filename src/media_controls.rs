@@ -1,5 +1,5 @@
 //! A metadata-only Windows media session. Librespot remains the audio owner.
-use crate::{app::State, model::Track};
+use crate::model::{PlaybackState as State, Track};
 use std::{sync::mpsc, thread};
 use tokio::sync::mpsc::UnboundedSender;
 use windows::{

@@ -171,12 +171,28 @@ the `VOL` indicator, and `m` temporarily mutes without losing the previous level
 While entering a search, ordinary keys (including Space and `q`) enter text.
 Submit with Enter before using playback shortcuts. Clipboard paste is supported.
 
-Playing from a list replaces the local queue with its **loaded pages**, starting
-at the selected track. Page Down loads more before playing. Search follows the same list behavior;
-press `R` explicitly to replace the queue with a track and related recommendations. Explicitly unavailable
-tracks are excluded. Appending does not move or restart the current track.
+Playing from Liked Songs or a playlist replaces the local queue with its **loaded
+pages**, starting at the selected track. Page Down loads more before playing.
+Playing a Spotify or saved-library search result starts **Track Radio**: the selected
+song plays immediately while suggestions load in the background. Press `R` to start
+Radio explicitly from other track views. Unavailable tracks are excluded.
+
+Radio first requests Spotify's official track-seeded recommendations and preserves
+their returned order. If unavailable or empty, it falls back to artist searches.
+The queue title and status identify **Spotify recommendations** versus
+**Artist-search suggestions**. The fallback is not Spotify's personalized autoplay
+algorithm. Spotify restricts the recommendations endpoint for newer/development-mode
+apps; see [Spotify's API access changes](https://developer.spotify.com/blog/2024-11-27-changes-to-the-web-api).
+
+During the session, Radio requests more suggestions when three or fewer tracks
+remain after the playing song. It requests each seed at most once, excludes IDs
+already queued, and stops automatic requests after an error or no new results.
+Clearing, replacing, or undoing the queue cancels Radio. Restarting restores the
+saved queue paused without resuming automatic recommendation requests.
+Manual track and playlist additions go ahead of pending Radio suggestions in
+insertion order, without moving or restarting the playing track.
 Shuffle randomizes the order with the current occurrence first; disabling it
-restores list/insertion order. Appended songs go to the end of the current order.
+restores list/insertion order. Outside Radio, appended songs go to the end of the current order.
 Repeat track applies to completion; manually pressing next still advances.
 Removing the playing entry stops playback instead of silently playing another.
 
@@ -241,6 +257,21 @@ Lyrics are requested from **Lrclib only when you open the lyrics view** and real
 track metadata is available. Requests send the track title, artist names, and
 duration to `lrclib.net`; no Spotify tokens are sent there. Lyrics are kept in
 memory. F5 retries failures. Plain lyrics scroll with Up/Down or Page Up/Down.
+
+### Listening statistics
+
+Press **Shift+S** for local, all-time statistics: total listening time, play count,
+unique songs, and your most-played song. The song table shows plays and listening
+time, plus each song's share of total listening time on wider terminals.
+
+Press `/` to search titles or artists, Enter to finish typing, and Tab to cycle
+sorting through plays, listening time, and title. Esc leaves text entry, then clears
+an active search, then closes statistics; Shift+S also closes the view outside text
+entry. Summary totals and listening shares always refer to all recorded songs,
+even while searching. Up/Down and Page Up/Down navigate the matching rows.
+
+These totals cover playback in Tuitify, not listening in other Spotify apps.
+Existing statistics are preserved; this update adds no dated listening history.
 
 ## Spotify API behavior
 
@@ -402,6 +433,9 @@ serialization/revocation, retry timing, pagination, restricted responses, and
 rendering all views at normal, narrow, and tiny sizes.
 
 ## Source map and scope
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the module map, state ownership,
+input/rendering boundaries, and refactoring safeguards.
 
 `auth` handles PKCE and credentials; `catalog` handles the Web API; `playback`
 owns streaming/audio with typed commands and events; `queue` owns order semantics;

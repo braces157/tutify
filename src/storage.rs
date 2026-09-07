@@ -1,7 +1,4 @@
-use crate::{
-    model::{Repeat, valid_id},
-    queue::Queue,
-};
+use crate::{model::Repeat, queue::Queue};
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::{
@@ -157,15 +154,6 @@ fn atomic_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
     tmp.persist(path)
         .map_err(|e| e.error)
         .with_context(|| format!("Cannot save {}", path.display()))?;
-    Ok(())
-}
-
-pub fn validate_ids(ids: &[String]) -> Result<()> {
-    if ids.len() > crate::queue::MAX_TRACKS || ids.iter().any(|id| !valid_id(id)) {
-        bail!(
-            "Invalid queue track IDs or queue exceeds 100,000 tracks; preserve queue.json and move it aside to reset"
-        );
-    }
     Ok(())
 }
 

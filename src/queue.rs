@@ -1,4 +1,4 @@
-use crate::{model::Repeat, storage::validate_ids};
+use crate::model::{Repeat, valid_id};
 use anyhow::{Result, bail};
 use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
@@ -201,6 +201,15 @@ impl Queue {
         self.selected = to;
         true
     }
+}
+
+fn validate_ids(ids: &[String]) -> Result<()> {
+    if ids.len() > crate::queue::MAX_TRACKS || ids.iter().any(|id| !valid_id(id)) {
+        bail!(
+            "Invalid queue track IDs or queue exceeds 100,000 tracks; preserve queue.json and move it aside to reset"
+        );
+    }
+    Ok(())
 }
 
 #[cfg(test)]

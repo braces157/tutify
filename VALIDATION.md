@@ -1,5 +1,55 @@
 # Validation record
 
+## Structural refactor — 2026-09-08
+
+Refactored the current working tree while preserving the existing feature work.
+Application input/actions, controls, background jobs, persistence, browsing, lyrics
+state, and runtime now have focused modules. UI panels, terminal lifecycle, themes,
+navigation, and frame decoration are separated. `app.rs` decreased from 4,054 to
+589 lines and `ui.rs` from 2,560 to 151; App has 24 top-level fields instead of 57.
+All Rust files are below 1,000 lines, including tests; the largest is 839 lines.
+
+Behavioral changes enforce the reviewed boundaries: stats selection is independent
+of catalog selection, overlays use a mutually exclusive enum, context menus invoke
+semantic actions, playback controls share one implementation, drawing receives
+explicit mutable layout feedback, and authentication banners follow typed catalog
+health rather than status-message substrings. Queue JSON, statistics JSON, cache,
+configuration and credential formats are unchanged. See `ARCHITECTURE.md` for the
+resulting module map and invariants.
+
+Checks performed on this implementation:
+
+- `cargo test --locked --quiet`: **142 passed, 0 failed, 4 ignored**. A test-name
+  comparison with the pre-refactor working-tree backup confirmed all 141 original
+  tests (including the four ignored tests) remain; five regression tests were added.
+- New coverage checks equivalent seek/volume/mute commands in normal and stats
+  modes, semantic menu actions and modal isolation, catalog selection through
+  stats navigation with actual rendered frames, typed authentication health and
+  recovery across catalog clones, and banner independence from status wording.
+- `cargo fmt --check`, `cargo clippy --all-targets --locked -- -D warnings`, and
+  `git diff --check`: passed.
+- `cargo build --release --locked`: passed. The release executable passed
+  `--version` (0.2.5) and `--help` smoke checks.
+- The opt-in `ui::tests::terminal_cleanup_acceptance` test passed separately in a
+  PTY: raw mode restored after normal exit and an intentional caught panic.
+- The opt-in `media_controls::tests::windows_media_session_acceptance` test passed
+  separately: silent Windows session metadata, controls, timeline, and cleanup.
+
+The two acceptance tests were invoked directly on the just-built debug test
+executable using `--exact`, `--ignored`, `--nocapture`, and `--test-threads=1`.
+Live Spotify streaming and the optimized rendering benchmark were not rerun.
+Website files were not changed and browser tests were not rerun. No new runtime
+performance claim is made.
+
+Installation follow-up: rebuilt the release executable and replaced
+`%USERPROFILE%\.cargo\bin\tuitify.exe`. Its SHA256 matched the release build.
+The bare `tuitify` command resolved through PATH, reported version 0.2.5, opened
+the TUI in a PTY, restored the saved queue paused, and exited cleanly with `q`.
+Catalog access reported an expired Spotify login; live music access requires
+`tuitify auth --force`. This launch does not establish successful streaming.
+
+## Earlier validation records
+
 Date: 2026-09-05. Platform: Windows x86_64, Rust 1.95.0, Windows audio via
 Rodio/CPAL (WASAPI), librespot 0.8.0. This file records acceptance evidence without
 account identifiers, tokens, library contents, or listening logs.
