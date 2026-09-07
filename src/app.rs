@@ -5,6 +5,7 @@ use crate::{
     model::Track,
     playback::{self, Command, Event},
     queue::Queue,
+    stats::{PlaybackAccounting, SongStats},
     storage::{Config, Storage},
     ui,
 };
@@ -148,6 +149,7 @@ pub struct App {
     rows_revision: u64,
     filtered: RefCell<FilterCache>,
     pub catalog_scroll: Cell<usize>,
+    pub stats_scroll: Cell<usize>,
     pub queue_scroll: Cell<usize>,
     pub queue_height: Cell<usize>,
     pub terminal_size: Cell<(u16, u16)>,
@@ -166,6 +168,9 @@ pub struct App {
     pub lyrics_track_id: Option<String>,
     pub animation_frame: u32,
     pub visualizer: Arc<crate::visualizer::AudioVisualizer>,
+    pub stats: SongStats,
+    pub accounting: PlaybackAccounting,
+    pub show_stats: bool,
 }
 
 impl App {
@@ -203,6 +208,7 @@ impl App {
             rows_revision: 0,
             filtered: RefCell::new(FilterCache::default()),
             catalog_scroll: Cell::new(0),
+            stats_scroll: Cell::new(0),
             queue_scroll: Cell::new(0),
             queue_height: Cell::new(40),
             terminal_size: Cell::new((120, 35)),
@@ -221,12 +227,18 @@ impl App {
             lyrics_track_id: None,
             animation_frame: 0,
             visualizer: crate::visualizer::AudioVisualizer::new(),
+            stats: SongStats::default(),
+            accounting: PlaybackAccounting::new(),
+            show_stats: false,
         }
     }
     pub fn can_undo(&self) -> bool {
         !self.undo.is_empty()
     }
     fn remember_queue(&mut self) {
+        if self.state == State::Playing {
+            self.account_playback_time(Instant::now());
+        }
         self.interpolate_position();
         // At most ten actions and 100,000 stored IDs across snapshots. Only
         // mutations take a snapshot; rendering and ordinary navigation do not.
@@ -372,8 +384,49 @@ impl App {
     fn anchor_position(&mut self) {
         self.position_anchor = Some((Instant::now(), self.queue.position_ms));
     }
+    pub fn account_playback_time(&mut self, now: Instant) {
+        if self.state != State::Playing {
+            self.accounting.last_accounted_at = None;
+            return;
+        }
+        let Some(track_id) = self.accounting.track_id.clone() else {
+            self.accounting.last_accounted_at = None;
+            return;
+        };
+        if let Some(track) = self.cache.get(&track_id) {
+            if track.duration_ms > 0 {
+                self.accounting.duration_ms = track.duration_ms;
+            }
+        }
+        let fallback_name = self
+            .cache
+            .get(&track_id)
+            .map(|t| t.name.clone())
+            .unwrap_or_else(|| format!("Track {track_id}"));
+        let fallback_artists = self
+            .cache
+            .get(&track_id)
+            .map(|t| t.artists.clone())
+            .unwrap_or_default();
+
+        self.accounting.account_time(
+            now,
+            &track_id,
+            &fallback_name,
+            &fallback_artists,
+            &mut self.stats,
+        );
+    }
+    pub fn finalize_playback_accounting(&mut self) {
+        if self.state == State::Playing {
+            self.account_playback_time(Instant::now());
+        }
+        self.accounting.last_accounted_at = None;
+    }
     pub fn len(&self) -> usize {
-        if self.view == View::Help {
+        if self.show_stats {
+            self.stats.len()
+        } else if self.view == View::Help {
             self.help_length.get()
         } else if self.view == View::Queue {
             self.queue.order.len()
@@ -463,7 +516,11 @@ impl App {
     }
     fn load(&mut self, tx: &mpsc::UnboundedSender<Command>) {
         if let Some(id) = self.queue.current().map(str::to_owned) {
+            self.finalize_playback_accounting();
             self.generation += 1;
+            let duration_ms = self.cache.get(&id).map_or(0, |t| t.duration_ms);
+            self.accounting
+                .start_generation(self.generation, Some(id.clone()), duration_ms);
             self.loaded = true;
             self.state = State::Loading;
             self.status = "Loading audio... Space pauses | q exits".into();
@@ -478,6 +535,7 @@ impl App {
         }
     }
     fn stop(&mut self, tx: &mpsc::UnboundedSender<Command>) {
+        self.finalize_playback_accounting();
         self.generation += 1;
         self.state = State::Paused;
         self.loaded = false;
@@ -491,6 +549,7 @@ impl App {
             MediaAction::Pause if !active => (),
             MediaAction::Pause | MediaAction::Toggle if active => {
                 self.interpolate_position();
+                self.finalize_playback_accounting();
                 self.state = State::Paused;
                 self.send(tx, Command::Pause);
             }
@@ -531,6 +590,13 @@ impl App {
                 self.state = State::Playing;
                 self.queue.position_ms = position_ms;
                 self.anchor_position();
+                let track_id = self.queue.current().map(str::to_owned);
+                let duration_ms = track_id
+                    .as_deref()
+                    .and_then(|id| self.cache.get(id))
+                    .map_or(0, |t| t.duration_ms);
+                self.accounting
+                    .on_playing(generation, track_id, duration_ms, Instant::now());
                 self.status =
                     "Playing | Space pause | Left/Right seek | +/- volume | n/p next/previous"
                         .into();
@@ -539,6 +605,7 @@ impl App {
                 generation,
                 position_ms,
             } if generation == self.generation => {
+                self.finalize_playback_accounting();
                 self.state = State::Paused;
                 self.queue.position_ms = position_ms;
                 self.anchor_position();
@@ -548,10 +615,31 @@ impl App {
                 generation,
                 position_ms,
             } if generation == self.generation => {
+                self.account_playback_time(Instant::now());
                 self.queue.position_ms = position_ms;
                 self.anchor_position();
             }
             Event::Completed(generation) if generation == self.generation => {
+                self.finalize_playback_accounting();
+                if let Some(id) = self.accounting.track_id.clone() {
+                    let fallback_name = self
+                        .cache
+                        .get(&id)
+                        .map(|t| t.name.clone())
+                        .unwrap_or_else(|| format!("Track {id}"));
+                    let fallback_artists = self
+                        .cache
+                        .get(&id)
+                        .map(|t| t.artists.clone())
+                        .unwrap_or_default();
+                    self.accounting.on_completed(
+                        generation,
+                        &id,
+                        &fallback_name,
+                        &fallback_artists,
+                        &mut self.stats,
+                    );
+                }
                 if self.queue.advance(self.config.repeat, true) {
                     self.load(tx);
                 } else {
@@ -561,6 +649,7 @@ impl App {
                 }
             }
             Event::Error(message) => {
+                self.finalize_playback_accounting();
                 self.stop(tx);
                 self.state = State::Failed;
                 self.status = message;
@@ -905,6 +994,9 @@ impl Tasks {
         app.view = view;
         app.nav = view.index();
         app.sidebar = false;
+        app.show_lyrics = false;
+        app.show_visualizer = false;
+        app.show_stats = false;
         app.selected = 0;
         app.editing = false;
         app.filter.clear();
@@ -948,6 +1040,7 @@ fn choose_search(app: &mut App, scope: SearchScope, tasks: &mut Tasks) {
     app.context_menu = None;
     app.show_lyrics = false;
     app.show_visualizer = false;
+    app.show_stats = false;
     app.editing = app.query.trim().is_empty();
 }
 fn perform_undo(app: &mut App, tasks: &mut Tasks, tx: &mpsc::UnboundedSender<Command>) {
@@ -1020,10 +1113,18 @@ fn mouse(
     let Some((area, target)) = hit else {
         return false;
     };
-    if matches!(
-        event.kind,
-        MouseEventKind::ScrollUp | MouseEventKind::ScrollDown
-    ) {
+    if event.kind == MouseEventKind::ScrollUp || event.kind == MouseEventKind::ScrollDown {
+        if app.show_stats {
+            let code = if event.kind == MouseEventKind::ScrollUp {
+                KeyCode::Up
+            } else {
+                KeyCode::Down
+            };
+            for _ in 0..3 {
+                key(app, KeyEvent::new(code, KeyModifiers::NONE), tasks, tx);
+            }
+            return true;
+        }
         if app.show_visualizer
             || (app.show_lyrics
                 && app
@@ -1048,6 +1149,7 @@ fn mouse(
             tasks.view(app, View::Queue);
             app.show_lyrics = false;
             app.show_visualizer = false;
+            app.show_stats = false;
         }
         app.editing = false;
         app.filtering = false;
@@ -1063,12 +1165,16 @@ fn mouse(
         return true;
     }
     let right = event.kind == MouseEventKind::Down(MouseButton::Right);
+    if app.show_stats {
+        return false;
+    }
     match target {
         MouseTarget::SearchMode(scope) if !right => choose_search(app, scope, tasks),
         MouseTarget::Navigation(view) if !right => {
             tasks.view(app, view);
             app.show_lyrics = false;
             app.show_visualizer = false;
+            app.show_stats = false;
         }
         MouseTarget::QueueScroll if right && app.can_undo() => {
             if app.view != View::Queue {
@@ -1103,6 +1209,7 @@ fn mouse(
                 }
                 app.show_lyrics = false;
                 app.show_visualizer = false;
+                app.show_stats = false;
                 app.queue.selected = index.min(app.queue.order.len().saturating_sub(1));
             } else {
                 app.selected = index;
@@ -1182,6 +1289,100 @@ fn key(app: &mut App, key: KeyEvent, tasks: &mut Tasks, tx: &mpsc::UnboundedSend
     }
     if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
         app.quit = true;
+        return;
+    }
+    if app.show_stats {
+        match key.code {
+            KeyCode::Char('S') | KeyCode::Esc => {
+                app.show_stats = false;
+                app.selected = app.selected.min(app.len().saturating_sub(1));
+                app.status = "Exited song statistics".into();
+            }
+            KeyCode::Char('q') => app.quit = true,
+            KeyCode::Up | KeyCode::Char('k') => {
+                app.selected = app.selected.saturating_sub(1);
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                let max_idx = app.stats.len().saturating_sub(1);
+                app.selected = (app.selected + 1).min(max_idx);
+            }
+            KeyCode::PageUp => {
+                app.selected = app.selected.saturating_sub(15);
+            }
+            KeyCode::PageDown | KeyCode::Char('>') => {
+                let max_idx = app.stats.len().saturating_sub(1);
+                app.selected = (app.selected + 15).min(max_idx);
+            }
+            KeyCode::Char(' ') => app.media_action(MediaAction::Toggle, tx),
+            KeyCode::Char('n') => app.media_action(MediaAction::Next, tx),
+            KeyCode::Char('p') => app.media_action(MediaAction::Previous, tx),
+            KeyCode::Home | KeyCode::End | KeyCode::Left | KeyCode::Right => {
+                if let Some(track) = app.current_track() {
+                    let duration = track.duration_ms;
+                    if duration > 0 {
+                        let position = match key.code {
+                            KeyCode::Home => 0,
+                            KeyCode::End => duration.saturating_sub(1),
+                            KeyCode::Left => app.queue.position_ms.saturating_sub(10_000),
+                            KeyCode::Right => app.queue.position_ms.saturating_add(10_000),
+                            _ => unreachable!(),
+                        };
+                        app.queue.position_ms = position.min(duration.saturating_sub(1));
+                        app.anchor_position();
+                        if app.loaded {
+                            app.send(tx, Command::Seek(app.queue.position_ms));
+                        }
+                        app.status = format!(
+                            "Seeked to {}. Left/Right seek 10s | Home/End jump",
+                            format_time(app.queue.position_ms)
+                        );
+                    }
+                }
+            }
+            KeyCode::Char('+') | KeyCode::Char('=') => {
+                app.config.volume = (app.config.volume + 5).min(100);
+                app.muted_volume = None;
+                app.send(tx, Command::Volume(app.config.volume));
+                app.status = format!("Volume {}%", app.config.volume);
+            }
+            KeyCode::Char('-') => {
+                app.config.volume = app.config.volume.saturating_sub(5);
+                if app.config.volume > 0 {
+                    app.muted_volume = None;
+                }
+                app.send(tx, Command::Volume(app.config.volume));
+                app.status = format!("Volume {}%", app.config.volume);
+            }
+            KeyCode::Char(']') => {
+                app.config.volume = (app.config.volume + 1).min(100);
+                app.muted_volume = None;
+                app.send(tx, Command::Volume(app.config.volume));
+                app.status = format!("Volume {}% (fine)", app.config.volume);
+            }
+            KeyCode::Char('[') => {
+                app.config.volume = app.config.volume.saturating_sub(1);
+                if app.config.volume > 0 {
+                    app.muted_volume = None;
+                }
+                app.send(tx, Command::Volume(app.config.volume));
+                app.status = format!("Volume {}% (fine)", app.config.volume);
+            }
+            KeyCode::Char('m') => {
+                if app.config.volume == 0 {
+                    app.config.volume = app.muted_volume.take().unwrap_or(50);
+                } else {
+                    app.muted_volume = Some(app.config.volume);
+                    app.config.volume = 0;
+                }
+                app.send(tx, Command::Volume(app.config.volume));
+                app.status = if app.config.volume == 0 {
+                    "Muted. Press m to restore volume".into()
+                } else {
+                    format!("Volume {}%", app.config.volume)
+                };
+            }
+            _ => (),
+        }
         return;
     }
     if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('z') {
@@ -1363,7 +1564,7 @@ fn key(app: &mut App, key: KeyEvent, tasks: &mut Tasks, tx: &mpsc::UnboundedSend
             } else {
                 let at = (app.selected + 1).min(app.len().saturating_sub(1));
                 app.selected = at;
-                if !app.busy && !app.is_filtered() && at + 5 >= app.len() {
+                if !app.show_stats && !app.busy && !app.is_filtered() && at + 5 >= app.len() {
                     if let Some(offset) = app.next {
                         tasks.request(app, offset);
                     }
@@ -1565,6 +1766,7 @@ fn key(app: &mut App, key: KeyEvent, tasks: &mut Tasks, tx: &mpsc::UnboundedSend
             app.show_lyrics = !app.show_lyrics;
             if app.show_lyrics {
                 app.show_visualizer = false;
+                app.show_stats = false;
                 app.status = "Lyrics active (press l or Esc to exit)".into();
             } else {
                 app.status = "Exited lyrics".into();
@@ -1574,10 +1776,21 @@ fn key(app: &mut App, key: KeyEvent, tasks: &mut Tasks, tx: &mpsc::UnboundedSend
             app.show_visualizer = !app.show_visualizer;
             if app.show_visualizer {
                 app.show_lyrics = false;
+                app.show_stats = false;
                 app.status = "Retro visualizer active (press v or Esc to exit)".into();
             } else {
                 app.status = "Exited visualizer".into();
             }
+        }
+        KeyCode::Char('S') => {
+            app.show_stats = true;
+            app.show_lyrics = false;
+            app.show_visualizer = false;
+            app.sidebar = false;
+            app.selected = 0;
+            app.stats_scroll.set(0);
+            app.stats.refresh_metadata(&app.cache);
+            app.status = "Song statistics (press S or Esc to exit)".into();
         }
         KeyCode::Char('a') if app.view != View::Help => {
             if let Rows::Playlists(playlists) = &app.rows {
@@ -1782,7 +1995,10 @@ fn background(app: &mut App, tasks: &mut Tasks, event: Background) -> bool {
         Background::Metadata(request, id, result) if request == tasks.metadata_request => {
             tasks.requested.remove(&id);
             match result {
-                Ok(track) => app.cache.insert(track.id.clone(), track),
+                Ok(track) => {
+                    app.cache.insert(track.id.clone(), track);
+                    app.stats.refresh_metadata(&app.cache);
+                }
                 Err(e) if e.is::<crate::catalog::MissingItem>() => {
                     app.cache.insert(
                         id.clone(),
@@ -1830,6 +2046,7 @@ fn background(app: &mut App, tasks: &mut Tasks, event: Background) -> bool {
                     app.cache.insert(track.id.clone(), track);
                 }
             }
+            app.stats.refresh_metadata(&app.cache);
             app.status = format!(
                 "Added {} playlist tracks{}",
                 tasks.playlist_added,
@@ -1864,6 +2081,7 @@ fn background(app: &mut App, tasks: &mut Tasks, event: Background) -> bool {
                         app.cache.insert(track.id.clone(), track);
                     }
                 }
+                app.stats.refresh_metadata(&app.cache);
                 app.status = format!("Track Radio: added {added} related tracks.");
             }
             Err(e) => app.status = format!("Track Radio failed: {e:#}. Press R to retry."),
@@ -1931,10 +2149,12 @@ struct Checkpoints {
     config: Config,
     queue: QueueStamp,
     cache: u64,
+    stats: u64,
     retry: bool,
     config_tx: watch::Sender<Option<Config>>,
     queue_tx: watch::Sender<Option<Queue>>,
     cache_tx: watch::Sender<Option<crate::cache::MetadataCache>>,
+    stats_tx: watch::Sender<Option<crate::stats::SongStats>>,
 }
 impl Checkpoints {
     fn send(&mut self, app: &App) {
@@ -1950,6 +2170,10 @@ impl Checkpoints {
         if self.retry || self.cache != app.cache.revision {
             self.cache_tx.send_replace(Some(app.cache.clone()));
             self.cache = app.cache.revision;
+        }
+        if self.retry || self.stats != app.stats.revision {
+            self.stats_tx.send_replace(Some(app.stats.clone()));
+            self.stats = app.stats.revision;
         }
         self.retry = false;
     }
@@ -1970,29 +2194,41 @@ pub async fn run(store: Storage) -> Result<()> {
         Ok(cache) => app.cache = cache,
         Err(_) => app.status = "Old or invalid metadata cache ignored; names will reload. Use clear-cache to remove it.".into(),
     }
+    match store.stats() {
+        Ok(stats) => app.stats = stats,
+        Err(_) => app.status = "Old or invalid song statistics ignored; starting fresh.".into(),
+    }
+    app.stats.refresh_metadata(&app.cache);
     let (bg_tx, mut bg_rx) = mpsc::unbounded_channel();
     let mut tasks = Tasks::new(catalog, bg_tx.clone())?;
     let (config_tx, config_rx) = watch::channel(None);
     let (queue_tx, queue_rx) = watch::channel(None);
     let (cache_tx, cache_rx) = watch::channel(None);
+    let (stats_tx, stats_rx) = watch::channel(None);
     let config_store = store.clone();
     let queue_store = store.clone();
     let cache_store = store.clone();
+    let stats_store = store.clone();
     let config_writer = writer(config_rx, bg_tx.clone(), move |config| {
         config_store.save_config(&config)
     });
     let queue_writer = writer(queue_rx, bg_tx.clone(), move |queue| {
         queue_store.save_queue(&queue)
     });
-    let cache_writer = writer(cache_rx, bg_tx, move |cache| cache_store.save_cache(&cache));
+    let cache_writer = writer(cache_rx, bg_tx.clone(), move |cache| {
+        cache_store.save_cache(&cache)
+    });
+    let stats_writer = writer(stats_rx, bg_tx, move |stats| stats_store.save_stats(&stats));
     let mut checkpoints = Checkpoints {
         config: app.config.clone(),
         queue: queue_stamp(&app.queue),
         cache: 0,
+        stats: 0,
         retry: false,
         config_tx,
         queue_tx,
         cache_tx,
+        stats_tx,
     };
     let mut terminal = ui::TerminalGuard::enter()?;
     let (media_tx, mut media_rx) = mpsc::unbounded_channel();
@@ -2029,6 +2265,7 @@ pub async fn run(store: Storage) -> Result<()> {
             if lyrics_dirty { tasks.update_lyrics(&mut app); lyrics_dirty = false; }
             if dirty && last_draw.elapsed() >= Duration::from_millis(33) {
                 app.interpolate_position();
+                app.account_playback_time(Instant::now());
                 let title = app.window_title();
                 if title != current_window_title { ui::set_title(&title); current_window_title = title; }
                 terminal.terminal.draw(|frame| ui::draw(frame, &app))?;
@@ -2067,7 +2304,15 @@ pub async fn run(store: Storage) -> Result<()> {
                 }
                 event = playback.events.recv(), if playback_open => {
                     if let Some(event) = event { app.playback_event(event, &playback.commands); }
-                    else { playback_open = false; app.loaded = false; app.state = State::Failed; app.status = "Playback worker exited; restart Tuitify.".into(); }
+                    else {
+                        playback_open = false;
+                        if app.state == State::Playing {
+                            app.finalize_playback_accounting();
+                        }
+                        app.loaded = false;
+                        app.state = State::Failed;
+                        app.status = "Playback worker exited; restart Tuitify.".into();
+                    }
                     app.mouse_hits.borrow_mut().clear();
                     dirty = true; metadata_dirty = true; lyrics_dirty = true;
                 }
@@ -2084,6 +2329,7 @@ pub async fn run(store: Storage) -> Result<()> {
                 }
                 _ = save_tick.tick() => {
                     app.interpolate_position();
+                    app.account_playback_time(Instant::now());
                     if app.cache.prune_expired() { dirty = true; metadata_dirty = true; lyrics_dirty = true; }
                     checkpoints.send(&app);
                 }
@@ -2094,6 +2340,7 @@ pub async fn run(store: Storage) -> Result<()> {
         Ok(())
     }.await;
     app.interpolate_position();
+    app.finalize_playback_accounting();
     app.send(&playback.commands, Command::Stop);
     checkpoints.send(&app);
     drop(checkpoints);
@@ -2101,11 +2348,12 @@ pub async fn run(store: Storage) -> Result<()> {
     drop(terminal);
     drop(media_controls);
     discord_presence.close().await;
-    let (config_saved, queue_saved, cache_saved) =
-        tokio::join!(config_writer, queue_writer, cache_writer);
+    let (config_saved, queue_saved, cache_saved, stats_saved) =
+        tokio::join!(config_writer, queue_writer, cache_writer, stats_writer);
     config_saved??;
     queue_saved??;
     cache_saved??;
+    stats_saved??;
     result
 }
 
@@ -2790,14 +3038,17 @@ mod tests {
         let (config_tx, config_rx) = watch::channel(None);
         let (queue_tx, mut queue_rx) = watch::channel(None);
         let (cache_tx, cache_rx) = watch::channel(None);
+        let (stats_tx, stats_rx) = watch::channel(None);
         let mut checkpoints = Checkpoints {
             config: app.config.clone(),
             queue: queue_stamp(&app.queue),
             cache: app.cache.revision,
+            stats: app.stats.revision,
             retry: false,
             config_tx,
             queue_tx,
             cache_tx,
+            stats_tx,
         };
         app.query = "typing".into();
         app.selected = 5;
@@ -2805,6 +3056,7 @@ mod tests {
         assert!(!config_rx.has_changed().unwrap());
         assert!(!queue_rx.has_changed().unwrap());
         assert!(!cache_rx.has_changed().unwrap());
+        assert!(!stats_rx.has_changed().unwrap());
         app.queue.enqueue(test_track(1).id);
         checkpoints.send(&app);
         assert!(queue_rx.has_changed().unwrap());
@@ -2814,9 +3066,15 @@ mod tests {
         assert!(config_rx.has_changed().unwrap());
         assert!(!queue_rx.has_changed().unwrap());
         assert!(!cache_rx.has_changed().unwrap());
+        assert!(!stats_rx.has_changed().unwrap());
         app.cache.insert(test_track(1).id, test_track(1));
         checkpoints.send(&app);
         assert!(cache_rx.has_changed().unwrap());
+        assert!(!stats_rx.has_changed().unwrap());
+        app.stats
+            .add_listened_ms(&"0".repeat(22), 1000, "Song", "Artist");
+        checkpoints.send(&app);
+        assert!(stats_rx.has_changed().unwrap());
     }
     #[tokio::test]
     async fn writer_failure_is_reported_and_later_snapshot_can_recover() {
@@ -3064,5 +3322,420 @@ mod tests {
 
         app.state = State::Failed;
         assert_eq!(app.window_title(), "! Tuitify • 牵丝戏 - 银临, Aki阿杰");
+    }
+
+    #[tokio::test]
+    async fn stats_overlay_toggle_mutual_exclusion_and_esc() {
+        let mut app = App::new(Config::default(), Queue::default());
+        let (mut tasks, _) = tasks();
+        let (tx, _) = mpsc::unbounded_channel();
+
+        assert!(!app.show_stats);
+        assert!(!app.show_lyrics);
+        assert!(!app.show_visualizer);
+
+        // Start with lyrics open
+        app.show_lyrics = true;
+
+        // Press 'S' to open stats: closes lyrics
+        key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('S'), KeyModifiers::SHIFT),
+            &mut tasks,
+            &tx,
+        );
+        assert!(app.show_stats);
+        assert!(!app.show_lyrics);
+        assert!(!app.show_visualizer);
+        assert!(app.status.contains("Song statistics"));
+
+        // While stats is open, 'l' and 'v' are ignored (overlay is isolated)
+        key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
+            &mut tasks,
+            &tx,
+        );
+        assert!(app.show_stats);
+        assert!(!app.show_lyrics);
+
+        key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('v'), KeyModifiers::NONE),
+            &mut tasks,
+            &tx,
+        );
+        assert!(app.show_stats);
+        assert!(!app.show_visualizer);
+
+        // Press 'S' to dismiss
+        key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('S'), KeyModifiers::SHIFT),
+            &mut tasks,
+            &tx,
+        );
+        assert!(!app.show_stats);
+        assert!(app.status.contains("Exited"));
+
+        // Start with visualizer open
+        app.show_visualizer = true;
+
+        // Press 'S': closes visualizer, opens stats
+        key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('S'), KeyModifiers::SHIFT),
+            &mut tasks,
+            &tx,
+        );
+        assert!(app.show_stats);
+        assert!(!app.show_visualizer);
+
+        // Dismiss via Esc
+        key(
+            &mut app,
+            KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+            &mut tasks,
+            &tx,
+        );
+        assert!(!app.show_stats);
+        assert!(!app.quit);
+        assert!(app.status.contains("Exited"));
+    }
+
+    #[tokio::test]
+    async fn stats_overlay_navigation_and_enter_safety() {
+        let mut app = App::new(Config::default(), Queue::default());
+        let (mut tasks, _) = tasks();
+        let (tx, _) = mpsc::unbounded_channel();
+
+        // Populate 3 tracks in stats
+        let id1 = "1".repeat(22);
+        let id2 = "2".repeat(22);
+        let id3 = "3".repeat(22);
+        app.stats.add_play(&id1, "Track 1", "Artist 1");
+        app.stats.add_play(&id2, "Track 2", "Artist 2");
+        app.stats.add_play(&id3, "Track 3", "Artist 3");
+
+        // Open stats overlay
+        key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('S'), KeyModifiers::SHIFT),
+            &mut tasks,
+            &tx,
+        );
+        assert!(app.show_stats);
+        assert_eq!(app.selected, 0);
+
+        // Down arrow navigates within stats bounds
+        key(
+            &mut app,
+            KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
+            &mut tasks,
+            &tx,
+        );
+        assert_eq!(app.selected, 1);
+
+        key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE),
+            &mut tasks,
+            &tx,
+        );
+        assert_eq!(app.selected, 2);
+
+        // Down at end clamps to len - 1 (index 2)
+        key(
+            &mut app,
+            KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
+            &mut tasks,
+            &tx,
+        );
+        assert_eq!(app.selected, 2);
+
+        // Enter is suppressed while stats overlay is open
+        key(
+            &mut app,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+            &mut tasks,
+            &tx,
+        );
+        assert!(app.show_stats);
+        assert!(app.queue.ids.is_empty());
+    }
+
+    #[tokio::test]
+    async fn stats_save_error_updates_status_and_triggers_retry() {
+        let mut app = App::new(Config::default(), Queue::default());
+        let (mut tasks, _) = tasks();
+        let retry = background(
+            &mut app,
+            &mut tasks,
+            Background::SaveError("Could not save state: stats write error".into()),
+        );
+        assert!(retry);
+        assert!(app.status.contains("stats write error"));
+    }
+
+    #[test]
+    fn regression_continuous_accounting_after_queue_mutation() {
+        let mut app = App::new(Config::default(), Queue::default());
+        let id = "0".repeat(22);
+        app.queue.replace(vec![id.clone()], 0, false);
+        let start = Instant::now();
+        app.generation = 1;
+        app.state = State::Playing;
+        app.accounting
+            .start_generation(1, Some(id.clone()), 200_000);
+        app.accounting
+            .on_playing(1, Some(id.clone()), 200_000, start);
+
+        // Account 5 seconds
+        app.account_playback_time(start + Duration::from_secs(5));
+        assert_eq!(app.stats.tracks.get(&id).unwrap().listened_ms, 5_000);
+
+        // Queue mutation calls remember_queue
+        app.remember_queue();
+        // Accounting continuity is preserved: last_accounted_at must not be None
+        assert!(app.accounting.last_accounted_at.is_some());
+
+        // Play for another 5 seconds
+        app.account_playback_time(start + Duration::from_secs(10));
+        assert_eq!(app.stats.tracks.get(&id).unwrap().listened_ms, 10_000);
+    }
+
+    #[tokio::test]
+    async fn regression_switching_queued_tracks_finalizes_generation_pinned_old_track() {
+        let mut app = App::new(Config::default(), Queue::default());
+        let id1 = "1".repeat(22);
+        let id2 = "2".repeat(22);
+        app.queue.replace(vec![id1.clone(), id2.clone()], 0, false);
+        let start = Instant::now();
+        app.generation = 1;
+        app.state = State::Playing;
+        app.accounting
+            .start_generation(1, Some(id1.clone()), 200_000);
+        app.accounting
+            .on_playing(1, Some(id1.clone()), 200_000, start);
+
+        // Advance 10 seconds of playback time in 5s chunks
+        for i in 1..=2 {
+            app.account_playback_time(start + Duration::from_secs(i * 5));
+        }
+        assert_eq!(app.stats.tracks.get(&id1).unwrap().listened_ms, 10_000);
+
+        // User selects track 2 in queue
+        app.queue.select(1);
+        assert_eq!(app.queue.current(), Some(id2.as_str()));
+
+        // Call load for new track: it should finalize track 1, not track 2!
+        let (tx, _rx) = mpsc::unbounded_channel();
+        app.load(&tx);
+
+        assert_eq!(app.stats.tracks.get(&id1).unwrap().listened_ms, 10_000);
+        assert!(!app.stats.tracks.contains_key(&id2));
+        assert_eq!(app.accounting.track_id, Some(id2.clone()));
+    }
+
+    #[tokio::test]
+    async fn regression_stats_overlay_from_view_queue_navigates_selected_without_changing_queue_selected()
+     {
+        let mut app = App::new(Config::default(), Queue::default());
+        let (mut tasks, _) = tasks();
+        let (tx, _) = mpsc::unbounded_channel();
+
+        for i in 0..5 {
+            app.queue.enqueue(test_track(i).id);
+        }
+        app.view = View::Queue;
+        app.queue.selected = 3;
+
+        let id1 = "1".repeat(22);
+        let id2 = "2".repeat(22);
+        app.stats.add_play(&id1, "Track 1", "Artist 1");
+        app.stats.add_play(&id2, "Track 2", "Artist 2");
+
+        // Open stats overlay
+        key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('S'), KeyModifiers::SHIFT),
+            &mut tasks,
+            &tx,
+        );
+        assert!(app.show_stats);
+        assert_eq!(app.selected, 0);
+        assert_eq!(app.queue.selected, 3);
+
+        // Press Down / j
+        key(
+            &mut app,
+            KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
+            &mut tasks,
+            &tx,
+        );
+        assert_eq!(app.selected, 1);
+        assert_eq!(app.queue.selected, 3); // queue.selected unchanged!
+
+        key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE),
+            &mut tasks,
+            &tx,
+        );
+        assert_eq!(app.selected, 0);
+        assert_eq!(app.queue.selected, 3); // queue.selected unchanged!
+    }
+
+    #[tokio::test]
+    async fn regression_destructive_and_settings_keys_ignored_in_stats_overlay() {
+        let mut app = App::new(Config::default(), Queue::default());
+        let (mut tasks, _) = tasks();
+        let (tx, _) = mpsc::unbounded_channel();
+
+        for i in 0..5 {
+            app.queue.enqueue(test_track(i).id);
+        }
+        app.view = View::Queue;
+        let initial_queue_len = app.queue.ids.len();
+        let initial_shuffle = app.config.shuffle;
+        let initial_repeat = app.config.repeat;
+        let initial_theme = app.config.theme.clone();
+
+        app.show_stats = true;
+
+        // Press 's' (toggle shuffle) - must be ignored!
+        key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE),
+            &mut tasks,
+            &tx,
+        );
+        assert_eq!(app.config.shuffle, initial_shuffle);
+
+        // Press 'd' / 'x' / Delete (remove from queue) - must be ignored!
+        key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE),
+            &mut tasks,
+            &tx,
+        );
+        key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE),
+            &mut tasks,
+            &tx,
+        );
+        key(
+            &mut app,
+            KeyEvent::new(KeyCode::Delete, KeyModifiers::NONE),
+            &mut tasks,
+            &tx,
+        );
+        assert_eq!(app.queue.ids.len(), initial_queue_len);
+
+        // Press 'C' (clear queue) - must be ignored!
+        key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('C'), KeyModifiers::SHIFT),
+            &mut tasks,
+            &tx,
+        );
+        assert_eq!(app.queue.ids.len(), initial_queue_len);
+
+        // Press 'r' (cycle repeat) - must be ignored!
+        key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE),
+            &mut tasks,
+            &tx,
+        );
+        assert_eq!(app.config.repeat, initial_repeat);
+
+        // Press 't' (cycle theme) - must be ignored!
+        key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE),
+            &mut tasks,
+            &tx,
+        );
+        assert_eq!(app.config.theme, initial_theme);
+
+        // Press 'a' / 'A' - must be ignored!
+        key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE),
+            &mut tasks,
+            &tx,
+        );
+        key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('A'), KeyModifiers::SHIFT),
+            &mut tasks,
+            &tx,
+        );
+        assert_eq!(app.queue.ids.len(), initial_queue_len);
+
+        // Press 'J' / 'K' - must be ignored!
+        key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('J'), KeyModifiers::SHIFT),
+            &mut tasks,
+            &tx,
+        );
+        key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('K'), KeyModifiers::SHIFT),
+            &mut tasks,
+            &tx,
+        );
+
+        // Press '1'..='5' - must not change view!
+        key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('1'), KeyModifiers::NONE),
+            &mut tasks,
+            &tx,
+        );
+        assert_eq!(app.view, View::Queue);
+    }
+
+    #[tokio::test]
+    async fn regression_catalog_scroll_preserved_across_stats_overlay() {
+        let mut app = App::new(Config::default(), Queue::default());
+        let (mut tasks, _) = tasks();
+        let (tx, _) = mpsc::unbounded_channel();
+
+        app.catalog_scroll.set(17);
+        assert_eq!(app.catalog_scroll.get(), 17);
+
+        // Open stats overlay
+        key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('S'), KeyModifiers::SHIFT),
+            &mut tasks,
+            &tx,
+        );
+        assert!(app.show_stats);
+        assert_eq!(app.catalog_scroll.get(), 17); // catalog_scroll preserved!
+        assert_eq!(app.stats_scroll.get(), 0);
+
+        // Navigate in stats
+        key(
+            &mut app,
+            KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
+            &mut tasks,
+            &tx,
+        );
+        assert_eq!(app.catalog_scroll.get(), 17);
+
+        // Close stats
+        key(
+            &mut app,
+            KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+            &mut tasks,
+            &tx,
+        );
+        assert!(!app.show_stats);
+        assert_eq!(app.catalog_scroll.get(), 17); // catalog_scroll preserved!
     }
 }

@@ -14,6 +14,10 @@ $releaseFolder = Join-Path (Get-Location) "dist/Tuitify-$version-windows-x86_64"
 New-Item -ItemType Directory -Force -Path $releaseFolder | Out-Null
 Copy-Item -LiteralPath 'target/release/tuitify.exe' -Destination $releaseFolder
 Copy-Item -LiteralPath 'README.md', 'LICENSE', 'ROADMAP.md', 'VALIDATION.md', 'BENCHMARKS.md' -Destination $releaseFolder
+$releaseNotes = "dist/RELEASE_NOTES-$version.md"
+if (Test-Path -LiteralPath $releaseNotes) {
+    Copy-Item -LiteralPath $releaseNotes -Destination $releaseFolder
+}
 $zipPath = "$releaseFolder.zip"
 Compress-Archive -Path "$releaseFolder/*" -DestinationPath $zipPath -Force
 $checksum = Get-FileHash -Algorithm SHA256 -LiteralPath $zipPath

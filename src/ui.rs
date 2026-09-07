@@ -1006,6 +1006,155 @@ fn viewport(
     start..(start + height).min(len)
 }
 
+fn stats(frame: &mut Frame<'_>, app: &App, area: Rect) {
+    let theme = Theme::from_str(&app.config.theme);
+    let title = if area.width < 35 {
+        " STATS [S/Esc exit] ".to_string()
+    } else {
+        " SONG STATISTICS [S/Esc exit] ".to_string()
+    };
+    let outer = block_themed(title, true, theme);
+    let inner = outer.inner(area);
+    frame.render_widget(outer, area);
+
+    if inner.width <= 2 || inner.height == 0 {
+        return;
+    }
+
+    let rows = app.stats.sorted_tracks();
+    if rows.is_empty() {
+        let empty_p = Paragraph::new(
+            "\n  No song statistics yet.\n\n  • Play songs to build local listening statistics\n  • Press S or Esc to exit",
+        )
+        .wrap(Wrap { trim: false })
+        .style(Style::default().fg(MUTED));
+        frame.render_widget(empty_p, inner);
+        return;
+    }
+
+    let visible = viewport(
+        app.selected,
+        rows.len(),
+        inner.height.saturating_sub(1) as usize,
+        &app.stats_scroll,
+    );
+
+    let collapse_artist = inner.width < 70;
+    let (widths, header) = if collapse_artist {
+        (
+            vec![
+                Constraint::Length(5),
+                Constraint::Min(10),
+                Constraint::Length(7),
+                Constraint::Length(9),
+            ],
+            Row::new(vec![
+                Cell::from(" #").style(Style::default().fg(MUTED).bold()),
+                Cell::from("Title").style(Style::default().fg(MUTED).bold()),
+                Cell::from("Plays").style(Style::default().fg(MUTED).bold()),
+                Cell::from("Time").style(Style::default().fg(MUTED).bold()),
+            ]),
+        )
+    } else {
+        (
+            vec![
+                Constraint::Length(5),
+                Constraint::Percentage(45),
+                Constraint::Percentage(30),
+                Constraint::Length(7),
+                Constraint::Length(10),
+            ],
+            Row::new(vec![
+                Cell::from(" #").style(Style::default().fg(MUTED).bold()),
+                Cell::from("Title").style(Style::default().fg(MUTED).bold()),
+                Cell::from("Artist").style(Style::default().fg(MUTED).bold()),
+                Cell::from("Plays").style(Style::default().fg(MUTED).bold()),
+                Cell::from("Time").style(Style::default().fg(MUTED).bold()),
+            ]),
+        )
+    };
+
+    let table_rows: Vec<Row> = rows
+        .iter()
+        .enumerate()
+        .skip(visible.start)
+        .take(visible.len())
+        .map(|(idx, stat)| {
+            let is_selected = idx == app.selected;
+            let current = app.queue.current() == Some(stat.id.as_str());
+            let indicator = if current {
+                if app.state == State::Playing {
+                    "►"
+                } else {
+                    "||"
+                }
+            } else {
+                " "
+            };
+            let rank_str = format!("{}{:>2} ", indicator, idx + 1);
+            let rank_cell = Cell::from(rank_str).style(
+                Style::default()
+                    .fg(if is_selected || current {
+                        theme.primary()
+                    } else {
+                        MUTED
+                    })
+                    .bold(),
+            );
+            let title_cell = Cell::from(stat.name.as_str()).style(
+                Style::default()
+                    .fg(if is_selected || current {
+                        theme.primary()
+                    } else {
+                        FG
+                    })
+                    .bold(),
+            );
+            let plays_cell = Cell::from(format!("{:>5} ", stat.play_count)).style(
+                Style::default().fg(if is_selected || current {
+                    theme.primary()
+                } else {
+                    MUTED
+                }),
+            );
+            let time_cell = Cell::from(format!(
+                "{:>8} ",
+                crate::stats::format_duration(stat.listened_ms)
+            ))
+            .style(Style::default().fg(if is_selected || current {
+                theme.primary()
+            } else {
+                MUTED
+            }));
+
+            let mut cells = vec![rank_cell, title_cell];
+            if !collapse_artist {
+                let artist_cell = Cell::from(stat.artists.as_str()).style(Style::default().fg(
+                    if is_selected || current {
+                        theme.primary()
+                    } else {
+                        theme.accent_dim()
+                    },
+                ));
+                cells.push(artist_cell);
+            }
+            cells.push(plays_cell);
+            cells.push(time_cell);
+
+            let mut row = Row::new(cells);
+            if is_selected {
+                row = row.style(Style::default().bg(theme.highlight_bg()));
+            }
+            row
+        })
+        .collect();
+
+    let table = Table::new(table_rows, widths)
+        .header(header)
+        .column_spacing(1);
+    frame.render_widget(table, inner);
+}
+
 fn center(frame: &mut Frame<'_>, app: &App, area: Rect) {
     hit(app, area, MouseTarget::CatalogScroll);
     let theme = Theme::from_str(&app.config.theme);
@@ -1017,6 +1166,10 @@ fn center(frame: &mut Frame<'_>, app: &App, area: Rect) {
         lyrics(frame, app, area);
         return;
     }
+    if app.show_stats {
+        stats(frame, app, area);
+        return;
+    }
     if app.view == View::Help {
         let text = "MAKE IT YOURS\n\n\
         NAVIGATION\n\
@@ -1024,7 +1177,7 @@ fn center(frame: &mut Frame<'_>, app: &App, area: Rect) {
         Up/Down, j/k   Move cursor in current view\n\
         Enter          Play track or open playlist\n\
         Backspace      Return from playlist to playlists index\n\
-        Esc            Close Help / exit Lyrics or Visualizer\n\n\
+        Esc            Close Help / exit Lyrics, Visualizer, or Stats\n\n\
         MOUSE CONTROLS\n\
         Left click     Select row / switch view / edit search\n\
         Right click    Track or playlist actions (Esc closes)\n\
@@ -1055,7 +1208,8 @@ fn center(frame: &mut Frame<'_>, app: &App, area: Rect) {
         RETRO FEATURES & THEMES\n\
         t              Cycle Retro Theme (Spotify, Amber CRT, Matrix, Cyberpunk, Monochrome)\n\
         v              Toggle Retro Visualizer (Real-time FFT)\n\
-        l              Toggle Synced Real-Time Lyrics View (Lrclib)\n\n\
+        l              Toggle Synced Real-Time Lyrics View (Lrclib)\n\
+        S              Toggle local aggregate song statistics overlay\n\n\
         CATALOG & NETWORK\n\
         / or f         Filter loaded Liked/Playlist rows only\n\
         F2             Search Spotify catalog\n\
@@ -2179,6 +2333,113 @@ mod tests {
             text.contains("► I was younger then"),
             "Expected active marker on current line, but buffer was:\n{text}"
         );
+    }
+
+    #[test]
+    fn render_stats_empty_normal_and_narrow() {
+        let mut app = App::new(Config::default(), Queue::default());
+        app.show_stats = true;
+
+        // Normal terminal (100x30)
+        let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        let text = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|c| c.symbol())
+            .collect::<String>();
+        assert!(text.contains("SONG STATISTICS [S/Esc exit]"));
+        assert!(text.contains("No song statistics yet."));
+
+        // Narrow terminal (60x20)
+        let mut terminal = Terminal::new(TestBackend::new(60, 20)).unwrap();
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        let text = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|c| c.symbol())
+            .collect::<String>();
+        assert!(text.contains("SONG STATISTICS [S/Esc exit]"));
+        assert!(text.contains("No song statistics yet."));
+
+        // Tiny terminal (34x15) -> truncated title
+        let mut terminal = Terminal::new(TestBackend::new(34, 15)).unwrap();
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        let text = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|c| c.symbol())
+            .collect::<String>();
+        assert!(text.contains("STATS [S/Esc exit]"));
+    }
+
+    #[test]
+    fn render_stats_populated_normal_and_narrow() {
+        let mut app = App::new(Config::default(), Queue::default());
+        let id1 = "1".repeat(22);
+        let id2 = "2".repeat(22);
+        app.stats.add_play(&id1, "Track Alpha", "Artist One");
+        app.stats.tracks.get_mut(&id1).unwrap().play_count = 10;
+        app.stats.tracks.get_mut(&id1).unwrap().listened_ms = 300_000;
+
+        app.stats.add_play(&id2, "Track Beta", "Artist Two");
+        app.stats.tracks.get_mut(&id2).unwrap().play_count = 5;
+        app.stats.tracks.get_mut(&id2).unwrap().listened_ms = 150_000;
+
+        app.queue.replace(vec![id1.clone()], 0, false);
+        app.state = State::Playing;
+        app.show_stats = true;
+
+        // Normal terminal (100x30) -> shows Artist column and active indicator
+        let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        let text = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|c| c.symbol())
+            .collect::<String>();
+
+        assert!(text.contains("SONG STATISTICS [S/Esc exit]"));
+        assert!(text.contains("Title"));
+        assert!(text.contains("Artist"));
+        assert!(text.contains("Plays"));
+        assert!(text.contains("Time"));
+        assert!(text.contains("Track Alpha"));
+        assert!(text.contains("Artist One"));
+        assert!(text.contains("10"));
+        assert!(text.contains("5:00"));
+        assert!(text.contains("Track Beta"));
+        assert!(text.contains("Artist Two"));
+        assert!(text.contains("►"));
+
+        // Narrow terminal (60x20) -> collapses Artist column
+        let mut terminal = Terminal::new(TestBackend::new(60, 20)).unwrap();
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        let text = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|c| c.symbol())
+            .collect::<String>();
+
+        assert!(text.contains("SONG STATISTICS [S/Esc exit]"));
+        assert!(text.contains("Title"));
+        assert!(!text.contains("Artist"));
+        assert!(text.contains("Plays"));
+        assert!(text.contains("Time"));
+        assert!(text.contains("Track Alpha"));
+        assert!(!text.contains("Artist One"));
+        assert!(text.contains("Track Beta"));
+        assert!(!text.contains("Artist Two"));
     }
     #[test]
     #[ignore = "Requires a real terminal; exercises alternate screen and a caught panic"]
