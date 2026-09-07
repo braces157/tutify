@@ -115,6 +115,23 @@ impl Storage {
             Err(e) => Err(e.into()),
         }
     }
+    pub fn stats(&self) -> Result<crate::stats::SongStats> {
+        let mut stats: crate::stats::SongStats = read_or_default(&self.root.join("stats.json"))?;
+        stats.validate()?;
+        Ok(stats)
+    }
+    pub fn save_stats(&self, stats: &crate::stats::SongStats) -> Result<()> {
+        let mut stats = stats.clone();
+        stats.validate()?;
+        atomic_json(&self.root.join("stats.json"), &stats)
+    }
+    pub fn clear_stats(&self) -> Result<()> {
+        match fs::remove_file(self.root.join("stats.json")) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(e.into()),
+        }
+    }
 }
 
 fn read_or_default<T: DeserializeOwned + Default>(path: &Path) -> Result<T> {
@@ -255,5 +272,51 @@ mod tests {
         assert!(store.queue().unwrap().ids.is_empty());
         fs::write(dir.path().join("queue.json"), br#"{"version":999}"#).unwrap();
         assert!(store.queue().is_err());
+    }
+    #[test]
+    fn stats_roundtrips_and_clear_preserves_settings_and_queue() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Storage {
+            root: dir.path().to_owned(),
+        };
+        let mut stats = crate::stats::SongStats::default();
+        let id = "0".repeat(22);
+        stats.add_listened_ms(&id, 12345, "Track Name", "Artist Name");
+        stats.add_play(&id, "Track Name", "Artist Name");
+        store.save_stats(&stats).unwrap();
+        store.save(&Config::default(), &Queue::default()).unwrap();
+
+        let loaded = store.stats().unwrap();
+        assert_eq!(loaded.len(), 1);
+        let s = loaded.tracks.get(&id).unwrap();
+        assert_eq!(s.play_count, 1);
+        assert_eq!(s.listened_ms, 12345);
+
+        store.clear_stats().unwrap();
+        store.clear_stats().unwrap();
+        assert!(!store.root.join("stats.json").exists());
+        assert!(store.root.join("config.json").exists());
+        assert!(store.root.join("queue.json").exists());
+        assert_eq!(store.stats().unwrap().len(), 0);
+    }
+    #[test]
+    fn stats_corruption_and_bounds() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Storage {
+            root: dir.path().to_owned(),
+        };
+        fs::write(dir.path().join("stats.json"), b"corrupted json").unwrap();
+        assert!(store.stats().is_err());
+        assert_eq!(
+            fs::read(dir.path().join("stats.json")).unwrap(),
+            b"corrupted json"
+        );
+
+        fs::write(
+            dir.path().join("stats.json"),
+            br#"{"version":2,"tracks":{}}"#,
+        )
+        .unwrap();
+        assert!(store.stats().is_err());
     }
 }

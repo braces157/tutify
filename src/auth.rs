@@ -149,6 +149,7 @@ fn update_account_state(
     if !preserve {
         store.clear_queue()?;
         store.clear_cache()?;
+        store.clear_stats()?;
     }
     Ok(preserve)
 }
@@ -805,6 +806,10 @@ mod tests {
         let mut cache = MetadataCache::default();
         cache.insert(id.clone(), Track::unknown(&id));
         store.save_cache(&cache).unwrap();
+        let mut stats = crate::stats::SongStats::default();
+        stats.add_listened_ms(&id, 1000, "Song", "Artist");
+        stats.add_play(&id, "Song", "Artist");
+        store.save_stats(&stats).unwrap();
         (dir, store, id)
     }
 
@@ -815,6 +820,7 @@ mod tests {
         assert!(update_account_state(&store, Some("account"), "account").unwrap());
         assert_eq!(store.queue().unwrap().ids, vec![id.clone()]);
         assert!(store.cache().unwrap().contains_key(&id));
+        assert!(store.stats().unwrap().tracks.contains_key(&id));
     }
 
     #[test]
@@ -825,8 +831,10 @@ mod tests {
             assert!(!update_account_state(&store, previous, "account").unwrap());
             assert!(store.queue().unwrap().ids.is_empty());
             assert!(!store.cache().unwrap().contains_key(&id));
+            assert!(!store.stats().unwrap().tracks.contains_key(&id));
             assert!(!store.root.join("queue.json").exists());
             assert!(!store.root.join("cache.json").exists());
+            assert!(!store.root.join("stats.json").exists());
         }
     }
 

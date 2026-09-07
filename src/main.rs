@@ -10,6 +10,7 @@ mod media_controls;
 mod model;
 mod playback;
 mod queue;
+pub mod stats;
 mod storage;
 mod ui;
 pub mod visualizer;
@@ -69,7 +70,8 @@ async fn main() -> Result<()> {
             auth::delete_tokens()?;
             store.clear_queue()?;
             store.clear_cache()?;
-            println!("Logged out. Credentials and account queue removed.");
+            store.clear_stats()?;
+            println!("Logged out. Credentials, account queue, and stats removed.");
             Ok(())
         }
         Some(Command::ClearCache) => {

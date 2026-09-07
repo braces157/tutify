@@ -204,3 +204,33 @@ timeline, all four media commands, and cleanup.
 Live Spotify/audio playback, physical media keys, and the actual Discord profile
 appearance/application registration were not exercised for this release. Mock
 IPC acceptance does not establish Discord server-side presentation or policy.
+
+## Version 0.2.5 release review — 2026-09-07
+
+Reviewed local aggregate song statistics implementation, accounting semantics,
+overlay presentation, persistence lifecycle, and privacy boundaries. Statistics
+track play count and cumulative listened time per track in `%LOCALAPPDATA%\Tuitify\stats.json`,
+capped at 50,000 entries. Wall-clock listened time is clamped to 5-second accounting
+intervals during active playback, preventing false increments during pause or seek.
+A play is credited once per track generation when listened time reaches 30 seconds
+or 50% of track duration (whichever is shorter), or on track completion. Track entries
+retain fallback title and artist names to preserve display usability even if metadata
+cache entries expire.
+
+Privacy and lifecycle semantics: all statistics remain completely local and offline.
+No timestamped listening logs, history, or telemetry are recorded or transmitted.
+Corrupted or invalid versions of `stats.json` are safely rejected. Re-login to the
+same verified account preserves statistics, queue, and cache; switching accounts or
+explicit logout (`tuitify logout`) purges `stats.json`. `tuitify clear-cache` purges
+the metadata cache without clearing statistics. The `Shift+S` overlay displays
+sorted tracks by play count and listening time, dismissible with `Esc` without affecting
+playback.
+
+Checks executed: 130 offline Rust tests passed (four opt-in tests excluded: live streaming,
+silent Windows media session, terminal cleanup, and render scaling benchmark),
+`cargo fmt -- --check` and `cargo clippy -- -D warnings` passed cleanly, and `cargo check --locked`
+succeeded. Web validation passed with all 11 Edge browser tests passing and npm audit reporting
+zero vulnerabilities.
+
+Live Spotify audio streaming, real-time hardware key interactions, and long-term
+multi-week storage accumulation were not exercised for this release.

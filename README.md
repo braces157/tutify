@@ -7,7 +7,7 @@ client by default and can be switched to a personal Spotify Developer app.
 
 ## Run on Windows
 
-Extract `Tuitify-0.2.4-windows-x86_64.zip` and open Windows Terminal in the extracted
+Extract `Tuitify-0.2.5-windows-x86_64.zip` and open Windows Terminal in the extracted
 folder. The executable needs no Rust installation. Use a standard font such as
 Consolas or Cascadia Mono; icon fonts are not required.
 
@@ -147,6 +147,7 @@ Mouse controls (v0.2.2, in terminals with mouse reporting such as Windows Termin
 | `t` | Cycle retro color themes (Classic, Phosphor Green, Amber, Mono, Cyberpunk) |
 | `v` | Toggle decorative retro visualizer (up to 30 FPS while playing) |
 | `l` | Toggle live synchronized lyrics (Lrclib auto-scroll) |
+| `S` / `Shift+S` | Toggle local aggregate song statistics overlay |
 | `R` | Track Radio: queue related recommendations for selected song |
 | `a` | Append selected track, or fetch and append an entire playlist |
 | `A` | Play Next: insert selected track directly after current track |
@@ -160,7 +161,7 @@ Mouse controls (v0.2.2, in terminals with mouse reporting such as Windows Termin
 | Backspace | Return from playlist contents to playlists |
 | `?` / F1 | Help |
 | `q` / Ctrl+C | Save and quit |
-| Esc | Close overlay/menu, clear filter, cancel an active library scan, or quit |
+| Esc | Close overlay/menu (Lyrics, Visualizer, Stats, Help), clear filter, cancel an active library scan, or quit |
 
 The playback bar continuously shows elapsed time, total duration, percentage
 complete, and remaining time. Left/Right seeks while the track is loaded; Home
@@ -267,10 +268,11 @@ for current rules, including changes made after February 2026.
   and playback position in milliseconds.
 - `cache.json`: versioned track names, artists, duration, availability, and metadata
   fetch timestamps; at most 3,000 entries, expiring after 24 hours.
+- `stats.json`: versioned local aggregate song statistics (track ID, fallback title and artists, play count, cumulative listened time in milliseconds); at most 50,000 entries.
 - `instance.lock`: prevents two processes from racing on the same queue.
 
 JSON writes use a flushed temporary file followed by same-volume atomic
-replacement. Changed settings, queue, and metadata are checkpointed asynchronously every two
+replacement. Changed settings, queue, metadata, and song statistics are checkpointed asynchronously every two
 seconds and flushed on normal exit. Each file has its own coalescing background
 writer; unchanged files are not rewritten. Failed writes are reported and retried
 at the next checkpoint. A hard kill can lose changes since the last successful
@@ -282,14 +284,17 @@ a stream. Queue names load into memory on demand.
 OAuth access/refresh tokens are stored only in Windows Credential Manager under
 Tuitify (`spotify-oauth` and `spotify-streaming-oauth`). The client ID is public
 configuration; no client secret is required. A successful catalog re-login to the
-same verified account preserves the queue and metadata cache. A changed or unknown
+same verified account preserves the queue, metadata cache, and song statistics. A changed or unknown
 prior account clears those files. Catalog login replaces the streaming login;
-streaming reauthorization must use the same account and preserves queue/cache.
+streaming reauthorization must use the same account and preserves queue, cache, and statistics.
 
 The metadata cache retains tracks encountered during browsing and playback,
 including album names and artwork URLs when available. It
 is not a listening log: it stores no playback times or play counts. It contains no
-credentials. There is no listening-history log, analytics, or audio download cache.
+credentials. Local aggregate statistics in `stats.json` record only cumulative wall-clock
+listening time and play count per track (no timestamps, history log, or analytics transmission).
+A track stat retains fallback title and artist names so statistics display properly even if the
+metadata cache expires. There is no timestamped listening-history log, analytics, or audio download cache.
 Librespot uses temporary encrypted streaming buffers; normal
 stream teardown removes them. No offline playback is provided. Operational
 diagnostics retain only classified errors in RAM, not raw upstream URLs or tokens.
@@ -298,16 +303,18 @@ diagnostics retain only classified errors in RAM, not raw upstream URLs or token
 .\tuitify.exe logout
 ```
 
-Logout deletes both credentials, `queue.json`, and `cache.json`, retaining device
+Logout deletes both credentials, `queue.json`, `cache.json`, and `stats.json`, retaining device
 settings and the public client ID. Explicit account replacement also clears the
-cache. Run `tuitify clear-cache` to remove cached metadata without logging out.
+cache and statistics. Run `tuitify clear-cache` to remove cached metadata without logging out
+or losing song statistics.
 Close the player before logging in, logging out, or clearing its cache.
 
 If config or queue JSON is corrupted or from an unsupported version, Tuitify exits with its path
 and preserves it. Move the affected file aside and start again to reset it. A
 leftover uncommitted temporary write does not replace the previous valid snapshot.
 An old or invalid metadata cache is ignored with a status message and rebuilt as
-names load. F5 invalidates current/visible queue metadata and retries failed
+names load. An old or invalid song statistics file is likewise ignored with a status message
+and restarted fresh. F5 invalidates current/visible queue metadata and retries failed
 metadata and lyrics requests.
 
 ## Troubleshooting
