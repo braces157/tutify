@@ -3,8 +3,10 @@ mod auth;
 mod cache;
 mod catalog;
 mod diagnostics;
+mod discord;
 mod library;
 mod lyrics;
+mod media_controls;
 mod model;
 mod playback;
 mod queue;
@@ -24,6 +26,7 @@ struct Cli {
     #[command(subcommand)]
     command: Option<Command>,
 }
+
 #[derive(Subcommand)]
 enum Command {
     /// Guided setup; reuse saved logins and open any missing browser login steps.

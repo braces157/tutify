@@ -390,6 +390,7 @@ mod tests {
                 artists: "Artist".into(),
                 duration_ms: 1,
                 playable: true,
+                ..Default::default()
             })
             .collect();
 

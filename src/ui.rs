@@ -210,8 +210,11 @@ pub fn draw(frame: &mut Frame<'_>, app: &App) {
     frame.render_widget(Block::default().style(Style::default().fg(FG).bg(BG)), area);
     if area.width < 32 || area.height < 10 {
         frame.render_widget(
-            Paragraph::new("TUITIFY\nResize to 32x10 or larger.\nq quit | Space pause")
-                .style(Style::default().fg(theme.primary())),
+            Paragraph::new(format!(
+                "TUITIFY v{}\nResize to 32x10 or larger.\nq quit | Space pause",
+                env!("CARGO_PKG_VERSION")
+            ))
+            .style(Style::default().fg(theme.primary())),
             area,
         );
         return;
@@ -226,6 +229,7 @@ pub fn draw(frame: &mut Frame<'_>, app: &App) {
     .split(area);
 
     let theme = Theme::from_str(&app.config.theme);
+    let version_str = format!("v{}", env!("CARGO_PKG_VERSION"));
     let header_line = if area.width >= 86 {
         Line::from(vec![
             Span::styled(
@@ -236,8 +240,12 @@ pub fn draw(frame: &mut Frame<'_>, app: &App) {
                     .bold(),
             ),
             Span::styled(
-                format!(" [{}]", theme.name()),
+                format!(" {version_str} "),
                 Style::default().fg(theme.primary()).bold(),
+            ),
+            Span::styled(
+                format!("[{}]", theme.name()),
+                Style::default().fg(theme.accent_dim()).bold(),
             ),
             Span::styled("  YOUR MUSIC, IN THE TERMINAL", Style::default().fg(MUTED)),
             Span::styled(
@@ -255,8 +263,12 @@ pub fn draw(frame: &mut Frame<'_>, app: &App) {
                     .bold(),
             ),
             Span::styled(
-                format!(" [{}]", theme.name()),
+                format!(" {version_str} "),
                 Style::default().fg(theme.primary()).bold(),
+            ),
+            Span::styled(
+                format!("[{}]", theme.name()),
+                Style::default().fg(theme.accent_dim()).bold(),
             ),
             Span::styled(
                 "   [? help]  [q quit]  [t theme]",
@@ -265,7 +277,10 @@ pub fn draw(frame: &mut Frame<'_>, app: &App) {
         ])
     } else {
         Line::from(vec![
-            Span::styled(" TUITIFY", Style::default().fg(theme.primary()).bold()),
+            Span::styled(
+                format!(" TUITIFY {version_str}"),
+                Style::default().fg(theme.primary()).bold(),
+            ),
             Span::styled("  ? help", Style::default().fg(MUTED)),
         ])
     };
@@ -1017,6 +1032,7 @@ fn center(frame: &mut Frame<'_>, app: &App, area: Rect) {
         Badge / bar    Play-pause / seek\n\
         Ctrl+Shift+V   Intentional terminal paste into search/filter\n\n\
         PLAYBACK CONTROLS\n\
+        Media keys     Play/pause, next/previous outside terminal\n\
         Space          Play, pause, or retry failed playback\n\
         n / p          Next / previous track (restarts after 3s)\n\
         Left / Right   Seek backward / forward 10 seconds\n\
@@ -1052,7 +1068,8 @@ fn center(frame: &mut Frame<'_>, app: &App, area: Rect) {
         Login issue? Exit and run `tuitify auth --force`.\n\
         Streaming issue? Run `tuitify auth --streaming --force`.\n\
         No audio? Check Windows default output device and Spotify Premium.";
-        let outer = block_themed(" HELP & SHORTCUTS ", !app.sidebar, theme);
+        let help_title = format!(" HELP & SHORTCUTS (v{}) ", env!("CARGO_PKG_VERSION"));
+        let outer = block_themed(help_title, !app.sidebar, theme);
         let inner = outer.inner(area);
         let paragraph = Paragraph::new(text).wrap(Wrap { trim: false });
         let max_scroll = paragraph
@@ -1856,6 +1873,7 @@ mod tests {
                     artists: "Benchmark artist".into(),
                     duration_ms: 200000,
                     playable: true,
+                    ..Default::default()
                 })
                 .collect();
             for track in tracks.iter().take(50) {
@@ -2048,6 +2066,7 @@ mod tests {
                 artists: "Queen".into(),
                 duration_ms: 354000,
                 playable: true,
+                ..Default::default()
             },
             Track {
                 id: "2".into(),
@@ -2055,6 +2074,7 @@ mod tests {
                 artists: "Coldplay".into(),
                 duration_ms: 269000,
                 playable: true,
+                ..Default::default()
             },
         ]);
         app.filtering = true;

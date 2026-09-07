@@ -7,7 +7,7 @@ client by default and can be switched to a personal Spotify Developer app.
 
 ## Run on Windows
 
-Extract `Tuitify-0.2.3-windows-x86_64.zip` and open Windows Terminal in the extracted
+Extract `Tuitify-0.2.4-windows-x86_64.zip` and open Windows Terminal in the extracted
 folder. The executable needs no Rust installation. Use a standard font such as
 Consolas or Cascadia Mono; icon fonts are not required.
 
@@ -74,6 +74,43 @@ reused when checking the streaming login to avoid an unnecessary profile request
 To use `tuitify` without the `.exe` path, add its folder to your user PATH.
 
 ## Controls
+
+Windows media keys and system media controls support Play/Pause, Next, and
+Previous while Tuitify is running, including when the terminal is unfocused or
+you are entering a search. Windows shows the current title, artist, playback
+state, and timeline. Windows chooses which media session receives hardware keys
+when several players are open.
+
+The media session starts with Tuitify and is released on exit. Restored queues
+remain paused. An empty queue disables the session; Windows integration failures
+leave terminal controls available. This integration does not start a background
+service or stream audio through Windows MediaPlayer.
+
+### Discord Rich Presence
+
+Discord Rich Presence is enabled by default. When Discord desktop is running,
+Tuitify sends the current song title, artists, artwork, and playback timing to
+Discord through its local IPC pipe. Discord may display this to other people
+according to your activity privacy settings.
+
+- Shows a listening activity with song details, album artwork when available,
+  and a Play on Spotify link. The application name and presentation depend on
+  your Discord application and client.
+- Includes playback timestamps while playing and removes them while paused.
+- Updates at most once every four seconds and reconnects when Discord restarts.
+- Restored queues, loading tracks, and failed/stopped playback do not publish a
+  listening activity. Normal exit clears the activity and closes the connection.
+
+To disable it, close Tuitify and set `"discord_rpc": false` in
+`%LOCALAPPDATA%\Tuitify\config.json`, then restart. To use your own Discord
+application, set `"discord_client_id": "YOUR_ID"` there or set
+`TUITIFY_DISCORD_APP_ID`; a nonempty config value takes precedence. No Discord
+password or token is requested.
+
+Artwork comes from Spotify catalog metadata. If it is missing, the worker can
+request the track's public Spotify oEmbed metadata; no Spotify tokens are sent.
+Discord resolves artwork URLs, including the PreMiD-hosted Spotify fallback logo.
+Artwork lookups and their failures are cached in memory with a bounded size.
 
 Mouse controls (v0.2.2, in terminals with mouse reporting such as Windows Terminal):
 
@@ -225,7 +262,7 @@ for current rules, including changes made after February 2026.
 
 `%LOCALAPPDATA%\Tuitify` contains:
 
-- `config.json`: version, client ID, volume, shuffle, repeat, and theme.
+- `config.json`: version, client ID, volume, shuffle, repeat, theme, and Discord presence settings.
 - `queue.json`: version, track IDs, play order, current/selected queue indexes,
   and playback position in milliseconds.
 - `cache.json`: versioned track names, artists, duration, availability, and metadata
@@ -249,7 +286,8 @@ same verified account preserves the queue and metadata cache. A changed or unkno
 prior account clears those files. Catalog login replaces the streaming login;
 streaming reauthorization must use the same account and preserves queue/cache.
 
-The metadata cache retains tracks encountered during browsing and playback. It
+The metadata cache retains tracks encountered during browsing and playback,
+including album names and artwork URLs when available. It
 is not a listening log: it stores no playback times or play counts. It contains no
 credentials. There is no listening-history log, analytics, or audio download cache.
 Librespot uses temporary encrypted streaming buffers; normal
@@ -330,6 +368,13 @@ cargo test --locked terminal_cleanup_acceptance -- --ignored --nocapture --test-
 ```
 
 The intentional panic message is expected; the test must finish with `ok`.
+
+To verify Windows media-session metadata, timeline, command delivery, and cleanup
+on an interactive Windows desktop without playing audio:
+
+```powershell
+cargo test --locked windows_media_session_acceptance -- --ignored --nocapture --test-threads=1
+```
 
 Website assets and browser tests use Node.js 22 or later:
 

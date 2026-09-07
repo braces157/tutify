@@ -1,6 +1,6 @@
 [package]
 name = "tuitify"
-version = "0.2.3"
+version = "0.2.4"
 edition = "2024"
 rust-version = "1.85"
 description = "Personal standalone Spotify terminal player for Windows"
@@ -29,9 +29,11 @@ tempfile = "=3.24.0"
 tokio = { version = "=1.49.0", features = ["full"] }
 url = "=2.5.8"
 webbrowser = "=1.0.6"
+windows = { version = "=0.61.3", features = ["Foundation", "Media", "Media_Playback", "Win32_System_WinRT"] }
 
 [dev-dependencies]
 wiremock = "=0.6.5"
+windows = { version = "=0.61.3", features = ["Media_Control"] }
 
 [profile.release]
 lto = "thin"

@@ -355,6 +355,13 @@ fn parse_track(v: &Value) -> Option<Track> {
     if v["is_local"].as_bool() == Some(true) || v["type"].as_str().is_some_and(|t| t != "track") {
         return None;
     }
+    let album = v["album"]["name"].as_str().map(clean);
+    let album_art_url = v["album"]["images"]
+        .as_array()
+        .and_then(|imgs| imgs.first())
+        .and_then(|img| img["url"].as_str())
+        .map(clean);
+
     Some(Track {
         id: v["id"].as_str().filter(|id| valid_id(id))?.into(),
         name: clean(v["name"].as_str().unwrap_or("Unknown track")),
@@ -371,6 +378,8 @@ fn parse_track(v: &Value) -> Option<Track> {
         duration_ms: v["duration_ms"].as_u64().unwrap_or(0).min(u32::MAX as u64) as u32,
         playable: v["is_playable"].as_bool().unwrap_or(true)
             && v.get("restrictions").is_none_or(|r| r.is_null()),
+        album,
+        album_art_url,
     })
 }
 
@@ -390,6 +399,28 @@ mod tests {
     }
     fn track() -> Value {
         serde_json::json!({"id":"0000000000000000000001","name":"Example","artists":[{"name":"Artist"}],"type":"track","duration_ms":200000})
+    }
+    #[test]
+    fn album_metadata_is_optional_and_old_cached_tracks_still_load() {
+        let mut value = track();
+        let parsed = parse_track(&value).unwrap();
+        assert!(parsed.album.is_none() && parsed.album_art_url.is_none());
+        let mut old = serde_json::to_value(parsed).unwrap();
+        old.as_object_mut().unwrap().remove("album");
+        old.as_object_mut().unwrap().remove("album_art_url");
+        assert!(
+            serde_json::from_value::<Track>(old)
+                .unwrap()
+                .album
+                .is_none()
+        );
+        value["album"] = serde_json::json!({"name":"Album", "images":[{"url":"https://i.scdn.co/image/example"}]});
+        let parsed = parse_track(&value).unwrap();
+        assert_eq!(parsed.album.as_deref(), Some("Album"));
+        assert_eq!(
+            parsed.album_art_url.as_deref(),
+            Some("https://i.scdn.co/image/example")
+        );
     }
     #[tokio::test]
     async fn metadata_stream_reports_errors_and_yields_without_waiting_for_slow_tracks() {
@@ -599,6 +630,7 @@ mod tests {
             artists: "Ed Sheeran".into(),
             duration_ms: 261000,
             playable: true,
+            ..Default::default()
         };
         let recs = c.recommendations(&seed).await.unwrap();
         // The seed and the acoustic variant MUST be filtered out; only Shape of You remains!
