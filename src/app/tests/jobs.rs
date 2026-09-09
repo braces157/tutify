@@ -171,6 +171,7 @@ async fn stale_background_queue_and_lyrics_results_are_rejected() {
     );
     assert!(app.lyrics.content.is_none());
     let epoch = app.queue.epoch;
+    app.radio_epoch = Some(epoch);
     background(
         &mut app,
         &mut tasks,

@@ -261,10 +261,7 @@ pub(super) fn key(
             app.control(playback_control(code).unwrap(), tx);
         }
         KeyCode::Char('s') => {
-            app.remember_queue();
-            app.config.shuffle = !app.config.shuffle;
-            app.queue.set_shuffle(app.config.shuffle);
-            app.status = format!("Shuffle {}", if app.config.shuffle { "on" } else { "off" });
+            tasks.cycle_shuffle(app);
         }
         KeyCode::Char('r') => {
             app.config.repeat = app.config.repeat.cycle();

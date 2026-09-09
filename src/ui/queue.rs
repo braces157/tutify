@@ -94,6 +94,11 @@ pub(super) fn queue(
                     .fg(if is_current { theme.primary() } else { MUTED })
                     .bold(),
             );
+            let name = if app.queue.suggestions.contains(i) {
+                format!("✦ {name}")
+            } else {
+                name.to_owned()
+            };
             let name_cell = Cell::from(name).style(if is_current {
                 Style::default().fg(theme.primary()).bold()
             } else if is_placeholder {
@@ -118,7 +123,9 @@ pub(super) fn queue(
         })
         .collect();
 
-    let source = if app.radio_epoch == Some(app.queue.epoch) {
+    let source = if app.queue.smart_shuffle {
+        " | Smart Shuffle • ✦ suggested".into()
+    } else if app.radio_epoch == Some(app.queue.epoch) {
         app.radio_source
             .map(|source| format!(" | {}", source.label()))
             .unwrap_or_else(|| " | Track Radio".into())

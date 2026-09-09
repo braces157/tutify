@@ -6,6 +6,7 @@ mod overlays;
 mod persistence;
 mod queue;
 mod refactor;
+mod smart_shuffle;
 mod state;
 
 fn tasks() -> (Tasks, mpsc::UnboundedReceiver<Background>) {

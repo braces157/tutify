@@ -53,6 +53,13 @@ pub(super) fn playback(frame: &mut Frame<'_>, app: &App, render: &mut RenderStat
         Layout::horizontal([Constraint::Min(12), Constraint::Length(ctrl_width)]).split(parts[0]);
 
     let mut track_spans = vec![Span::styled(badge_text, badge_style)];
+    if app
+        .queue
+        .cursor
+        .is_some_and(|c| app.queue.suggestions.contains(&app.queue.order[c]))
+    {
+        track_spans.push(Span::styled(" ✦", Style::default().fg(theme.primary())));
+    }
     if let Some(t) = &track {
         track_spans.push(Span::styled(
             format!("  {}", t.name),
@@ -100,7 +107,9 @@ pub(super) fn playback(frame: &mut Frame<'_>, app: &App, render: &mut RenderStat
             } else {
                 format!("VOL {}%", app.config.volume)
             };
-            let s_str = if app.config.shuffle {
+            let s_str = if app.queue.smart_shuffle {
+                "SHUF:SMART"
+            } else if app.config.shuffle {
                 "SHUF:ON"
             } else {
                 "SHUF:OFF"

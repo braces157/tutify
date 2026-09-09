@@ -34,7 +34,7 @@ pub(super) fn help(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, a
     d / x / Delete Remove selected item from Queue\n\
     C (Shift-C)    Clear entire Queue\n\
     . or c         Jump to currently playing track in Queue\n\
-    s              Toggle shuffle (preserves current track)\n\
+    s              Cycle shuffle: off / on / Smart (✦ suggestions)\n\
     r              Cycle repeat: Off -> Queue -> Track\n\n\
     RETRO FEATURES & THEMES\n\
     t              Cycle Retro Theme (Spotify, Amber CRT, Matrix, Cyberpunk, Monochrome)\n\

@@ -91,7 +91,9 @@ pub(super) fn apply(
                         return;
                     }
                     app.remember_queue();
+                    let smart_shuffle = app.queue.smart_shuffle;
                     app.queue.replace(track_ids, index, app.config.shuffle);
+                    app.queue.smart_shuffle = smart_shuffle;
                 }
                 app.cache.insert(track.id.clone(), track);
                 app.load(tx);

@@ -7,6 +7,7 @@ mod lyrics_state;
 mod mouse;
 mod persistence;
 mod runtime;
+mod smart_shuffle;
 pub(crate) mod ui_state;
 
 use actions::Action;
@@ -157,7 +158,10 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(config: Config, queue: Queue) -> Self {
+    pub fn new(mut config: Config, queue: Queue) -> Self {
+        if queue.smart_shuffle {
+            config.shuffle = true;
+        }
         let restored = !queue.ids.is_empty();
         Self {
             undo: VecDeque::new(),

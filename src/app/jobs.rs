@@ -11,6 +11,7 @@ pub(super) enum Background {
     PlaylistPage(u64, u64, Vec<Track>, bool),
     PlaylistError(u64, u64, String),
     Recommendations(u64, Result<Recommendations>),
+    SmartRecommendations(u64, u64, Result<Recommendations>),
 }
 pub(super) struct Tasks {
     pub(super) catalog: Catalog,
@@ -29,6 +30,7 @@ pub(super) struct Tasks {
     pub(super) playlist_added: usize,
     pub(super) radio_active: bool,
     pub(super) radio_attempted: HashSet<String>,
+    pub(super) smart: super::smart_shuffle::SmartTask,
 }
 impl Drop for Tasks {
     fn drop(&mut self) {
@@ -38,6 +40,7 @@ impl Drop for Tasks {
             &self.lyrics,
             &self.recommendations,
             &self.playlist,
+            &self.smart.handle,
         ]
         .into_iter()
         .flatten()
@@ -65,10 +68,12 @@ impl Tasks {
             playlist_added: 0,
             radio_active: false,
             radio_attempted: HashSet::new(),
+            smart: super::smart_shuffle::SmartTask::default(),
         })
     }
     pub(super) fn sync_queue_epoch(&mut self, epoch: u64) {
         if self.job_epoch != epoch {
+            self.cancel_smart_shuffle();
             if let Some(t) = self.metadata.take() {
                 t.abort();
             }
@@ -556,7 +561,18 @@ pub(super) fn background(app: &mut App, tasks: &mut Tasks, event: Background) ->
                 tasks.playlist_added
             );
         }
-        Background::Recommendations(epoch, result) if epoch == app.queue.epoch => {
+        Background::SmartRecommendations(epoch, request, result)
+            if epoch == app.queue.epoch
+                && request == tasks.smart.request
+                && app.queue.smart_shuffle =>
+        {
+            tasks.finish_smart_shuffle(app, result);
+        }
+        Background::Recommendations(epoch, result)
+            if epoch == app.queue.epoch
+                && app.radio_epoch == Some(epoch)
+                && !app.queue.smart_shuffle =>
+        {
             tasks.recommendations = None;
             match result {
                 Ok(batch) => {

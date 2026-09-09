@@ -142,7 +142,7 @@ Mouse controls (v0.2.2, in terminals with mouse reporting such as Windows Termin
 | `+` / `-` | Adjust volume by five percent (`=` also increases) |
 | `[` / `]` | Adjust volume by one percent for fine control |
 | `m` | Mute or restore the previous volume |
-| `s` | Toggle shuffle, preserving the current occurrence |
+| `s` | Cycle off → shuffle → Smart Shuffle, preserving the current occurrence |
 | `r` | Cycle repeat off → queue → track |
 | `t` | Cycle retro color themes (Classic, Phosphor Green, Amber, Mono, Cyberpunk) |
 | `v` | Toggle decorative retro visualizer (up to 30 FPS while playing) |
@@ -193,6 +193,23 @@ Manual track and playlist additions go ahead of pending Radio suggestions in
 insertion order, without moving or restarting the playing track.
 Shuffle randomizes the order with the current occurrence first; disabling it
 restores list/insertion order. Outside Radio, appended songs go to the end of the current order.
+Press `s` again for **Smart Shuffle**: recommendations are mixed in after every
+three original queue tracks and marked `✦` in the queue and Now Playing. Original
+entries keep their shuffled order; unavailable tracks and IDs already in the
+queue are excluded. The playing song and the immediately upcoming entry are
+preserved when a recommendation batch arrives. Turning Smart Shuffle off removes
+injected entries, except a currently playing suggestion, which becomes a normal
+entry. Manual additions are never removed, even if they duplicate a suggestion.
+
+This follows Spotify's [documented Smart Shuffle interaction](https://support.spotify.com/us/article/shuffle-play/),
+using Tuitify's own one-per-three insertion rule and existing recommendation
+client, not Spotify's private Smart Shuffle ranking algorithm. It tries Spotify
+recommendations first and labels the artist-search fallback when that endpoint
+is unavailable. Up to three original tracks seed requests per activation or
+queue replacement; failures stop requests until you cycle the mode again.
+Missing metadata delays requests. The queue, mode and suggestion markers survive
+restart and undo; restored playback stays paused. Starting Radio replaces this
+mode. No songs are written to your Spotify playlists.
 Repeat track applies to completion; manually pressing next still advances.
 Removing the playing entry stops playback instead of silently playing another.
 

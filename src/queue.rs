@@ -2,6 +2,9 @@ use crate::model::{Repeat, valid_id};
 use anyhow::{Result, bail};
 use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
+
+mod smart;
 
 pub const MAX_TRACKS: usize = 100_000;
 
@@ -18,6 +21,9 @@ pub struct Queue {
     pub cursor: Option<usize>,
     pub selected: usize,
     pub position_ms: u32,
+    pub smart_shuffle: bool,
+    /// Original indices, so duplicate IDs and manual queue edits remain distinct.
+    pub suggestions: BTreeSet<usize>,
 }
 
 impl Default for Queue {
@@ -31,6 +37,8 @@ impl Default for Queue {
             cursor: None,
             selected: 0,
             position_ms: 0,
+            smart_shuffle: false,
+            suggestions: BTreeSet::new(),
         }
     }
 }
@@ -48,6 +56,8 @@ impl Queue {
                 true
             });
         if self.version != 1
+            || self.suggestions.iter().any(|&i| i >= self.ids.len())
+            || (!self.smart_shuffle && !self.suggestions.is_empty())
             || !valid_order
             || self.cursor.is_some_and(|i| i >= self.order.len())
             || (!self.ids.is_empty() && self.selected >= self.ids.len())
@@ -69,6 +79,8 @@ impl Queue {
         self.revision += 1;
         self.epoch += 1;
         self.ids = ids;
+        self.smart_shuffle = false;
+        self.suggestions.clear();
         self.order = (0..self.ids.len()).collect();
         self.cursor = (!self.ids.is_empty()).then_some(index.min(self.ids.len().saturating_sub(1)));
         self.selected = self.cursor.unwrap_or(0);
@@ -78,6 +90,7 @@ impl Queue {
         }
     }
     pub fn set_shuffle(&mut self, enabled: bool) {
+        self.disable_smart_shuffle();
         self.revision += 1;
         let current = self.cursor.map(|c| self.order[c]);
         self.order = (0..self.ids.len()).collect();
@@ -141,6 +154,12 @@ impl Queue {
         let removed_current = self.cursor == Some(at);
         let original = self.order.remove(at);
         self.ids.remove(original);
+        self.suggestions = self
+            .suggestions
+            .iter()
+            .filter(|&&i| i != original)
+            .map(|&i| if i > original { i - 1 } else { i })
+            .collect();
         for i in &mut self.order {
             if *i > original {
                 *i -= 1;
@@ -179,6 +198,8 @@ impl Queue {
         self.epoch += 1;
         let had_playing = self.cursor.is_some();
         self.ids.clear();
+        self.smart_shuffle = false;
+        self.suggestions.clear();
         self.order.clear();
         self.cursor = None;
         self.selected = 0;
