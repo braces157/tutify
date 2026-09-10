@@ -30,7 +30,7 @@
         <img src="assets/brand/tuitify-logo-minimal-v2.webp" alt="Tuitify" width="36" height="36" class="w-9 h-9 object-contain group-hover:scale-105 transition-transform" decoding="async">
         <div class="flex items-center gap-2">
           <span class="font-semibold text-lg tracking-[-0.03em] text-white group-hover:text-spotify transition-colors">Tuitify</span>
-          <span class="version-mark">0.2.5</span>
+          <span class="version-mark">0.2.6</span>
         </div>
       </a>
 
@@ -50,7 +50,7 @@
           <svg class="w-4 h-4 fill-current" viewBox="0 0 24 24"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
           GitHub
         </a>
-        <a href="https://github.com/braces157/tutify/releases/download/v0.2.5/tuitify.exe"
+        <a href="https://github.com/braces157/tutify/releases/download/v0.2.6/tuitify.exe"
            class="primary-action flex items-center gap-2">
           Download <span class="hidden sm:inline">for Windows</span>
           <span aria-hidden="true">↘</span>
@@ -63,7 +63,7 @@
   <section class="hero-section relative z-10 px-5 sm:px-8 lg:px-10 max-w-7xl mx-auto">
     <div class="hero-copy max-w-5xl">
 
-      <p class="eyebrow"><span class="status-dot" aria-hidden="true"></span> Native Windows playback · release 0.2.5</p>
+      <p class="eyebrow"><span class="status-dot" aria-hidden="true"></span> Native Windows playback · release 0.2.6</p>
 
       <h1 class="hero-title">Spotify playback,<br><span>built for the terminal.</span></h1>
 
@@ -71,12 +71,12 @@
 
       <!-- Primary Action Buttons -->
       <div class="hero-actions">
-        <a href="https://github.com/braces157/tutify/releases/download/v0.2.5/tuitify.exe"
+        <a href="https://github.com/braces157/tutify/releases/download/v0.2.6/tuitify.exe"
            class="primary-action primary-action-large flex items-center justify-center gap-2.5">
           <svg class="w-4 h-4 fill-current" viewBox="0 0 24 24"><path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.551H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801"/></svg>
           Download the executable
         </a>
-        <button type="button" onclick="copyCommand('cargo install --locked --git https://github.com/braces157/tutify.git --tag v0.2.5', this)" aria-label="Copy Cargo install command"
+        <button type="button" onclick="copyCommand('cargo install --locked --git https://github.com/braces157/tutify.git --tag v0.2.6', this)" aria-label="Copy Cargo install command"
                 class="quiet-action flex items-center justify-center gap-3 group">
           <span class="text-spotify font-bold">$</span>
           <span>Copy Cargo install</span>
@@ -84,7 +84,7 @@
         </button>
       </div>
 
-      <p class="text-xs text-slate-400 mt-5 leading-relaxed">Windows x64 · Spotify Premium required for playback · <a href="https://github.com/braces157/tutify/releases/tag/v0.2.5" class="text-spotify hover:underline">Released v0.2.5</a>. Mix Builder and native demo are available in the <a href="#development-build" class="text-spotify hover:underline">v0.2.6 source build</a>.</p>
+      <p class="text-xs text-slate-400 mt-5 leading-relaxed">Windows x64 · Spotify Premium required for playback · <a href="https://github.com/braces157/tutify/releases/tag/v0.2.6" class="text-spotify hover:underline">Released v0.2.6</a> · Native demo requires no Spotify account or audio device.</p>
 
       <div class="spec-strip" aria-label="Technical overview">
         <div class="flex items-center gap-2">
@@ -448,15 +448,15 @@
       <div class="p-6 rounded-2xl bg-[#0c120e]/80 border border-white/5 hover:border-spotify/30 transition group hover:shadow-xl hover:shadow-spotify/5">
         <div class="w-12 h-12 rounded-xl bg-emerald-950/60 border border-spotify/20 flex items-center justify-center text-spotify mb-5 text-xl font-mono group-hover:scale-110 transition-transform">🎛️</div>
         <h3 class="text-lg font-bold text-white mb-2 group-hover:text-spotify transition-colors">Inspectable mix builder</h3>
-        <p class="text-slate-400 text-sm leading-relaxed mb-4">In the development build, press <strong>Shift+M</strong> to preview a mix from the queue or a playlist. Set duration and the desired share of listening time from suggestions; inspect source/seed details with <strong>?</strong>, then replace or append with undo.</p>
-        <div class="pt-3 border-t border-white/5 flex items-center justify-between text-xs font-mono text-slate-500"><span>Unreleased</span><a href="#development-build" class="text-spotify font-semibold hover:underline">Development build details</a></div>
+        <p class="text-slate-400 text-sm leading-relaxed mb-4">Press <strong>Shift+M</strong> to preview a mix from the queue or a playlist. Set duration and the desired share of listening time from suggestions; inspect source/seed details with <strong>?</strong>, then replace or append with undo.</p>
+        <div class="pt-3 border-t border-white/5 flex items-center justify-between text-xs font-mono text-slate-500"><span>Included in v0.2.6</span><a href="https://github.com/braces157/tutify#using-mix-builder" class="text-spotify font-semibold hover:underline">Usage guide</a></div>
       </div>
 
       <div class="p-6 rounded-2xl bg-[#0c120e]/80 border border-white/5 hover:border-spotify/30 transition group">
         <div class="w-12 h-12 rounded-xl bg-emerald-950/60 border border-spotify/20 flex items-center justify-center text-spotify mb-5 text-xl font-mono" aria-hidden="true">↔</div>
         <h3 class="text-lg font-bold text-white mb-2">Smart Shuffle</h3>
-        <p class="text-slate-400 text-sm leading-relaxed mb-4">Source builds after v0.2.5 add a third shuffle mode. Suggestions are marked and mixed after every three original tracks. Spotify recommendations and the artist-search fallback are identified explicitly; the playing track stays in place.</p>
-        <div class="pt-3 border-t border-white/5 flex items-center justify-between text-xs font-mono text-slate-500"><span>Added after v0.2.5</span><a href="https://github.com/braces157/tutify#release-and-development-features" class="text-spotify font-semibold hover:underline">Source build feature</a></div>
+        <p class="text-slate-400 text-sm leading-relaxed mb-4">The third shuffle mode marks suggestions and mixes them after every three original tracks. Spotify recommendations and the artist-search fallback are identified explicitly; the playing track stays in place.</p>
+        <div class="pt-3 border-t border-white/5 flex items-center justify-between text-xs font-mono text-slate-500"><span>Included in v0.2.6</span><a href="https://github.com/braces157/tutify#how-playback-and-recommendations-work" class="text-spotify font-semibold hover:underline">How it works</a></div>
       </div>
     </div>
   </section>
@@ -594,17 +594,17 @@
       <!-- Tab Content 0: Standalone Exe -->
         <div id="install-content-0" class="p-6" role="tabpanel" aria-labelledby="install-tab-0">
         <p class="text-sm text-slate-300 mb-4 font-sans">
-          Download the v0.2.5 Windows x64 executable. No Rust toolchain is needed. Spotify playback requires Premium and a working audio output. This release does not include Smart Shuffle, Mix Builder, or the native demo command.
+          Download the v0.2.6 Windows x64 executable. No Rust toolchain is needed. Spotify playback requires Premium and a working audio output; the native demo does not.
         </p>
         <div class="flex flex-col sm:flex-row items-center gap-4 mb-4">
-          <a href="https://github.com/braces157/tutify/releases/download/v0.2.5/tuitify.exe"
+          <a href="https://github.com/braces157/tutify/releases/download/v0.2.6/tuitify.exe"
              class="w-full sm:w-auto px-6 py-3 rounded-xl bg-spotify hover:bg-emerald-400 text-black font-semibold text-xs font-mono transition flex items-center justify-center gap-2 glow-spotify-subtle">
             <svg class="w-4 h-4 fill-current" viewBox="0 0 24 24"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM17 13l-5 5-5-5h3V9h4v4h3z"/></svg>
-            Download tuitify.exe (v0.2.5)
+            Download tuitify.exe (v0.2.6)
           </a>
-          <a href="https://github.com/braces157/tutify/releases/download/v0.2.5/Tuitify-0.2.5-windows-x86_64.zip"
+          <a href="https://github.com/braces157/tutify/releases/download/v0.2.6/Tuitify-0.2.6-windows-x86_64.zip"
              class="w-full sm:w-auto px-5 py-3 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 text-slate-300 text-xs font-mono transition flex items-center justify-center gap-2">
-            Download .ZIP package (v0.2.5)
+            Download .ZIP package (v0.2.6)
           </a>
         </div>
         <p class="text-xs text-slate-500 font-mono">
@@ -615,39 +615,38 @@
       <!-- Tab Content 1: Cargo -->
         <div id="install-content-1" class="p-6 hidden" role="tabpanel" aria-labelledby="install-tab-1">
         <p class="text-sm text-slate-300 mb-3 font-sans">
-          Build the same v0.2.5 release with current stable Rust, the MSVC C++ build tools, and the Windows SDK:
+          Build the same v0.2.6 release with current stable Rust, the MSVC C++ build tools, and the Windows SDK:
         </p>
         <div class="relative bg-black/60 rounded-xl p-4 font-mono text-xs border border-white/10 mb-3 flex items-center justify-between">
-            <code class="text-emerald-400 select-text">cargo install --locked --git https://github.com/braces157/tutify.git --tag v0.2.5</code>
-          <button type="button" onclick="copyCommand('cargo install --locked --git https://github.com/braces157/tutify.git --tag v0.2.5', this)" aria-label="Copy Cargo install command" class="p-1.5 rounded bg-white/10 hover:bg-white/20 text-slate-300 transition">
+            <code class="text-emerald-400 select-text">cargo install --locked --git https://github.com/braces157/tutify.git --tag v0.2.6</code>
+          <button type="button" onclick="copyCommand('cargo install --locked --git https://github.com/braces157/tutify.git --tag v0.2.6', this)" aria-label="Copy Cargo install command" class="p-1.5 rounded bg-white/10 hover:bg-white/20 text-slate-300 transition">
             📋
           </button>
         </div>
-        <p class="text-xs text-slate-500 font-mono">Uses the v0.2.5 tag and its locked dependencies. To inspect newer features, see the development build notes below.</p>
+        <p class="text-xs text-slate-500 font-mono">Uses the v0.2.6 tag and its locked dependencies.</p>
       </div>
 
       <!-- Tab Content 2: PowerShell -->
         <div id="install-content-2" class="p-6 hidden" role="tabpanel" aria-labelledby="install-tab-2">
         <p class="text-sm text-slate-300 mb-3 font-sans">
-          In Windows Terminal, open the folder where you want to keep the player. This downloads v0.2.5 into that current folder and starts guided Spotify sign-in:
+          In Windows Terminal, open the folder where you want to keep the player. This downloads v0.2.6 into that current folder and starts guided Spotify sign-in:
         </p>
         <div class="relative bg-black/60 rounded-xl p-4 font-mono text-xs border border-white/10 mb-3 flex items-center justify-between overflow-x-auto">
-            <code class="text-emerald-400 select-text">iwr -useb https://github.com/braces157/tutify/releases/download/v0.2.5/tuitify.exe -OutFile tuitify.exe -ErrorAction Stop; .\tuitify.exe</code>
-          <button type="button" onclick="copyCommand('iwr -useb https://github.com/braces157/tutify/releases/download/v0.2.5/tuitify.exe -OutFile tuitify.exe -ErrorAction Stop; .\\tuitify.exe', this)" aria-label="Copy PowerShell install command" class="p-1.5 rounded bg-white/10 hover:bg-white/20 text-slate-300 transition shrink-0 ml-2">
+            <code class="text-emerald-400 select-text">iwr -useb https://github.com/braces157/tutify/releases/download/v0.2.6/tuitify.exe -OutFile tuitify.exe -ErrorAction Stop; .\tuitify.exe</code>
+          <button type="button" onclick="copyCommand('iwr -useb https://github.com/braces157/tutify/releases/download/v0.2.6/tuitify.exe -OutFile tuitify.exe -ErrorAction Stop; .\\tuitify.exe', this)" aria-label="Copy PowerShell install command" class="p-1.5 rounded bg-white/10 hover:bg-white/20 text-slate-300 transition shrink-0 ml-2">
             📋
           </button>
         </div>
       </div>
-      <p class="px-6 py-4 text-xs text-slate-400 border-t border-white/5">A normal first run opens two Spotify authorizations; use the <strong class="text-slate-300">same account</strong> in both. Later launches restore the queue paused. The browser demo above is a separate, silent simulation.</p>
+      <p class="px-6 py-4 text-xs text-slate-400 border-t border-white/5">Run <strong class="text-slate-300">tuitify demo</strong> for the native TUI with isolated fictional data and simulated playback. A normal first run opens two Spotify authorizations; use the <strong class="text-slate-300">same account</strong> in both. Later launches restore the queue paused. The browser demo above is a separate, silent simulation.</p>
     </div>
-    <article id="development-build" class="mt-6 p-6 rounded-xl border border-spotify/20 bg-white/[0.02]">
-      <p class="section-index">Unreleased development work</p>
+    <article id="native-demo" class="mt-6 p-6 rounded-xl border border-spotify/20 bg-white/[0.02]">
+      <p class="section-index">Included in v0.2.6</p>
       <h3 class="text-lg font-bold text-white mt-3 mb-3">Mix Builder and the native demo</h3>
-      <p class="text-sm text-slate-400 leading-relaxed">These features are in the current v0.2.6 source build, not the published v0.2.5 binaries. Clone the repository, then run:</p>
-      <pre class="mt-4 p-4 bg-black/60 border border-white/10 rounded-lg overflow-x-auto text-xs text-spotify"><code>cargo build --release --locked
-.\target\release\tuitify.exe demo</code></pre>
-      <p class="text-sm text-slate-400 leading-relaxed mt-4">The native demo uses fictional data and simulated playback with no Spotify credentials, network, Discord, or audio device. In that build, press <strong>Shift+M</strong> for Mix Builder. Its first suggestion request intentionally fails; press <strong>g</strong> to retry. Demo state lasts for the session.</p>
-      <a href="https://github.com/braces157/tutify#release-and-development-features" class="inline-block mt-4 text-sm text-spotify hover:underline">Check release and source-build availability →</a>
+      <p class="text-sm text-slate-400 leading-relaxed">The native demo uses fictional data and simulated playback with no Spotify credentials, network, Discord, or audio device. Download v0.2.6 and run:</p>
+      <pre class="mt-4 p-4 bg-black/60 border border-white/10 rounded-lg overflow-x-auto text-xs text-spotify"><code>.\tuitify.exe demo</code></pre>
+      <p class="text-sm text-slate-400 leading-relaxed mt-4">Press <strong>Shift+M</strong> for Mix Builder. Its first suggestion request intentionally fails; press <strong>g</strong> to retry and demonstrate graceful recovery. Demo state lasts for the session.</p>
+      <a href="https://github.com/braces157/tutify#using-mix-builder" class="inline-block mt-4 text-sm text-spotify hover:underline">Read the Mix Builder walkthrough →</a>
     </article>
   </section>
 

@@ -42,16 +42,11 @@ workflow inside Windows Terminal—no Electron shell and no background service.
 - **Resilient sessions** with a persisted queue, atomic state writes, metadata
   caching, credential refresh, and paused-on-start restoration.
 
-### Release and development features
+### Current release
 
-The latest published download is **v0.2.5**, released September 7, 2026. It includes
-the core player, lyrics, FFT visualizer, queue undo, Windows/Discord integration,
-and local statistics.
-
-**Smart Shuffle**, **Mix Builder**, and the native `demo` command are included in
-the current **v0.2.6 source build** but have not yet been published as a binary
-release. They are not included in the v0.2.5 downloads. The examples below
-identify these features so you can choose the appropriate build.
+The latest published download is **v0.2.6**. It includes Smart Shuffle, Mix
+Builder, the credential-free native `demo` command, lyrics, the FFT visualizer,
+queue undo, Windows/Discord integration, and local statistics.
 
 ## Requirements
 
@@ -67,12 +62,12 @@ Use 80 columns × 24 rows or larger; the minimum supported layout is 32 × 10.
 At 32 × 10, Mix Builder shows the selected preview track, pin state, compact
 apply/cancel controls, and a scrollable details shortcut; use a larger window to
 inspect multiple preview rows comfortably.
-The native development demo needs no Spotify account or audio device.
+The native demo needs no Spotify account or audio device.
 
 ## Install
 
-1. Download `Tuitify-0.2.5-windows-x86_64.zip` from
-   [release v0.2.5](https://github.com/braces157/tutify/releases/tag/v0.2.5).
+1. Download `Tuitify-0.2.6-windows-x86_64.zip` from
+   [release v0.2.6](https://github.com/braces157/tutify/releases/tag/v0.2.6).
 2. Extract the archive.
 3. Open Windows Terminal in the extracted folder and run:
 
@@ -86,20 +81,17 @@ Restored queues always start paused; press Space to resume.
 
 To call `tuitify` from any directory, add the extracted folder to your user `PATH`.
 
-### Try the development demo without Spotify
+### Try the native demo without Spotify
 
-Build the current v0.2.6 source and run the actual terminal application in its
-isolated demo mode:
+Run the actual terminal application in its isolated demo mode:
 
 ```powershell
-cargo build --release --locked
-.\target\release\tuitify.exe demo
+.\tuitify.exe demo
 ```
 
-The v0.2.5 release executable does not recognize `demo`. For a development
-executable on `PATH`, the command is `tuitify demo`. Demo data is
-session-only and does not read or write the production queue, settings, statistics,
-recipes, or credentials.
+For an executable on `PATH`, use `tuitify demo`. Demo data is session-only and
+does not read or write the production queue, settings, statistics, recipes, or
+credentials.
 
 ## Sign in
 
@@ -157,13 +149,13 @@ text; finish text entry before using playback commands.
 | `←` / `→` | Seek backward / forward 10 seconds |
 | `+` / `-` | Change volume by 5% |
 | `m` | Mute or restore volume |
-| `s` | Toggle shuffle in v0.2.5; source builds add Smart Shuffle to the cycle |
+| `s` | Cycle shuffle off → shuffle → Smart Shuffle |
 | `r` | Cycle repeat off → queue → track |
 | `a` / `A` | Add selected item to queue / play next |
 | `K` / `J` | Move the selected queue item up / down |
 | `u` or `Ctrl+Z` | Undo the last queue edit |
 | `R` | Start Track Radio from the selected track |
-| `M` (`Shift+M`) | Development build: open Mix Builder from Queue or an active/selected playlist |
+| `M` (`Shift+M`) | Open Mix Builder from Queue or an active/selected playlist |
 | `l` / `v` / `S` | Toggle lyrics / visualizer / statistics |
 | `t` | Cycle color themes |
 | `/` or `f` | Filter loaded Liked Songs/playlist rows; `/` opens search from other views |
@@ -178,9 +170,7 @@ Windows media keys can control Play/Pause, Next, and Previous while Tuitify is
 unfocused. Terminals that support mouse reporting can also select, scroll, seek,
 toggle playback, and open context menus.
 
-## Using Mix Builder (development build)
-
-This section describes the v0.2.6 source build, not the v0.2.5 download.
+## Using Mix Builder
 
 Open Queue with `4`, or open an accessible playlist with `2`, then press `M`
 (`Shift+M`). The preview is separate from the live queue and playback until you
@@ -229,9 +219,9 @@ retain partial results after a later-page failure and offer explicit retries.
 
 Track Radio first requests Spotify recommendations and falls back to artist-based
 search when that endpoint is unavailable. The UI identifies which source was
-used; the fallback is not Spotify's personalized ranking algorithm. In source
-builds after v0.2.5, Smart Shuffle mixes marked suggestions after every three
-original tracks while preserving the playing and immediately upcoming entries.
+used; the fallback is not Spotify's personalized ranking algorithm. Smart
+Shuffle mixes marked suggestions after every three original tracks while
+preserving the playing and immediately upcoming entries.
 
 Spotify limits some Web API endpoints for newer or development-mode applications.
 Tuitify reports restricted playlist and recommendation responses instead of trying
@@ -250,7 +240,7 @@ Application state lives under `%LOCALAPPDATA%\Tuitify`:
 | `queue.json` | Queue order, selection, and saved position |
 | `cache.json` | Bounded, expiring Spotify track metadata |
 | `stats.json` | Aggregate play counts and listening time |
-| `mix-recipes.json` | Development build: named Mix Builder source and preference recipes |
+| `mix-recipes.json` | Named Mix Builder source and preference recipes |
 
 Tuitify does not collect analytics, store your Spotify password, keep a timestamped
 listening history, or provide an offline audio cache. Discord presence is enabled

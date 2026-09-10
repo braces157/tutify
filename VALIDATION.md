@@ -361,7 +361,7 @@ zero vulnerabilities.
 Live Spotify audio streaming, real-time hardware key interactions, and long-term
 multi-week storage accumulation were not exercised for this release.
 
-## Version 0.2.6 source milestone — 2026-09-10
+## Version 0.2.6 release milestone — 2026-09-10
 
 Reviewed and built the Smart Shuffle, Mix Builder, and credential-free native
 demo milestone. Mix generation is deterministic, preserves pinned occurrence
@@ -389,6 +389,6 @@ layouts before the version-only rebuild.
 
 Live Spotify catalog/playback, audible output, physical media keys, LRCLIB,
 Discord presentation, and playlist access against a real account were not tested
-for this source milestone and remain live acceptance work. This source version is
-not a published GitHub binary release; the website download links intentionally
-remain pinned to v0.2.5.
+for this release milestone and remain live acceptance work. The v0.2.6 release
+package retains those limitations in its notes; website install commands and
+download links are pinned to the matching v0.2.6 tag and assets.
