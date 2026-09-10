@@ -2,6 +2,501 @@
 @tailwind components;
 @tailwind utilities;
 
+html {
+  scroll-padding-top: 6rem;
+}
+
+.page-shell {
+  background:
+    radial-gradient(circle at 78% 8%, rgba(30, 215, 96, 0.055), transparent 27rem),
+    #090b0a;
+  color: #c9cfcc;
+}
+
+.paper-grid {
+  opacity: 0.34;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.018) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px);
+  background-size: 4rem 4rem;
+  mask-image: linear-gradient(to bottom, black 0, transparent 48rem);
+}
+
+.skip-link {
+  position: fixed;
+  top: 0.75rem;
+  left: 0.75rem;
+  z-index: 60;
+  transform: translateY(-160%);
+  padding: 0.7rem 1rem;
+  border-radius: 0.35rem;
+  background: #1ed760;
+  color: #061009;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  transition: transform 180ms ease;
+}
+
+.skip-link:focus {
+  transform: translateY(0);
+}
+
+.site-header {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(9, 11, 10, 0.86);
+  backdrop-filter: blur(18px) saturate(125%);
+}
+
+.brand-lockup {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.version-mark {
+  padding-left: 0.65rem;
+  border-left: 1px solid rgba(255, 255, 255, 0.14);
+  color: #7e8782;
+  font-family: "Cascadia Code", Consolas, ui-monospace, monospace;
+  font-size: 0.65rem;
+  letter-spacing: 0.08em;
+}
+
+.nav-link {
+  position: relative;
+  padding-block: 0.4rem;
+  transition: color 180ms ease;
+}
+
+.nav-link::after {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 1px;
+  content: "";
+  background: #1ed760;
+  transform: scaleX(0);
+  transform-origin: right;
+  transition: transform 220ms ease;
+}
+
+.nav-link:hover,
+.nav-link:focus-visible {
+  color: #f1f5f2;
+}
+
+.nav-link:hover::after,
+.nav-link:focus-visible::after {
+  transform: scaleX(1);
+  transform-origin: left;
+}
+
+.primary-action,
+.quiet-action,
+.text-action {
+  min-height: 2.5rem;
+  padding: 0.65rem 1rem;
+  border-radius: 0.35rem;
+  font-size: 0.75rem;
+  font-weight: 650;
+  transition: color 180ms ease, background-color 180ms ease, border-color 180ms ease, transform 180ms ease;
+}
+
+.primary-action {
+  background: #1ed760;
+  color: #061009;
+}
+
+.primary-action:hover {
+  background: #5ce38b;
+  transform: translateY(-2px);
+}
+
+.quiet-action {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.035);
+  color: #bac2be;
+}
+
+.quiet-action:hover {
+  border-color: rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.07);
+  color: white;
+}
+
+.primary-action:active,
+.quiet-action:active,
+.text-action:active {
+  transform: translateY(1px);
+}
+
+.hero-section {
+  padding-top: clamp(5.5rem, 11vw, 9.5rem);
+  padding-bottom: clamp(5rem, 10vw, 8rem);
+}
+
+.hero-copy {
+  position: relative;
+}
+
+.eyebrow,
+.section-index {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  color: #7f8a84;
+  font-family: "Cascadia Code", Consolas, ui-monospace, monospace;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.status-dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: #1ed760;
+  box-shadow: 0 0 0 0.3rem rgba(30, 215, 96, 0.09);
+}
+
+.hero-title {
+  max-width: 12ch;
+  margin-top: 1.65rem;
+  color: #f2f5f3;
+  font-family: Bahnschrift, "Segoe UI Variable Display", "Segoe UI", sans-serif;
+  font-size: clamp(3.6rem, 8.5vw, 7.7rem);
+  font-weight: 650;
+  letter-spacing: -0.065em;
+  line-height: 0.89;
+  text-wrap: balance;
+}
+
+.hero-title span {
+  color: #87918c;
+}
+
+.hero-lede {
+  max-width: 41rem;
+  margin-top: 2.2rem;
+  color: #aab2ae;
+  font-size: clamp(1rem, 1.6vw, 1.2rem);
+  line-height: 1.7;
+  text-wrap: pretty;
+}
+
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.8rem;
+  margin-top: 2.2rem;
+}
+
+.primary-action-large,
+.hero-actions .quiet-action {
+  min-height: 3rem;
+  padding-inline: 1.25rem;
+}
+
+.text-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.7rem;
+  color: #c6cdc9;
+}
+
+.text-action:hover {
+  color: #1ed760;
+}
+
+.spec-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  max-width: 62rem;
+  margin-top: 4.5rem;
+  border-block: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+.spec-strip > div {
+  display: flex;
+  align-items: baseline;
+  padding: 1.2rem 1.25rem;
+  border-right: 1px solid rgba(255, 255, 255, 0.07);
+  color: #7f8984;
+  font-family: "Cascadia Code", Consolas, ui-monospace, monospace;
+  font-size: 0.675rem;
+  letter-spacing: 0.025em;
+}
+
+.spec-strip > div:first-child {
+  padding-left: 0;
+}
+
+.spec-strip > div:last-child {
+  border-right: 0;
+}
+
+.spec-strip svg {
+  display: none;
+}
+
+.spec-strip strong {
+  margin-right: 0.4rem;
+  color: #e9efeb;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.content-section {
+  padding-top: clamp(5rem, 9vw, 8rem);
+  padding-bottom: clamp(2.5rem, 5vw, 4.5rem);
+}
+
+.section-heading {
+  display: grid;
+  grid-template-columns: minmax(9rem, 0.34fr) minmax(0, 1fr);
+  column-gap: 3rem;
+  max-width: 62rem;
+  margin-bottom: 3.5rem;
+}
+
+.section-heading .section-index {
+  grid-row: 1 / span 3;
+  align-self: start;
+  padding-top: 0.55rem;
+}
+
+.section-heading h2 {
+  grid-column: 2;
+  max-width: 18ch;
+  margin: 0;
+  color: #f0f4f1;
+  font-family: Bahnschrift, "Segoe UI Variable Display", "Segoe UI", sans-serif;
+  font-size: clamp(2.3rem, 4.8vw, 4.5rem);
+  font-weight: 600;
+  letter-spacing: -0.05em;
+  line-height: 0.98;
+  text-wrap: balance;
+}
+
+.section-heading > p:not(.section-index) {
+  grid-column: 2;
+  max-width: 43rem;
+  margin-top: 1.2rem;
+  color: #929b96;
+  font-size: 0.925rem;
+  line-height: 1.7;
+  text-wrap: pretty;
+}
+
+.section-heading .demo-disclaimer {
+  color: #657069;
+  font-family: "Cascadia Code", Consolas, ui-monospace, monospace;
+  font-size: 0.65rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.terminal-frame {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 0.65rem;
+  background: #0b100d;
+  box-shadow: 0 2.2rem 5rem -2rem rgba(0, 0, 0, 0.72), 0 0 0 1px rgba(30, 215, 96, 0.025) inset;
+}
+
+.feature-ledger {
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 0.65rem;
+  background: rgba(255, 255, 255, 0.08);
+  counter-reset: feature;
+}
+
+.feature-ledger > div {
+  min-height: 19rem;
+  border: 0;
+  border-radius: 0;
+  background: #0c0f0d;
+  box-shadow: none;
+  counter-increment: feature;
+  transition: background-color 220ms ease;
+}
+
+.feature-ledger > div:hover {
+  background: #101511;
+}
+
+.feature-ledger > div:first-child,
+.feature-ledger > div:last-child {
+  grid-column: span 2;
+}
+
+.feature-ledger > div > div:first-child {
+  width: auto;
+  height: auto;
+  justify-content: flex-start;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: #66716b;
+  font-size: 0;
+  transform: none;
+}
+
+.feature-ledger > div > div:first-child::before {
+  content: "0" counter(feature);
+  font-family: "Cascadia Code", Consolas, ui-monospace, monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+}
+
+.feature-ledger h3 {
+  font-family: Bahnschrift, "Segoe UI Variable Display", "Segoe UI", sans-serif;
+  font-size: 1.35rem;
+  font-weight: 550;
+  letter-spacing: -0.025em;
+}
+
+#queue-search article,
+#benchmarks article,
+#shortcuts > div:last-child > div {
+  border-color: rgba(255, 255, 255, 0.07);
+  border-radius: 0.4rem;
+  background: rgba(13, 16, 14, 0.84);
+}
+
+#queue-search article,
+#benchmarks article {
+  border-top: 2px solid rgba(30, 215, 96, 0.42);
+  padding: 1.5rem;
+}
+
+#shortcuts > div:last-child {
+  gap: 0.55rem;
+}
+
+#install > div:nth-child(2) {
+  border-color: rgba(255, 255, 255, 0.11);
+  border-radius: 0.6rem;
+  background: #0c0f0d;
+  box-shadow: 0 2rem 4.5rem -2.5rem rgba(0, 0, 0, 0.75);
+}
+
+.answer-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.answer-grid article {
+  min-height: 15rem;
+  padding: 2rem 2rem 2.4rem 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.answer-grid article:nth-child(odd) {
+  padding-right: 3rem;
+  border-right: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.answer-grid article:nth-child(even) {
+  padding-left: 3rem;
+}
+
+.answer-number {
+  color: #1ed760;
+  font-family: "Cascadia Code", Consolas, ui-monospace, monospace;
+  font-size: 0.65rem;
+  letter-spacing: 0.08em;
+}
+
+.answer-grid h3 {
+  margin-top: 1.2rem;
+  color: #ecf1ee;
+  font-size: 1.15rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.answer-grid article > p:last-child {
+  max-width: 34rem;
+  margin-top: 0.8rem;
+  color: #8e9892;
+  font-size: 0.8125rem;
+  line-height: 1.75;
+}
+
+.site-footer {
+  margin-top: 6rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+summary:focus-visible {
+  outline: 2px solid #1ed760;
+  outline-offset: 3px;
+}
+
+@media (max-width: 767px) {
+  .hero-section {
+    padding-top: 4.5rem;
+  }
+
+  .hero-title {
+    font-size: clamp(3.2rem, 16vw, 5rem);
+    line-height: 0.92;
+  }
+
+  .hero-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .hero-actions > * {
+    width: 100%;
+  }
+
+  .spec-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .spec-strip > div {
+    padding-left: 0.8rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  }
+
+  .section-heading {
+    display: block;
+    margin-bottom: 2.4rem;
+  }
+
+  .section-heading h2 {
+    margin-top: 1.25rem;
+  }
+
+  .feature-ledger > div:first-child,
+  .feature-ledger > div:last-child {
+    grid-column: span 1;
+  }
+
+  .answer-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .answer-grid article,
+  .answer-grid article:nth-child(odd),
+  .answer-grid article:nth-child(even) {
+    min-height: 0;
+    padding: 1.75rem 0;
+    border-right: 0;
+  }
+}
+
 :root {
   --term-accent: #1ed760;
   --term-accent-dim: #169c46;

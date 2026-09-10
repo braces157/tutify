@@ -7,13 +7,13 @@ module.exports = {
       colors: {
         spotify: '#1ed760',
         'spotify-dark': '#169c46',
-        terminal: '#0b0f0d',
-        'terminal-card': '#101713',
-        'terminal-border': '#1b2620',
+        terminal: '#090b0a',
+        'terminal-card': '#0c0f0d',
+        'terminal-border': '#242925',
       },
       fontFamily: {
         mono: ['Cascadia Code', 'Consolas', 'ui-monospace', 'monospace'],
-        sans: ['Segoe UI', 'system-ui', 'sans-serif'],
+        sans: ['Segoe UI Variable Text', 'Segoe UI', 'system-ui', 'sans-serif'],
       },
     },
   },
