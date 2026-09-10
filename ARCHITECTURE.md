@@ -12,6 +12,7 @@ is a separate demonstration, not the player's frontend.
 | `src/main.rs` | CLI dispatch and startup authentication |
 | `src/app.rs` | Application state, playback transitions/accounting, queue undo |
 | `src/app/runtime.rs` | Startup, event scheduling, redraws, shutdown |
+| `src/app/demo_runtime.rs`, `src/demo.rs` | Credential-free runtime adapter and bundled fictional catalog |
 | `src/app/input.rs` | Keyboard modes and shortcut permissions |
 | `src/app/mouse.rs` | Hit testing, context menus, mouse-to-action routing |
 | `src/app/actions.rs` | Selected-track and queue actions shared by input sources |
@@ -30,6 +31,7 @@ is a separate demonstration, not the player's frontend.
 | `src/playback.rs`, `visualizer.rs` | Streaming engine, audio output and spectrum analysis |
 | `src/queue.rs`, `stats.rs`, `cache.rs`, `storage.rs` | Domain data and persistence |
 | `src/model.rs` | Shared track/repeat/playback-state types |
+| `src/mix.rs`, `src/ui/mix_builder.rs` | Deterministic Mix Builder domain model and overlay |
 | `src/media_controls.rs`, `discord.rs` | Windows media controls and Discord presence |
 
 ## Boundaries to preserve
@@ -38,7 +40,7 @@ is a separate demonstration, not the player's frontend.
   intent without synthesizing keyboard events. New playback shortcuts should use
   the existing control executor; avoid duplicating seek or volume logic in an
   overlay. Context-menu actions validate the captured list revision before use.
-- `Overlay` makes lyrics, visualizer, and stats mutually exclusive. Statistics
+- `Overlay` makes lyrics, visualizer, stats, and Mix Builder mutually exclusive. Statistics
   owns its cursor independently of catalog and queue selection. Its query, sort,
   and cached rows are presentation data, not part of the saved statistics schema.
 - `BrowseState` owns filter-cache invalidation. Use its row update methods for
@@ -54,6 +56,13 @@ is a separate demonstration, not the player's frontend.
   request IDs, queue epochs, and playback generations when changing jobs. A
   cancelled job may already have queued a result. Library/playlist failures retain
   usable partial results.
+- Mix source paging and recommendations have a request identity independent of
+  the live queue epoch. They may update only the current preview; applying a mix
+  is the sole boundary that snapshots and mutates the queue. Recommendation
+  provenance contains the actual seed and provider, never inferred rationale.
+- Demo mode is selected before production storage or authentication is opened.
+  Its runtime supplies fictional catalog pages, lyrics, recommendation outcomes,
+  and playback events through the production App/input/UI boundaries.
 - Playback accounting is pinned to the loaded generation and its original track.
   Queue replacement, undo, completion, pause, and shutdown must finalize the old
   generation at the existing transition points. Seeking must not add listened time.
@@ -76,8 +85,9 @@ Run `cargo fmt --check`, `cargo test --locked`, and
 `cargo build --release --locked` before release. Tests live beside their modules;
 `src/app/tests/` retains interaction tests across input, state, jobs and persistence.
 
-The four opt-in checks require specific environments: live streaming, a silent
-Windows media session, a real terminal for cleanup, and an optimized rendering
+The five opt-in checks require specific environments or optimized builds: live
+streaming, a silent Windows media session, a real terminal for cleanup, an
+optimized rendering benchmark, and the optimized Mix Builder generation
 benchmark. Run the relevant checks when touching those paths. Run `npm test` for
 website changes. See `VALIDATION.md` for what was actually executed.
 

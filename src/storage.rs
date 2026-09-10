@@ -122,6 +122,17 @@ impl Storage {
         stats.validate()?;
         atomic_json(&self.root.join("stats.json"), &stats)
     }
+    pub fn mix_recipes(&self) -> Result<crate::mix::MixRecipes> {
+        let mut recipes: crate::mix::MixRecipes =
+            read_or_default(&self.root.join("mix-recipes.json"))?;
+        recipes.validate()?;
+        Ok(recipes)
+    }
+    pub fn save_mix_recipes(&self, recipes: &crate::mix::MixRecipes) -> Result<()> {
+        let mut recipes = recipes.clone();
+        recipes.validate()?;
+        atomic_json(&self.root.join("mix-recipes.json"), &recipes)
+    }
     pub fn clear_stats(&self) -> Result<()> {
         match fs::remove_file(self.root.join("stats.json")) {
             Ok(()) => Ok(()),
@@ -306,5 +317,44 @@ mod tests {
         )
         .unwrap();
         assert!(store.stats().is_err());
+    }
+    #[test]
+    fn mix_recipes_are_separate_from_queue_and_settings() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Storage {
+            root: dir.path().to_owned(),
+        };
+        let mut recipes = crate::mix::MixRecipes::default();
+        recipes.save(crate::mix::MixRecipe {
+            name: "Commute".into(),
+            source: crate::mix::MixSource::Queue,
+            settings: crate::mix::MixSettings::default(),
+        });
+        store.save_mix_recipes(&recipes).unwrap();
+        assert_eq!(store.mix_recipes().unwrap().recipes.len(), 1);
+        assert!(!store.root.join("queue.json").exists());
+        assert!(!store.root.join("config.json").exists());
+    }
+
+    #[test]
+    fn mix_recipe_write_failures_and_invalid_persisted_values_are_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Storage {
+            root: dir.path().to_owned(),
+        };
+        fs::create_dir(dir.path().join("mix-recipes.json")).unwrap();
+        assert!(
+            store
+                .save_mix_recipes(&crate::mix::MixRecipes::default())
+                .is_err()
+        );
+
+        fs::remove_dir(dir.path().join("mix-recipes.json")).unwrap();
+        fs::write(
+            dir.path().join("mix-recipes.json"),
+            br#"{"version":1,"recipes":[{"name":"Bad","source":{"Playlist":{"id":"short","name":"List"}},"settings":{"target_minutes":0,"recommendation_percent":101,"artist_gap":21}}]}"#,
+        )
+        .unwrap();
+        assert!(store.mix_recipes().is_err());
     }
 }

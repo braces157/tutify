@@ -8,6 +8,7 @@ pub enum Overlay {
     Lyrics,
     Visualizer,
     Stats,
+    MixBuilder,
 }
 
 #[derive(Default)]

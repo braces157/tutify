@@ -83,6 +83,17 @@ impl Tasks {
         self.smart.attempted.insert(seed.id.clone());
         let epoch = app.queue.epoch;
         let request = self.smart.request;
+        if self.demo {
+            let _ = self.tx.send(Background::SmartRecommendations(
+                epoch,
+                request,
+                Ok(Recommendations {
+                    tracks: crate::demo::recommendation_tracks(),
+                    source: crate::catalog::RecommendationSource::ArtistSearch,
+                }),
+            ));
+            return;
+        }
         let catalog = self.catalog.clone();
         let tx = self.tx.clone();
         self.smart.handle = Some(tokio::spawn(async move {

@@ -2,11 +2,13 @@ mod app;
 mod auth;
 mod cache;
 mod catalog;
+mod demo;
 mod diagnostics;
 mod discord;
 mod library;
 mod lyrics;
 mod media_controls;
+mod mix;
 mod model;
 mod playback;
 mod queue;
@@ -21,7 +23,7 @@ use clap::{Parser, Subcommand};
 #[derive(Parser)]
 #[command(
     version,
-    about = "Standalone Spotify terminal player (Premium required)"
+    about = "Standalone Spotify terminal player, with an offline portfolio demo"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -30,6 +32,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Run the real terminal UI with an isolated fictional catalog and simulated playback.
+    Demo,
     /// Guided setup; reuse saved logins and open any missing browser login steps.
     Auth {
         /// Use a personal Spotify Developer app for catalog requests instead
@@ -54,9 +58,13 @@ enum Command {
 async fn main() -> Result<()> {
     diagnostics::init();
     let cli = Cli::parse();
+    if matches!(cli.command, Some(Command::Demo)) {
+        return app::run_demo().await;
+    }
     let store = storage::Storage::local()?;
     let _instance = store.lock()?;
     match cli.command {
+        Some(Command::Demo) => unreachable!(),
         Some(Command::Auth {
             client_id,
             streaming,

@@ -41,6 +41,7 @@ pub(super) fn help(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, a
     v              Toggle Retro Visualizer (Real-time FFT)\n\
     l              Toggle Synced Real-Time Lyrics View (Lrclib)\n\
     S              Toggle local aggregate song statistics overlay\n\n\
+    M (Shift-M)    Open Mix Builder (queue or current Spotify playlist)\n\
     CATALOG & NETWORK\n\
     / or f         Filter loaded Liked/Playlist rows only\n\
     F2             Search Spotify catalog\n\

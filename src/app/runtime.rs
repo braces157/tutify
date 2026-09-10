@@ -19,6 +19,10 @@ pub async fn run(store: Storage) -> Result<()> {
         Ok(stats) => app.stats = stats,
         Err(_) => app.status = "Old or invalid song statistics ignored; starting fresh.".into(),
     }
+    match store.mix_recipes() {
+        Ok(recipes) => app.mix_recipes = recipes,
+        Err(_) => app.status = "Old or invalid mix recipes ignored; starting with none.".into(),
+    }
     app.stats.refresh_metadata(&app.cache);
     let (bg_tx, mut bg_rx) = mpsc::unbounded_channel();
     let mut tasks = Tasks::new(catalog, bg_tx.clone())?;
@@ -26,10 +30,12 @@ pub async fn run(store: Storage) -> Result<()> {
     let (queue_tx, queue_rx) = watch::channel(None);
     let (cache_tx, cache_rx) = watch::channel(None);
     let (stats_tx, stats_rx) = watch::channel(None);
+    let (recipes_tx, recipes_rx) = watch::channel(None);
     let config_store = store.clone();
     let queue_store = store.clone();
     let cache_store = store.clone();
     let stats_store = store.clone();
+    let recipes_store = store.clone();
     let config_writer = writer(config_rx, bg_tx.clone(), move |config| {
         config_store.save_config(&config)
     });
@@ -40,16 +46,21 @@ pub async fn run(store: Storage) -> Result<()> {
         cache_store.save_cache(&cache)
     });
     let stats_writer = writer(stats_rx, bg_tx, move |stats| stats_store.save_stats(&stats));
+    let recipes_writer = writer(recipes_rx, tasks.tx.clone(), move |recipes| {
+        recipes_store.save_mix_recipes(&recipes)
+    });
     let mut checkpoints = Checkpoints {
         config: app.config.clone(),
         queue: queue_stamp(&app.queue),
         cache: 0,
         stats: 0,
+        recipes: app.mix_recipes.revision,
         retry: false,
         config_tx,
         queue_tx,
         cache_tx,
         stats_tx,
+        recipes_tx,
     };
     let mut terminal = ui::TerminalGuard::enter()?;
     let (media_tx, mut media_rx) = mpsc::unbounded_channel();
@@ -114,21 +125,12 @@ pub async fn run(store: Storage) -> Result<()> {
                 }
                 key_event = keys.next() => {
                     match key_event {
-                        Some(Ok(Input::Key(event))) if event.kind != KeyEventKind::Release => key(&mut app, event, &mut tasks, &playback.commands),
-                        Some(Ok(Input::Mouse(event))) if !mouse(&mut app, event, &mut tasks, &playback.commands) => continue,
-                        Some(Ok(Input::Resize(_, _))) => { app.context_menu = None; },
-                        Some(Ok(Input::Paste(text))) if app.ui.overlay == Overlay::Stats && app.ui.stats.borrow().editing => {
-                            let view = app.ui.stats.get_mut();
-                            let remaining = 100usize.saturating_sub(view.query.chars().count());
-                            view.query.extend(text.chars().filter(|c| !c.is_control()).take(remaining));
-                            view.selected = 0;
-                            app.ui.render.borrow_mut().stats_scroll = 0;
+                        Some(Ok(event)) => {
+                            if !route_input(&mut app, event, &mut tasks, &playback.commands) {
+                                continue;
+                            }
                         }
-                        Some(Ok(Input::Paste(text))) if app.catalog.editing => app.catalog.query.extend(text.chars().filter(|c| !c.is_control()).take(500usize.saturating_sub(app.catalog.query.chars().count()))),
-                        Some(Ok(Input::Paste(text))) if app.catalog.filtering => { app.catalog.filter.extend(text.chars().filter(|c| !c.is_control()).take(100usize.saturating_sub(app.catalog.filter.chars().count()))); app.catalog.selected = 0; }
                         Some(Err(e)) => return Err(e.into()), None => break,
-                        Some(Ok(Input::Key(_))) => continue,
-                        _ => (),
                     }
                     app.ui.render.borrow_mut().mouse_hits.clear();
                     dirty = true; metadata_dirty = true; lyrics_dirty = true;
@@ -179,11 +181,17 @@ pub async fn run(store: Storage) -> Result<()> {
     drop(terminal);
     drop(media_controls);
     discord_presence.close().await;
-    let (config_saved, queue_saved, cache_saved, stats_saved) =
-        tokio::join!(config_writer, queue_writer, cache_writer, stats_writer);
+    let (config_saved, queue_saved, cache_saved, stats_saved, recipes_saved) = tokio::join!(
+        config_writer,
+        queue_writer,
+        cache_writer,
+        stats_writer,
+        recipes_writer
+    );
     config_saved??;
     queue_saved??;
     cache_saved??;
     stats_saved??;
+    recipes_saved??;
     result
 }

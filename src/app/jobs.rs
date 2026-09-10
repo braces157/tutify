@@ -12,6 +12,11 @@ pub(super) enum Background {
     PlaylistError(u64, u64, String),
     Recommendations(u64, Result<Recommendations>),
     SmartRecommendations(u64, u64, Result<Recommendations>),
+    MixPlaylistPage(u64, Vec<Track>, bool),
+    MixPlaylistError(u64, String),
+    MixRecommendations(u64, Vec<MixCandidate>, Option<String>),
+    MixSourceLimited(u64, String),
+    MixMetadataBatch(u64, Vec<(String, std::result::Result<Track, String>)>, bool),
 }
 pub(super) struct Tasks {
     pub(super) catalog: Catalog,
@@ -31,6 +36,11 @@ pub(super) struct Tasks {
     pub(super) radio_active: bool,
     pub(super) radio_attempted: HashSet<String>,
     pub(super) smart: super::smart_shuffle::SmartTask,
+    pub(super) mix: Option<tokio::task::JoinHandle<()>>,
+    pub(super) mix_recommendations: Option<tokio::task::JoinHandle<()>>,
+    pub(super) mix_metadata: Option<tokio::task::JoinHandle<()>>,
+    pub(super) demo: bool,
+    pub(super) demo_recommendation_attempts: u64,
 }
 impl Drop for Tasks {
     fn drop(&mut self) {
@@ -41,6 +51,9 @@ impl Drop for Tasks {
             &self.recommendations,
             &self.playlist,
             &self.smart.handle,
+            &self.mix,
+            &self.mix_recommendations,
+            &self.mix_metadata,
         ]
         .into_iter()
         .flatten()
@@ -69,7 +82,359 @@ impl Tasks {
             radio_active: false,
             radio_attempted: HashSet::new(),
             smart: super::smart_shuffle::SmartTask::default(),
+            mix: None,
+            mix_recommendations: None,
+            mix_metadata: None,
+            demo: false,
+            demo_recommendation_attempts: 0,
         })
+    }
+    pub(super) fn demo(tx: mpsc::UnboundedSender<Background>) -> Result<Self> {
+        let mut tasks = Self::new(Catalog::offline()?, tx)?;
+        tasks.demo = true;
+        Ok(tasks)
+    }
+
+    pub(super) fn open_mix(&mut self, app: &mut App) {
+        let source = match app.catalog.view {
+            View::Queue => MixSource::Queue,
+            View::Playlists => match &app.catalog.browse {
+                Browse::Playlist(id) => MixSource::Playlist {
+                    id: id.clone(),
+                    name: app.catalog.title.clone(),
+                },
+                _ => {
+                    let index = if app.is_filtered() {
+                        app.filtered_indices().get(app.catalog.selected).copied()
+                    } else {
+                        Some(app.catalog.selected)
+                    };
+                    match (&app.catalog.rows, index) {
+                        (Rows::Playlists(rows), Some(index)) => rows
+                            .get(index)
+                            .map(|playlist| MixSource::Playlist {
+                                id: playlist.id.clone(),
+                                name: playlist.name.clone(),
+                            })
+                            .unwrap_or(MixSource::Queue),
+                        _ => MixSource::Queue,
+                    }
+                }
+            },
+            // Search, Liked Songs, and Help deliberately default to the queue.
+            _ => MixSource::Queue,
+        };
+        self.load_mix_source(app, source);
+    }
+
+    fn abort_mix_jobs(&mut self) {
+        for task in [
+            self.mix.take(),
+            self.mix_recommendations.take(),
+            self.mix_metadata.take(),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            task.abort();
+        }
+    }
+
+    pub(super) fn cancel_mix(&mut self, app: &mut App) {
+        self.abort_mix_jobs();
+        app.mix.request = app.mix.request.wrapping_add(1);
+        app.mix.recommendation_request = app.mix.recommendation_request.wrapping_add(1);
+        app.mix.loading_source = false;
+        app.mix.loading_recommendations = false;
+    }
+
+    fn load_mix_source(&mut self, app: &mut App, source: MixSource) {
+        self.abort_mix_jobs();
+        match source {
+            MixSource::Queue => {
+                app.open_queue_mix();
+                self.hydrate_queue_mix(app);
+            }
+            MixSource::Playlist { id, name } => {
+                app.open_playlist_mix(id.clone(), name);
+                self.start_playlist_mix_load(app, id);
+            }
+        }
+    }
+
+    pub(super) fn start_playlist_mix_load(&mut self, app: &App, id: String) {
+        let request = app.mix.request;
+        if self.demo {
+            let _ = self.tx.send(Background::MixPlaylistPage(
+                request,
+                crate::demo::playlist_tracks(),
+                true,
+            ));
+            return;
+        }
+        let catalog = self.catalog.clone();
+        let tx = self.tx.clone();
+        self.mix = Some(tokio::spawn(async move {
+            let mut offset = 0;
+            let mut pages = 0usize;
+            let mut retained = 0usize;
+            loop {
+                if pages >= crate::mix::MAX_PLAYLIST_PAGES
+                    || retained >= crate::mix::MAX_SOURCE_CANDIDATES
+                {
+                    let _ = tx.send(Background::MixSourceLimited(
+                        request,
+                        format!(
+                            "Playlist capped at {} pages or {} tracks",
+                            crate::mix::MAX_PLAYLIST_PAGES,
+                            crate::mix::MAX_SOURCE_CANDIDATES
+                        ),
+                    ));
+                    break;
+                }
+                match catalog.page(&Browse::Playlist(id.clone()), offset).await {
+                    Ok(page) => {
+                        let Rows::Tracks(mut tracks) = page.rows else {
+                            let _ = tx.send(Background::MixPlaylistError(
+                                request,
+                                "playlist returned an unexpected response".into(),
+                            ));
+                            break;
+                        };
+                        pages += 1;
+                        let remaining = crate::mix::MAX_SOURCE_CANDIDATES.saturating_sub(retained);
+                        let truncated = tracks.len() > remaining;
+                        tracks.truncate(remaining);
+                        retained += tracks.len();
+                        let valid_next = page
+                            .next
+                            .filter(|next| *next > offset && *next < crate::queue::MAX_TRACKS);
+                        let capped = truncated
+                            || (valid_next.is_some()
+                                && (retained >= crate::mix::MAX_SOURCE_CANDIDATES
+                                    || pages >= crate::mix::MAX_PLAYLIST_PAGES));
+                        let next = valid_next.filter(|_| !capped);
+                        if capped {
+                            let _ = tx.send(Background::MixSourceLimited(
+                                request,
+                                format!(
+                                    "Playlist capped after {pages} pages and {retained} tracks"
+                                ),
+                            ));
+                        }
+                        if tx
+                            .send(Background::MixPlaylistPage(request, tracks, next.is_none()))
+                            .is_err()
+                        {
+                            break;
+                        }
+                        let Some(next) = next else { break };
+                        offset = next;
+                    }
+                    Err(error) => {
+                        let _ =
+                            tx.send(Background::MixPlaylistError(request, format!("{error:#}")));
+                        break;
+                    }
+                }
+            }
+        }));
+    }
+
+    fn hydrate_queue_mix(&mut self, app: &mut App) {
+        if app.mix.source != Some(MixSource::Queue) {
+            return;
+        }
+        if self.demo {
+            let mut changed = false;
+            for track in crate::demo::all_tracks() {
+                app.cache.insert(track.id.clone(), track.clone());
+                changed |= app.set_queue_mix_track(track);
+            }
+            if changed {
+                app.refresh_queue_mix_source();
+            }
+            app.mix.loading_source = false;
+            app.mix.refresh();
+            self.fetch_mix_recommendations(app);
+            return;
+        }
+        let mut seen = HashSet::new();
+        let ids: Vec<_> = app
+            .mix
+            .source_candidates
+            .iter()
+            .filter(|candidate| candidate.track.duration_ms == 0)
+            .map(|candidate| candidate.track.id.clone())
+            .filter(|id| seen.insert(id.clone()))
+            .take(crate::mix::MAX_SOURCE_CANDIDATES)
+            .collect();
+        if ids.is_empty() {
+            app.mix.loading_source = false;
+            self.fetch_mix_recommendations(app);
+            return;
+        }
+        app.mix.loading_source = true;
+        let request = app.mix.request;
+        let catalog = self.catalog.clone();
+        let tx = self.tx.clone();
+        self.mix_metadata = Some(tokio::spawn(async move {
+            let mut stream = catalog.tracks(ids);
+            let mut batch = Vec::with_capacity(100);
+            while let Some((id, result)) = stream.next().await {
+                let systemic_failure = result
+                    .as_ref()
+                    .err()
+                    .is_some_and(|error| !error.is::<crate::catalog::MissingItem>());
+                batch.push((id, result.map_err(|error| format!("{error:#}"))));
+                if systemic_failure {
+                    // Dropping the bounded stream cancels outstanding requests and,
+                    // crucially, prevents it from scheduling the rest of a large queue.
+                    break;
+                }
+                if batch.len() == 100
+                    && tx
+                        .send(Background::MixMetadataBatch(
+                            request,
+                            std::mem::take(&mut batch),
+                            false,
+                        ))
+                        .is_err()
+                {
+                    return;
+                }
+            }
+            let _ = tx.send(Background::MixMetadataBatch(request, batch, true));
+        }));
+    }
+
+    pub(super) fn retry_mix_source(&mut self, app: &mut App) {
+        let Some(source) = app.mix.source.clone() else {
+            return;
+        };
+        if source == MixSource::Queue {
+            app.mix.source_error = None;
+            app.mix.source_retryable = false;
+            app.mix.source_failures = 0;
+            app.mix.source_partial = app.queue.order.len() > crate::mix::MAX_SOURCE_CANDIDATES;
+            self.hydrate_queue_mix(app);
+        } else {
+            self.abort_mix_jobs();
+            let MixSource::Playlist { id, .. } = source else {
+                unreachable!();
+            };
+            app.retry_playlist_mix();
+            self.start_playlist_mix_load(app, id);
+        }
+    }
+
+    pub(super) fn open_mix_recipe(&mut self, app: &mut App, recipe: MixRecipe) {
+        if let Err(error) = recipe.validate() {
+            app.status = format!("Cannot open mix recipe: {error:#}");
+            return;
+        }
+        app.mix.settings = recipe.settings;
+        app.mix.recipe_name = recipe.name;
+        self.load_mix_source(app, recipe.source);
+    }
+
+    pub(super) fn fetch_mix_recommendations(&mut self, app: &mut App) {
+        if let Some(task) = self.mix_recommendations.take() {
+            task.abort();
+        }
+        app.mix.recommendation_request = app.mix.recommendation_request.wrapping_add(1);
+        let request = app.mix.recommendation_request;
+        app.mix.loading_recommendations = true;
+        app.mix.recommendation_error = None;
+        let seeds: Vec<_> = app
+            .mix
+            .source_candidates
+            .iter()
+            .map(|candidate| candidate.track.clone())
+            .filter(|track| {
+                track.playable
+                    && track.duration_ms > 0
+                    && !track.name.is_empty()
+                    && !track.artists.is_empty()
+            })
+            .take(4)
+            .collect();
+        if seeds.is_empty() {
+            app.mix.loading_recommendations = false;
+            app.mix.recommendation_error = Some("no source track has usable metadata".into());
+            app.mix.refresh();
+            return;
+        }
+        if self.demo {
+            self.demo_recommendation_attempts += 1;
+            let event = if self.demo_recommendation_attempts == 1 {
+                Background::MixRecommendations(
+                    request,
+                    Vec::new(),
+                    Some("simulated provider outage (press g to recover)".into()),
+                )
+            } else {
+                let seed = &seeds[0];
+                let source_ids: HashSet<_> = app
+                    .mix
+                    .source_candidates
+                    .iter()
+                    .map(|candidate| candidate.track.id.as_str())
+                    .collect();
+                let candidates = crate::demo::recommendation_tracks()
+                    .into_iter()
+                    .filter(|track| !source_ids.contains(track.id.as_str()))
+                    .map(|track| MixCandidate {
+                        track,
+                        provenance: Provenance::Recommendation {
+                            seed_id: seed.id.clone(),
+                            seed_name: seed.name.clone(),
+                            provider: crate::catalog::RecommendationSource::ArtistSearch,
+                        },
+                    })
+                    .collect();
+                Background::MixRecommendations(request, candidates, None)
+            };
+            let _ = self.tx.send(event);
+            return;
+        }
+        let catalog = self.catalog.clone();
+        let tx = self.tx.clone();
+        let source_ids: HashSet<_> = app
+            .mix
+            .source_candidates
+            .iter()
+            .map(|candidate| candidate.track.id.clone())
+            .collect();
+        self.mix_recommendations = Some(tokio::spawn(async move {
+            let mut candidates = Vec::new();
+            let mut errors = Vec::new();
+            let mut suggested = HashSet::new();
+            for seed in seeds {
+                match catalog.recommendations(&seed).await {
+                    Ok(batch) => candidates.extend(
+                        batch
+                            .tracks
+                            .into_iter()
+                            .filter(|track| {
+                                !source_ids.contains(&track.id)
+                                    && suggested.insert(track.id.clone())
+                            })
+                            .map(|track| MixCandidate {
+                                track,
+                                provenance: Provenance::Recommendation {
+                                    seed_id: seed.id.clone(),
+                                    seed_name: seed.name.clone(),
+                                    provider: batch.source,
+                                },
+                            }),
+                    ),
+                    Err(error) => errors.push(format!("{}: {error:#}", seed.name)),
+                }
+            }
+            let error = (candidates.is_empty() && !errors.is_empty()).then(|| errors.join("; "));
+            let _ = tx.send(Background::MixRecommendations(request, candidates, error));
+        }));
     }
     pub(super) fn sync_queue_epoch(&mut self, epoch: u64) {
         if self.job_epoch != epoch {
@@ -96,6 +461,16 @@ impl Tasks {
             t.abort();
         }
         self.radio_attempted.insert(track.id.clone());
+        if self.demo {
+            let _ = self.tx.send(Background::Recommendations(
+                epoch,
+                Ok(Recommendations {
+                    tracks: crate::demo::recommendation_tracks(),
+                    source: crate::catalog::RecommendationSource::ArtistSearch,
+                }),
+            ));
+            return;
+        }
         let track = track.clone();
         let catalog = self.catalog.clone();
         let tx = self.tx.clone();
@@ -165,6 +540,17 @@ impl Tasks {
             app.lyrics.loading = false;
             app.lyrics.scroll = 0;
         }
+        if self.demo && app.ui.overlay == Overlay::Lyrics && app.lyrics.content.is_none() {
+            app.lyrics.content = Some(crate::lyrics::Lyrics {
+                lines: Vec::new(),
+                plain: Some(
+                    "[SIMULATED LYRICS]\nNeon rain on a midnight train\nA borrowed beat comes home again\nPin the spark and turn the page\nBuild tomorrow on this stage"
+                        .into(),
+                ),
+            });
+            app.lyrics.loading = false;
+            return;
+        }
         if app.ui.overlay != Overlay::Lyrics
             || app.lyrics.loading
             || app.lyrics.content.is_some()
@@ -207,6 +593,15 @@ impl Tasks {
         let catalog = self.catalog.clone();
         let tx = self.tx.clone();
         app.status = format!("Adding playlist '{name}'...");
+        if self.demo {
+            let mut tracks = crate::demo::playlist_tracks();
+            tracks.retain(|track| track.playable);
+            tracks.truncate(capacity);
+            let _ = self
+                .tx
+                .send(Background::PlaylistPage(epoch, request, tracks, true));
+            return;
+        }
         self.playlist = Some(tokio::spawn(async move {
             let mut offset = 0;
             let mut received = 0;
@@ -261,6 +656,11 @@ impl Tasks {
         let browse = app.catalog.browse.clone();
         let catalog = self.catalog.clone();
         let tx = self.tx.clone();
+        if self.demo {
+            let page = crate::demo::page(&browse, offset);
+            let _ = self.tx.send(Background::Page(request, Ok(page)));
+            return;
+        }
         if app.catalog.view == View::Search && app.catalog.query.trim().is_empty() {
             app.catalog.busy = false;
             app.catalog.next = None;
@@ -330,6 +730,18 @@ impl Tasks {
         if ids.is_empty() {
             return;
         }
+        if self.demo {
+            let request = self.metadata_request;
+            for id in ids {
+                let result = crate::demo::all_tracks()
+                    .into_iter()
+                    .find(|track| track.id == id)
+                    .ok_or_else(|| crate::catalog::MissingItem.into());
+                let _ = self.tx.send(Background::Metadata(request, id, result));
+            }
+            let _ = self.tx.send(Background::MetadataDone(request));
+            return;
+        }
         let catalog = self.catalog.clone();
         let tx = self.tx.clone();
         let request = self.metadata_request;
@@ -357,6 +769,23 @@ impl Tasks {
         self.requested.clear();
         self.metadata_blocked = false;
         app.metadata_error = None;
+        if self.demo {
+            let mut changed = false;
+            for track in crate::demo::all_tracks() {
+                app.cache.insert(track.id.clone(), track.clone());
+                changed |= app.set_queue_mix_track(track);
+            }
+            if changed {
+                app.refresh_queue_mix_source();
+            }
+            app.lyrics.request += 1;
+            app.lyrics.track_id = None;
+            app.lyrics.error = None;
+            app.lyrics.content = None;
+            app.lyrics.loading = false;
+            app.status = "DEMO • fictional metadata refreshed locally.".into();
+            return;
+        }
         let mut ids = Vec::new();
         if let Some(id) = app.queue.current() {
             ids.push(id.to_owned());
@@ -418,6 +847,133 @@ impl Tasks {
 
 pub(super) fn background(app: &mut App, tasks: &mut Tasks, event: Background) -> bool {
     match event {
+        Background::MixPlaylistPage(request, mut tracks, done) if request == app.mix.request => {
+            let label = app
+                .mix
+                .source
+                .as_ref()
+                .map_or("your source playlist", MixSource::label)
+                .to_owned();
+            let remaining =
+                crate::mix::MAX_SOURCE_CANDIDATES.saturating_sub(app.mix.source_candidates.len());
+            if tracks.len() > remaining {
+                tracks.truncate(remaining);
+                app.mix.source_partial = true;
+                app.mix.source_error = Some(format!(
+                    "Playlist capped at {} tracks",
+                    crate::mix::MAX_SOURCE_CANDIDATES
+                ));
+                app.mix.source_retryable = false;
+            }
+            for track in tracks {
+                app.cache.insert(track.id.clone(), track.clone());
+                app.mix.source_candidates.push(MixCandidate {
+                    track,
+                    provenance: Provenance::Source {
+                        label: format!("source playlist '{label}'"),
+                    },
+                });
+            }
+            app.mix.source_pages += 1;
+            app.mix.loading_source = !done;
+            if done || app.mix.source_pages == 1 || app.mix.source_pages % 10 == 0 {
+                app.mix.refresh();
+            }
+            if done {
+                tasks.mix = None;
+                tasks.fetch_mix_recommendations(app);
+                app.status = format!(
+                    "Mix Builder loaded {} playlist tracks; fetching suggestions…",
+                    app.mix.source_candidates.len()
+                );
+            } else {
+                app.status = format!(
+                    "Mix Builder loading playlist pages: {} tracks so far (partial).",
+                    app.mix.source_candidates.len()
+                );
+            }
+        }
+        Background::MixPlaylistError(request, error) if request == app.mix.request => {
+            tasks.mix = None;
+            app.mix.loading_source = false;
+            app.mix.source_partial = true;
+            app.mix.source_error = Some(error.clone());
+            app.mix.source_retryable = true;
+            app.mix.refresh();
+            app.status = format!(
+                "Playlist stopped after {} tracks: {error}. Partial source is clearly marked.",
+                app.mix.source_candidates.len()
+            );
+            if !app.mix.source_candidates.is_empty() {
+                tasks.fetch_mix_recommendations(app);
+            }
+        }
+        Background::MixSourceLimited(request, reason) if request == app.mix.request => {
+            app.mix.source_partial = true;
+            app.mix.source_error = Some(reason.clone());
+            app.mix.source_retryable = false;
+            app.mix.refresh();
+            app.status = format!("{reason}. Retained source tracks remain usable.");
+        }
+        Background::MixMetadataBatch(request, results, done) if request == app.mix.request => {
+            let mut error_count = 0usize;
+            let mut first_error = None;
+            let mut changed = false;
+            for (id, result) in results {
+                match result {
+                    Ok(track) => {
+                        app.cache.insert(track.id.clone(), track.clone());
+                        changed |= app.set_queue_mix_track(track);
+                    }
+                    Err(error) => {
+                        error_count += 1;
+                        first_error.get_or_insert_with(|| format!("{id}: {error}"));
+                    }
+                }
+            }
+            if changed {
+                app.refresh_queue_mix_source();
+            }
+            if let Some(first_error) = first_error {
+                app.mix.source_failures = app.mix.source_failures.saturating_add(error_count);
+                app.mix.source_partial = true;
+                app.mix.source_error = Some(if app.mix.source_failures == 1 {
+                    first_error
+                } else {
+                    format!(
+                        "{} queue tracks could not be hydrated; latest failure: {first_error}",
+                        app.mix.source_failures
+                    )
+                });
+                app.mix.source_retryable = true;
+            }
+            if done {
+                tasks.mix_metadata = None;
+                app.mix.loading_source = false;
+                app.mix.refresh();
+                if !app.mix.source_candidates.is_empty() {
+                    tasks.fetch_mix_recommendations(app);
+                }
+            }
+        }
+        Background::MixRecommendations(request, candidates, error)
+            if request == app.mix.recommendation_request =>
+        {
+            tasks.mix_recommendations = None;
+            app.mix.loading_recommendations = false;
+            app.mix.recommendation_candidates = candidates;
+            app.mix.recommendation_error = error;
+            app.mix.refresh();
+            app.status = if let Some(error) = &app.mix.recommendation_error {
+                format!("Recommendations unavailable: {error}. Source-only preview remains usable.")
+            } else {
+                format!(
+                    "Mix preview ready with {} source and {} suggested candidates.",
+                    app.mix.source_candidates.len(),
+                    app.mix.recommendation_candidates.len()
+                )
+            };
+        }
         Background::LibraryProgress(id, progress) if id == app.catalog.request => {
             app.catalog.library_scanned = progress.scanned;
             app.catalog.append_tracks(progress.tracks);
@@ -489,7 +1045,8 @@ pub(super) fn background(app: &mut App, tasks: &mut Tasks, event: Background) ->
             tasks.requested.remove(&id);
             match result {
                 Ok(track) => {
-                    app.cache.insert(track.id.clone(), track);
+                    app.cache.insert(track.id.clone(), track.clone());
+                    app.update_queue_mix_track(track);
                     app.stats.refresh_metadata(&app.cache);
                 }
                 Err(e) if e.is::<crate::catalog::MissingItem>() => {

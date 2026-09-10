@@ -430,6 +430,7 @@ mod tests {
 
         // Refresh with real metadata in cache should update
         let real_track = Track {
+            artist_ids: Vec::new(),
             id: id.clone(),
             name: "Updated Real Title".into(),
             artists: "Updated Real Artist".into(),

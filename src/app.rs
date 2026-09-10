@@ -1,6 +1,7 @@
 mod actions;
 mod browsing;
 mod controls;
+mod demo_runtime;
 mod input;
 mod jobs;
 mod lyrics_state;
@@ -13,7 +14,8 @@ pub(crate) mod ui_state;
 use actions::Action;
 use browsing::BrowseState;
 use controls::{Control, Seek};
-use input::key;
+pub use demo_runtime::run_demo;
+use input::{key, route_input};
 use jobs::*;
 use lyrics_state::LyricsState;
 use mouse::*;
@@ -25,6 +27,10 @@ use crate::{
     auth::TokenManager,
     catalog::{Browse, Catalog, Page, Recommendations, Rows},
     media_controls::{self, Action as MediaAction},
+    mix::{
+        MAX_SOURCE_CANDIDATES, MixBuilder, MixCandidate, MixRecipe, MixRecipes, MixSource,
+        Provenance, RecipeSave,
+    },
     model::Track,
     playback::{self, Command, Event},
     queue::Queue,
@@ -155,6 +161,9 @@ pub struct App {
     pub radio_epoch: Option<u64>,
     pub radio_source: Option<crate::catalog::RecommendationSource>,
     radio_suggestions: HashSet<String>,
+    pub mix: MixBuilder,
+    pub mix_recipes: MixRecipes,
+    pub demo: bool,
 }
 
 impl App {
@@ -188,10 +197,260 @@ impl App {
             radio_epoch: None,
             radio_source: None,
             radio_suggestions: HashSet::new(),
+            mix: MixBuilder::default(),
+            mix_recipes: MixRecipes::default(),
+            demo: false,
         }
     }
     pub fn can_undo(&self) -> bool {
         !self.undo.is_empty()
+    }
+
+    pub(crate) fn open_queue_mix(&mut self) {
+        self.mix.request = self.mix.request.wrapping_add(1);
+        self.mix.recommendation_request = self.mix.recommendation_request.wrapping_add(1);
+        self.mix.source = Some(MixSource::Queue);
+        self.mix.source_candidates = self
+            .queue
+            .order
+            .iter()
+            .take(MAX_SOURCE_CANDIDATES)
+            .map(|index| {
+                let id = &self.queue.ids[*index];
+                MixCandidate {
+                    track: self
+                        .cache
+                        .get(id)
+                        .cloned()
+                        .unwrap_or_else(|| Track::unknown(id)),
+                    provenance: Provenance::Source {
+                        label: "your current queue".into(),
+                    },
+                }
+            })
+            .collect();
+        self.mix.recommendation_candidates.clear();
+        self.mix.preview = Default::default();
+        self.mix.source_partial = self.queue.order.len() > MAX_SOURCE_CANDIDATES;
+        self.mix.loading_source = self
+            .mix
+            .source_candidates
+            .iter()
+            .any(|candidate| candidate.track.duration_ms == 0);
+        self.mix.source_error = self.mix.source_partial.then(|| {
+            format!(
+                "Queue source capped at {MAX_SOURCE_CANDIDATES} of {} occurrences",
+                self.queue.order.len()
+            )
+        });
+        self.mix.source_retryable = false;
+        self.mix.source_failures = 0;
+        self.mix.source_pages = 0;
+        self.mix.loading_recommendations = false;
+        self.mix.recommendation_error = None;
+        self.mix.selected = 0;
+        self.mix.naming = false;
+        self.mix.detail = false;
+        self.mix.detail_scroll = 0;
+        self.mix.open = true;
+        self.ui.overlay = Overlay::MixBuilder;
+        self.mix.refresh();
+        self.status = if self.mix.loading_source {
+            "Mix Builder: hydrating queue metadata; partial preview updates as tracks arrive."
+                .into()
+        } else {
+            "Mix Builder: preview only; playback and live queue are unchanged.".into()
+        };
+    }
+
+    fn open_playlist_mix(&mut self, id: String, name: String) {
+        self.mix.request = self.mix.request.wrapping_add(1);
+        self.mix.recommendation_request = self.mix.recommendation_request.wrapping_add(1);
+        self.mix.source = Some(MixSource::Playlist { id, name });
+        self.mix.source_candidates.clear();
+        self.mix.recommendation_candidates.clear();
+        self.mix.preview = Default::default();
+        self.mix.source_partial = false;
+        self.mix.source_error = None;
+        self.mix.source_retryable = false;
+        self.mix.source_failures = 0;
+        self.mix.source_pages = 0;
+        self.mix.loading_source = true;
+        self.mix.loading_recommendations = false;
+        self.mix.recommendation_error = None;
+        self.mix.selected = 0;
+        self.mix.naming = false;
+        self.mix.detail = false;
+        self.mix.detail_scroll = 0;
+        self.mix.open = true;
+        self.ui.overlay = Overlay::MixBuilder;
+        self.status = "Mix Builder: loading all playlist pages…".into();
+    }
+
+    fn retry_playlist_mix(&mut self) {
+        self.mix.request = self.mix.request.wrapping_add(1);
+        self.mix.recommendation_request = self.mix.recommendation_request.wrapping_add(1);
+        self.mix.source_candidates.clear();
+        self.mix.source_partial = true;
+        self.mix.source_error = None;
+        self.mix.source_retryable = false;
+        self.mix.source_failures = 0;
+        self.mix.source_pages = 0;
+        self.mix.loading_source = true;
+        self.mix.loading_recommendations = false;
+        self.mix.detail_scroll = 0;
+        self.status =
+            "Retrying this playlist source; the last usable preview and pins remain visible."
+                .into();
+    }
+
+    fn save_mix_recipe(&mut self) {
+        let name = self.mix.recipe_name.trim().to_owned();
+        let Some(source) = self.mix.source.clone() else {
+            return;
+        };
+        if name.is_empty() {
+            self.status = "Enter a recipe name before saving.".into();
+            return;
+        }
+        let outcome = self.mix_recipes.save(MixRecipe {
+            name: name.clone(),
+            source,
+            settings: self.mix.settings,
+        });
+        match outcome {
+            RecipeSave::Added => {
+                self.mix.naming = false;
+                self.status = format!("Saved mix recipe '{name}' locally.");
+            }
+            RecipeSave::Updated => {
+                self.mix.naming = false;
+                self.status = format!("Updated mix recipe '{name}' locally.");
+            }
+            RecipeSave::Unchanged => {
+                self.mix.naming = false;
+                self.status = format!("Mix recipe '{name}' is already up to date.");
+            }
+            RecipeSave::CapacityReached => {
+                self.status =
+                    "Recipe limit reached (100). Update an existing name or remove one manually."
+                        .into();
+            }
+            RecipeSave::Invalid(error) => {
+                self.status = format!("Cannot save mix recipe: {error}.");
+            }
+        }
+    }
+
+    fn can_apply_mix(&self, append: bool) -> bool {
+        !self.mix.preview.entries.is_empty()
+            && (!append || self.queue.ids.len() < crate::queue::MAX_TRACKS)
+    }
+
+    fn apply_mix(&mut self, append: bool, tx: &mpsc::UnboundedSender<Command>) {
+        if self.mix.preview.entries.is_empty() {
+            self.status = if self.mix.loading_source {
+                "Nothing to apply yet; source loading is still active.".into()
+            } else {
+                "Nothing to apply: the preview has no playable tracks.".into()
+            };
+            return;
+        }
+        if append && self.queue.ids.len() >= crate::queue::MAX_TRACKS {
+            self.status =
+                "Queue is full; 0 mix tracks were appended and undo was not consumed.".into();
+            return;
+        }
+        self.remember_queue();
+        let entries = self.mix.preview.entries.clone();
+        let inserted = if append {
+            let mut inserted = 0;
+            for entry in &entries {
+                if self.enqueue_manual(entry.track.id.clone()) {
+                    if self
+                        .cache
+                        .get(&entry.track.id)
+                        .is_none_or(|track| track.duration_ms == 0)
+                    {
+                        self.cache
+                            .insert(entry.track.id.clone(), entry.track.clone());
+                    }
+                    inserted += 1;
+                } else {
+                    break;
+                }
+            }
+            inserted
+        } else {
+            for entry in &entries {
+                if self
+                    .cache
+                    .get(&entry.track.id)
+                    .is_none_or(|track| track.duration_ms == 0)
+                {
+                    self.cache
+                        .insert(entry.track.id.clone(), entry.track.clone());
+                }
+            }
+            self.stop(tx);
+            self.queue.replace(
+                entries.iter().map(|entry| entry.track.id.clone()).collect(),
+                0,
+                false,
+            );
+            self.config.shuffle = false;
+            entries.len()
+        };
+        self.mix.loading_source = false;
+        self.mix.loading_recommendations = false;
+        self.mix.open = false;
+        self.ui.overlay = Overlay::None;
+        self.catalog.view = View::Queue;
+        self.catalog.nav = View::Queue.index();
+        self.status = if append && inserted < entries.len() {
+            format!(
+                "Mix appended {inserted} {noun} of {} requested; queue capacity was reached. Press u to undo.",
+                entries.len(),
+                noun = if inserted == 1 { "track" } else { "tracks" }
+            )
+        } else if append {
+            format!("Mix appended {inserted} tracks. Playback was unchanged; press u to undo.")
+        } else {
+            format!(
+                "Mix replaced the queue with {inserted} tracks and paused playback. Press u to undo."
+            )
+        };
+    }
+
+    fn update_queue_mix_track(&mut self, track: Track) -> bool {
+        if self.mix.source != Some(MixSource::Queue) || !self.mix.open {
+            return false;
+        }
+        let changed = self.set_queue_mix_track(track);
+        if changed {
+            self.refresh_queue_mix_source();
+        }
+        changed
+    }
+
+    fn set_queue_mix_track(&mut self, track: Track) -> bool {
+        let mut changed = false;
+        for candidate in &mut self.mix.source_candidates {
+            if candidate.track.id == track.id && candidate.track != track {
+                candidate.track = track.clone();
+                changed = true;
+            }
+        }
+        changed
+    }
+
+    fn refresh_queue_mix_source(&mut self) {
+        self.mix.loading_source = self
+            .mix
+            .source_candidates
+            .iter()
+            .any(|candidate| candidate.track.duration_ms == 0);
+        self.mix.refresh();
     }
 
     fn enqueue_manual(&mut self, id: String) -> bool {

@@ -5,6 +5,9 @@ pub struct Track {
     pub id: String,
     pub name: String,
     pub artists: String,
+    /// Stable Spotify artist IDs. Older cache entries omit this field.
+    #[serde(default)]
+    pub artist_ids: Vec<String>,
     pub duration_ms: u32,
     pub playable: bool,
     #[serde(default)]

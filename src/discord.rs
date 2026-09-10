@@ -642,6 +642,7 @@ mod tests {
 
     fn sample_track() -> Track {
         Track {
+            artist_ids: Vec::new(),
             id: "4cOdK2wGLETKBW3PvgPWqT".into(),
             name: "Never Gonna Give You Up".into(),
             artists: "Rick Astley".into(),

@@ -75,9 +75,16 @@ pub struct Catalog {
     base: String,
     cooldown: Arc<Mutex<Option<Instant>>>,
     health: Arc<AtomicU8>,
+    offline: bool,
 }
 
 impl Catalog {
+    pub(crate) fn offline() -> Result<Self> {
+        Ok(Self {
+            offline: true,
+            ..Self::new(TokenManager::offline()?)?
+        })
+    }
     #[cfg(test)]
     pub fn mock(base: &str) -> Self {
         let mut catalog = Self::new(TokenManager::mock(format!("{base}/token"), false)).unwrap();
@@ -92,6 +99,7 @@ impl Catalog {
             base: "https://api.spotify.com/v1".into(),
             cooldown: Arc::new(Mutex::new(None)),
             health: Arc::new(AtomicU8::new(0)),
+            offline: false,
         })
     }
     pub fn health(&self) -> Health {
@@ -121,6 +129,9 @@ impl Catalog {
     }
 
     async fn request(&self, path: &str, query: &[(&str, String)]) -> Result<Value> {
+        if self.offline {
+            bail!("Offline catalog boundary rejected a network request");
+        }
         if let Some(until) = *self.cooldown.lock().await {
             if until > Instant::now() {
                 bail!(
@@ -445,6 +456,17 @@ fn parse_track(v: &Value) -> Option<Track> {
                     .map(clean)
                     .collect::<Vec<_>>()
                     .join(", ")
+            })
+            .unwrap_or_default(),
+        artist_ids: v["artists"]
+            .as_array()
+            .map(|artists| {
+                artists
+                    .iter()
+                    .filter_map(|artist| artist["id"].as_str())
+                    .filter(|id| valid_id(id))
+                    .map(str::to_owned)
+                    .collect()
             })
             .unwrap_or_default(),
         duration_ms: v["duration_ms"].as_u64().unwrap_or(0).min(u32::MAX as u64) as u32,

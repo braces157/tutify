@@ -153,6 +153,149 @@ fn render_all_views_normal_narrow_and_tiny() {
         }
     }
 }
+
+#[test]
+fn render_mix_builder_normal_and_narrow_with_explanations() {
+    for (width, height) in [(120, 35), (80, 24), (48, 18), (32, 10), (20, 6)] {
+        let mut app = crate::demo::app();
+        app.open_queue_mix();
+        app.mix.preview.entries[0].track.name =
+            "A very long Unicode title — คืนฝนพรำ — 日本語".into();
+        app.mix.preview.entries[0].track.artists =
+            "Mali & The Signals featuring an exceptionally long artist name".into();
+        app.mix.source_partial = true;
+        app.mix.source_error = Some("playlist page 3 failed; retained earlier pages".into());
+        app.mix.recommendation_error = Some("simulated outage".into());
+        app.mix.refresh();
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        terminal
+            .draw(|frame| draw(frame, &app, &mut app.ui.render.borrow_mut()))
+            .unwrap();
+        let text = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        assert!(text.contains("TUITIFY"));
+        if width >= 48 {
+            assert!(text.contains("MIX BUILDER"), "{text}");
+            assert!(text.contains("PARTIAL"), "{text}");
+            for control in [
+                "Enter replace",
+                "A append",
+                "w save",
+                "o reopen",
+                "Esc cancel",
+            ] {
+                assert!(
+                    text.contains(control),
+                    "missing {control} at {width}x{height}: {text}"
+                );
+            }
+        } else if width == 32 {
+            assert!(text.contains("? details"), "{text}");
+            assert!(text.contains("Esc cancel"), "{text}");
+        }
+
+        app.mix.detail = true;
+        app.mix.detail_scroll = 0;
+        terminal
+            .draw(|frame| draw(frame, &app, &mut app.ui.render.borrow_mut()))
+            .unwrap();
+        let top: String = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        if width >= 80 {
+            assert!(top.contains("Source note:"), "{top}");
+            assert!(top.contains("playlist page 3 failed"), "{top}");
+            assert!(top.contains("From your current queue"), "{top}");
+            assert!(top.contains("desired 25%; achieved"), "{top}");
+        }
+        if width >= 32 && height >= 10 {
+            let mut scrolled = String::new();
+            for offset in 0..80 {
+                app.mix.detail_scroll = offset;
+                terminal
+                    .draw(|frame| draw(frame, &app, &mut app.ui.render.borrow_mut()))
+                    .unwrap();
+                scrolled.extend(
+                    terminal
+                        .backend()
+                        .buffer()
+                        .content
+                        .iter()
+                        .map(|cell| cell.symbol()),
+                );
+            }
+            assert!(scrolled.contains("Esc close"), "{scrolled}");
+            assert!(scrolled.contains("details"), "{scrolled}");
+            if width >= 48 {
+                assert!(scrolled.contains("w save"), "{scrolled}");
+            } else {
+                assert!(scrolled.contains("A append • w"), "{scrolled}");
+                assert!(scrolled.contains("save • o reopen"), "{scrolled}");
+            }
+        }
+    }
+}
+
+#[test]
+fn render_mix_builder_naming_loading_and_failure_states() {
+    let mut app = crate::demo::app();
+    app.open_queue_mix();
+    app.mix.source = Some(crate::mix::MixSource::Playlist {
+        id: "9".repeat(22),
+        name: "Long source playlist".into(),
+    });
+    app.mix.naming = true;
+    app.mix.recipe_name = format!("Night commute 東京{}", "é".repeat(64));
+    assert_eq!(app.mix.recipe_name.chars().count(), 80);
+    for (width, height) in [(80, 24), (48, 18), (32, 10)] {
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        terminal
+            .draw(|frame| draw(frame, &app, &mut app.ui.render.borrow_mut()))
+            .unwrap();
+        let naming: String = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(naming.contains("Recipe name:"), "{naming}");
+        assert!(naming.contains("Night commute"), "{naming}");
+        assert!(naming.contains("_"), "insertion marker missing: {naming}");
+        if width >= 48 {
+            assert!(naming.contains("Enter"), "{naming}");
+            assert!(naming.contains("save"), "{naming}");
+        }
+    }
+
+    app.mix.naming = false;
+    app.mix.loading_source = true;
+    app.mix.source_partial = true;
+    app.mix.source_error = Some("rate limited after page 2".into());
+    app.mix.detail = true;
+    let mut terminal = Terminal::new(TestBackend::new(48, 18)).unwrap();
+    terminal
+        .draw(|frame| draw(frame, &app, &mut app.ui.render.borrow_mut()))
+        .unwrap();
+    let loading: String = terminal
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect();
+    assert!(loading.contains("LOADING/PARTIAL"), "{loading}");
+    assert!(loading.contains("rate limited"), "{loading}");
+}
 #[test]
 fn render_playback_timestamp_and_muted_volume() {
     let mut app = App::new(Config::default(), Queue::default());

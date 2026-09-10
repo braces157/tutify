@@ -682,6 +682,22 @@ pub struct TokenManager {
 }
 
 impl TokenManager {
+    pub(crate) fn offline() -> Result<Self> {
+        Ok(Self {
+            state: Arc::new(Mutex::new(Tokens {
+                access_token: "offline-demo".into(),
+                refresh_token: String::new(),
+                expires_at: u64::MAX,
+                account_id: "demo".into(),
+            })),
+            client: http_client()?,
+            client_id: "demo".into(),
+            endpoint: "http://127.0.0.1:1/offline".into(),
+            persist: false,
+            streaming: false,
+            cooldown: Arc::new(Mutex::new(None)),
+        })
+    }
     pub fn load(config: &Config) -> Result<Self> {
         let text = entry()?
             .get_password()

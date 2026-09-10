@@ -7,16 +7,19 @@ fn checkpoint_sends_only_changed_components() {
     let (queue_tx, mut queue_rx) = watch::channel(None);
     let (cache_tx, cache_rx) = watch::channel(None);
     let (stats_tx, stats_rx) = watch::channel(None);
+    let (recipes_tx, recipes_rx) = watch::channel(None);
     let mut checkpoints = Checkpoints {
         config: app.config.clone(),
         queue: queue_stamp(&app.queue),
         cache: app.cache.revision,
         stats: app.stats.revision,
+        recipes: app.mix_recipes.revision,
         retry: false,
         config_tx,
         queue_tx,
         cache_tx,
         stats_tx,
+        recipes_tx,
     };
     app.catalog.query = "typing".into();
     app.catalog.selected = 5;
@@ -25,6 +28,7 @@ fn checkpoint_sends_only_changed_components() {
     assert!(!queue_rx.has_changed().unwrap());
     assert!(!cache_rx.has_changed().unwrap());
     assert!(!stats_rx.has_changed().unwrap());
+    assert!(!recipes_rx.has_changed().unwrap());
     app.queue.enqueue(test_track(1).id);
     checkpoints.send(&app);
     assert!(queue_rx.has_changed().unwrap());

@@ -59,6 +59,11 @@ pub(super) fn mouse(
     tasks: &mut Tasks,
     tx: &mpsc::UnboundedSender<Command>,
 ) -> bool {
+    if app.ui.overlay == Overlay::MixBuilder {
+        // Mix Builder is intentionally keyboard-driven in the MVP. Do not let
+        // stale underlying hit regions mutate the live queue while it is open.
+        return true;
+    }
     if !matches!(
         event.kind,
         MouseEventKind::Down(MouseButton::Left | MouseButton::Right)

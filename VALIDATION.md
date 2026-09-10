@@ -1,5 +1,81 @@
 # Validation record
 
+## Second Mix Builder/application repair — 2026-09-10
+
+Reproduced all six supplied review probes before changing behavior. Repaired
+fresh-metadata pin resolution and explicit invalid-pin replacement, same-source
+playlist retry pin retention, recipe-editor scroll ownership, systemic metadata
+request cancellation, the 32×10 selected-preview surface, and shared native event
+routing for production/demo mouse, resize, and paste events. The previously
+unconfirmed demo input-parity observation was confirmed by source inspection and
+synthetic `crossterm::Event` tests; real OS-generated Paste/Mouse events were not
+distinguished in the PTY transport.
+
+Checks performed on the final repair:
+
+- `cargo fmt --check`: passed.
+- `cargo test --locked`: **185 passed, 0 failed, 5 ignored**.
+- `cargo clippy --all-targets --locked -- -D warnings`: passed.
+- `cargo build --release --locked`: passed.
+- `npm test`: **11 Playwright tests passed**, retaining the corrected tablet
+  header and release/development install wording.
+- `git diff --check`: passed with only expected LF-to-CRLF checkout notices.
+- The freshly built release demo was exercised in a PTY at 80×24, 48×18, and
+  32×10. A pinned suggestion survived regenerate and live resize; the minimum
+  layout showed its title and pin marker; deeply scrolled details opened a visible
+  recipe editor; recommendation failure recovered; replace/undo restored the
+  queue; and normal exit restored the terminal. Playlist source-failure retry and
+  typed 401/404/429/503/network-failure behavior were exercised with offline mocks.
+
+These results are offline application verification. Live Spotify authorization,
+catalog/audio acceptance, physical mouse paste event delivery, Discord, LRCLIB,
+and production account state were not exercised or modified.
+
+## Mix Builder and native demo repair — 2026-09-10
+
+Added the production Mix Builder overlay/domain model, guarded playlist and
+recommendation jobs, atomic local recipe persistence, structured artist IDs, and
+an isolated `tuitify demo` runtime. The demo command dispatches before production
+storage/authentication is opened and supplies fictional catalog, lyrics,
+recommendation, and playback events through the normal App/input/UI boundaries.
+
+The focused review follow-up repaired all twelve reported regressions: active-view
+source ownership, recipe/catalog isolation, empty-apply job lifetime, demo offline
+playlist actions, paused seek behavior, local demo metadata refresh, queue-source
+hydration, meaningful deterministic regeneration, suggestion deduplication,
+compact control/detail access, actual append counts, and explicit recipe-capacity
+outcomes. Playlist Mix sources are bounded to 500 pages and 25,000 retained
+candidates and are marked partial when a failure or cap leaves coverage incomplete.
+
+Checks performed on the repaired implementation:
+
+- `cargo fmt --check`: passed.
+- `cargo test --locked`: **175 passed, 0 failed, 5 ignored**.
+- `cargo clippy --all-targets --locked -- -D warnings`: passed.
+- `cargo build --release --locked`: passed.
+- `npm test`: **11 Playwright tests passed** after rebuilding the website CSS.
+- `git diff --check`: passed; Git emitted only the checkout's expected
+  LF-to-CRLF notices.
+- Optimized Mix Builder generation test (`--release`, 45-minute target, 25%
+  suggestions, artist gap 2) measured one local sample of **0.34 ms / 2.25 ms /
+  14.61 ms / 67.90 ms** for 500 / 5,000 / 25,000 / 100,000 candidates,
+  producing 10 entries at each size. This is a domain microbenchmark, not UI
+  latency or a performance SLA.
+- Launched the newly built `target\release\tuitify.exe demo` in PTYs at 80×24,
+  48×18, and 32×10. Verified playlist → Queue → Mix uses the queue; the first
+  recommendation request fails visibly and `g` recovers; `?` exposes the actual
+  seed/provider; pin/regenerate/save/replace/undo work; a recipe can reopen and
+  cancel from Liked Songs; F5 restores fixture metadata locally; fictional
+  playlist enqueue adds 23 playable tracks; a paused seek remains paused; and
+  all sessions quit with alternate-screen/terminal restoration.
+
+The automated, benchmark, and PTY checks are offline verification. Live Spotify catalog
+paging/recommendations, real account-specific availability, librespot playback,
+WASAPI audio, Discord, and Lrclib were not exercised for this milestone. The four
+ignored tests remain the documented live-streaming, Windows media-session,
+terminal-cleanup, release-render benchmark, and release Mix Builder benchmark
+opt-ins.
+
 ## Structural refactor — 2026-09-08
 
 Refactored the current working tree while preserving the existing feature work.
@@ -284,3 +360,35 @@ zero vulnerabilities.
 
 Live Spotify audio streaming, real-time hardware key interactions, and long-term
 multi-week storage accumulation were not exercised for this release.
+
+## Version 0.2.6 source milestone — 2026-09-10
+
+Reviewed and built the Smart Shuffle, Mix Builder, and credential-free native
+demo milestone. Mix generation is deterministic, preserves pinned occurrence
+identity, uses structured artist IDs when available, reports achieved duration
+and suggestion share, and labels partial or source-only results. Preview work is
+separate from queue mutation; replace and append use the existing bounded undo
+history and reject stale background responses. Demo startup is dispatched before
+production storage, authentication, Discord, or playback services are opened.
+
+Checks executed on Windows: `cargo fmt --check`, `cargo test --locked` (185
+passed, 5 opt-in tests ignored), `cargo clippy --all-targets --locked -- -D
+warnings`, and `cargo build --release --locked` all passed. The freshly built
+`target\release\tuitify.exe` reported version 0.2.6 and exposed the `demo`
+subcommand. All 11 Edge Playwright website tests passed. `git diff --check`
+reported no whitespace errors (only the repository's expected LF-to-CRLF working
+tree notices).
+
+The release executable was also exercised in a real PTY: the native demo opened,
+Mix Builder displayed the reproducible recommendation outage, retry recovered
+suggestions, a preview position remained pinned, replacing the queue succeeded,
+undo restored the original nine-track queue, normal quit restored the terminal,
+and no production credentials, storage, network, Discord, or audio device were
+used. Earlier milestone acceptance additionally covered 80x24, 48x18, and 32x10
+layouts before the version-only rebuild.
+
+Live Spotify catalog/playback, audible output, physical media keys, LRCLIB,
+Discord presentation, and playlist access against a real account were not tested
+for this source milestone and remain live acceptance work. This source version is
+not a published GitHub binary release; the website download links intentionally
+remain pinned to v0.2.5.

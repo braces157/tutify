@@ -68,6 +68,10 @@ pub(super) fn navigation(frame: &mut Frame<'_>, app: &App, render: &mut RenderSt
 
 pub(super) fn body(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, area: Rect) {
     let theme = Theme::from_str(&app.config.theme);
+    if app.ui.overlay == Overlay::MixBuilder {
+        center(frame, app, render, area);
+        return;
+    }
     if area.width >= 78 {
         let widths = if area.width >= 116 && app.catalog.view != View::Queue {
             vec![

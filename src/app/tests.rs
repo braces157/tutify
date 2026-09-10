@@ -1,6 +1,8 @@
 use super::*;
 
+mod input_events;
 mod jobs;
+mod mix_builder;
 mod mouse;
 mod overlays;
 mod persistence;

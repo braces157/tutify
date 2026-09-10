@@ -2,7 +2,11 @@ use super::*;
 
 pub(super) fn header(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let theme = Theme::from_str(&app.config.theme);
-    let version_str = format!("v{}", env!("CARGO_PKG_VERSION"));
+    let version_str = if app.demo {
+        format!("v{} • DEMO • SIMULATED", env!("CARGO_PKG_VERSION"))
+    } else {
+        format!("v{}", env!("CARGO_PKG_VERSION"))
+    };
     let header_line = if area.width >= 86 {
         Line::from(vec![
             Span::styled(
@@ -101,7 +105,14 @@ pub(super) fn footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
         status_split[0],
     );
 
-    let shortcuts = if area.width >= 80 {
+    let shortcuts = if app.ui.overlay == Overlay::MixBuilder {
+        Line::from(if area.width >= 60 {
+            " Enter Replace  A Append  p Pin  g Regenerate  ? Details  Esc Cancel "
+        } else {
+            " Enter/A Apply  p Pin  g Regen  ? More  Esc Cancel "
+        })
+        .style(Style::default().fg(theme.accent_dim()).bold())
+    } else if area.width >= 80 {
         Line::from(vec![
             Span::styled(
                 " Space ",

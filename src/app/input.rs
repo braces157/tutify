@@ -1,5 +1,67 @@
 use super::*;
 
+/// Route terminal events through the same application boundary in production
+/// and demo runtimes. Returns whether the event was consumed and needs a redraw.
+pub(super) fn route_input(
+    app: &mut App,
+    event: Input,
+    tasks: &mut Tasks,
+    tx: &mpsc::UnboundedSender<Command>,
+) -> bool {
+    match event {
+        Input::Key(event) if event.kind != KeyEventKind::Release => {
+            key(app, event, tasks, tx);
+            true
+        }
+        Input::Mouse(event) => mouse(app, event, tasks, tx),
+        Input::Resize(_, _) => {
+            app.context_menu = None;
+            app.mix.detail_scroll = 0;
+            true
+        }
+        Input::Paste(text) => paste(app, &text),
+        _ => false,
+    }
+}
+
+fn paste(app: &mut App, text: &str) -> bool {
+    if app.ui.overlay == Overlay::MixBuilder {
+        if app.mix.naming {
+            let remaining = 80usize.saturating_sub(app.mix.recipe_name.chars().count());
+            app.mix
+                .recipe_name
+                .extend(text.chars().filter(|c| !c.is_control()).take(remaining));
+            app.mix.detail_scroll = 0;
+        }
+        return true;
+    }
+    if app.ui.overlay == Overlay::Stats && app.ui.stats.borrow().editing {
+        let view = app.ui.stats.get_mut();
+        let remaining = 100usize.saturating_sub(view.query.chars().count());
+        view.query
+            .extend(text.chars().filter(|c| !c.is_control()).take(remaining));
+        view.selected = 0;
+        app.ui.render.borrow_mut().stats_scroll = 0;
+        return true;
+    }
+    if app.catalog.editing {
+        let remaining = 500usize.saturating_sub(app.catalog.query.chars().count());
+        app.catalog
+            .query
+            .extend(text.chars().filter(|c| !c.is_control()).take(remaining));
+        return true;
+    }
+    if app.catalog.filtering {
+        let remaining = 100usize.saturating_sub(app.catalog.filter.chars().count());
+        app.catalog
+            .filter
+            .extend(text.chars().filter(|c| !c.is_control()).take(remaining));
+        app.catalog.selected = 0;
+        return true;
+    }
+    false
+}
+
 pub(super) fn key(
     app: &mut App,
     key: KeyEvent,
@@ -15,6 +77,10 @@ pub(super) fn key(
     }
     if app.ui.overlay == Overlay::Stats {
         stats_key(app, key, tx);
+        return;
+    }
+    if app.ui.overlay == Overlay::MixBuilder {
+        mix_key(app, key, tasks, tx);
         return;
     }
     if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('z') {
@@ -298,6 +364,7 @@ pub(super) fn key(
             app.stats.refresh_metadata(&app.cache);
             app.status = "Song statistics (press S or Esc to exit)".into();
         }
+        KeyCode::Char('M') => tasks.open_mix(app),
         KeyCode::Char('a') if app.catalog.view != View::Help => {
             actions::apply(app, Action::EnqueueSelected, tasks, tx)
         }
@@ -331,6 +398,122 @@ pub(super) fn key(
         {
             actions::apply(app, Action::RemoveSelected, tasks, tx)
         }
+        _ => (),
+    }
+}
+
+fn mix_key(app: &mut App, key: KeyEvent, tasks: &mut Tasks, tx: &mpsc::UnboundedSender<Command>) {
+    if app.mix.naming {
+        match key.code {
+            KeyCode::Esc => app.mix.naming = false,
+            KeyCode::Enter => app.save_mix_recipe(),
+            KeyCode::Backspace => {
+                app.mix.recipe_name.pop();
+            }
+            KeyCode::Char(character)
+                if !character.is_control() && app.mix.recipe_name.chars().count() < 80 =>
+            {
+                app.mix.recipe_name.push(character);
+            }
+            _ => (),
+        }
+        return;
+    }
+    match key.code {
+        KeyCode::Esc if app.mix.detail => {
+            app.mix.detail = false;
+            app.mix.detail_scroll = 0;
+        }
+        KeyCode::Esc => {
+            tasks.cancel_mix(app);
+            app.mix.open = false;
+            app.ui.overlay = Overlay::None;
+            app.status = "Mix preview cancelled; playback and queue were not changed.".into();
+        }
+        KeyCode::Up | KeyCode::Char('k') if app.mix.detail => {
+            app.mix.detail_scroll = app.mix.detail_scroll.saturating_sub(1);
+        }
+        KeyCode::Down | KeyCode::Char('j') if app.mix.detail => {
+            app.mix.detail_scroll = app.mix.detail_scroll.saturating_add(1);
+        }
+        KeyCode::Up | KeyCode::Char('k') => {
+            app.mix.selected = app.mix.selected.saturating_sub(1);
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            app.mix.selected =
+                (app.mix.selected + 1).min(app.mix.preview.entries.len().saturating_sub(1));
+        }
+        KeyCode::Char('p') => {
+            if let Some(entry) = app.mix.preview.entries.get_mut(app.mix.selected) {
+                entry.pinned = !entry.pinned;
+                app.status = if entry.pinned {
+                    "Pinned this preview position; regeneration will preserve it."
+                } else {
+                    "Unpinned this preview position."
+                }
+                .into();
+            }
+        }
+        KeyCode::Char('g') => {
+            if app.mix.source_retryable {
+                tasks.retry_mix_source(app);
+            } else if app.mix.recommendation_error.is_some() {
+                tasks.fetch_mix_recommendations(app);
+            } else {
+                app.mix.regenerate();
+                app.status = "Regenerated unpinned preview positions deterministically.".into();
+            }
+        }
+        KeyCode::Char('3') | KeyCode::Char('4') | KeyCode::Char('6') => {
+            app.mix.settings.target_minutes = match key.code {
+                KeyCode::Char('3') => 30,
+                KeyCode::Char('4') => 45,
+                _ => 60,
+            };
+            app.mix.refresh();
+        }
+        KeyCode::Char('[') => {
+            app.mix.settings.recommendation_percent =
+                app.mix.settings.recommendation_percent.saturating_sub(10);
+            app.mix.refresh();
+        }
+        KeyCode::Char(']') => {
+            app.mix.settings.recommendation_percent =
+                (app.mix.settings.recommendation_percent + 10).min(100);
+            app.mix.refresh();
+        }
+        KeyCode::Char('a') => {
+            app.mix.settings.artist_gap = (app.mix.settings.artist_gap + 1) % 5;
+            app.mix.refresh();
+        }
+        KeyCode::Char('w') => {
+            app.mix.naming = true;
+            app.mix.detail_scroll = 0;
+            if app.mix.recipe_name.is_empty() {
+                app.mix.recipe_name = "My mix".into();
+            }
+        }
+        KeyCode::Char('o') if !app.mix_recipes.recipes.is_empty() => {
+            let index = app
+                .mix
+                .recipe_selected
+                .min(app.mix_recipes.recipes.len() - 1);
+            let recipe = app.mix_recipes.recipes[index].clone();
+            app.mix.recipe_selected = (index + 1) % app.mix_recipes.recipes.len();
+            tasks.open_mix_recipe(app, recipe);
+        }
+        KeyCode::Char('?') | KeyCode::F(1) => {
+            app.mix.detail = !app.mix.detail;
+            app.mix.detail_scroll = 0;
+        }
+        KeyCode::Enter | KeyCode::Char('A') => {
+            let append = key.code == KeyCode::Char('A');
+            if app.can_apply_mix(append) {
+                tasks.cancel_mix(app);
+            }
+            app.apply_mix(append, tx);
+        }
+        KeyCode::Char('q') => app.quit = true,
         _ => (),
     }
 }

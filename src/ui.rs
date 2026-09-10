@@ -22,6 +22,8 @@ mod queue;
 use queue::*;
 mod playback;
 use playback::*;
+mod mix_builder;
+use mix_builder::*;
 
 use crate::{
     app::{App, MouseTarget, Overlay, RenderState, SearchScope, State, View},
@@ -67,6 +69,18 @@ pub fn draw(frame: &mut Frame<'_>, app: &App, render: &mut RenderState) {
         return;
     }
     let compact = area.height < 18;
+    if app.ui.overlay == Overlay::MixBuilder && area.height < 12 {
+        let vertical = Layout::vertical([
+            Constraint::Length(1),
+            Constraint::Min(5),
+            Constraint::Length(2),
+        ])
+        .split(area);
+        header(frame, app, vertical[0]);
+        body(frame, app, render, vertical[1]);
+        footer(frame, app, vertical[2]);
+        return;
+    }
     let vertical = Layout::vertical([
         Constraint::Length(if compact { 1 } else { 2 }),
         Constraint::Min(3),
@@ -90,6 +104,7 @@ fn center(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, area: Rect
         Overlay::Visualizer => visualizer(frame, app, area),
         Overlay::Lyrics => lyrics(frame, app, render, area),
         Overlay::Stats => stats(frame, app, render, area),
+        Overlay::MixBuilder => mix_builder(frame, app, render, area),
         Overlay::None => match app.catalog.view {
             View::Help => help(frame, app, render, area),
             View::Queue => queue(frame, app, render, area, true),
