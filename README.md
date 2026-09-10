@@ -1,472 +1,225 @@
-# Tuitify
+<div align="center">
+  <img src="docs/assets/brand/tuitify-logo-minimal-v2.webp" width="112" alt="Tuitify logo">
 
-A personal Windows terminal player that streams Spotify audio directly through
-librespot and Rodio/WASAPI. Spotify desktop can stay closed. Requires a Spotify
-account; Premium is required for playback. Catalog access uses Spotatui's shared PKCE
-client by default and can be switched to a personal Spotify Developer app.
+  # Tuitify
 
-## Run on Windows
+  **A fast, keyboard-first Spotify player for the Windows terminal.**
 
-Extract `Tuitify-0.2.5-windows-x86_64.zip` and open Windows Terminal in the extracted
-folder. The executable needs no Rust installation. Use a standard font such as
-Consolas or Cascadia Mono; icon fonts are not required.
+  Stream music without keeping the Spotify desktop app open. Browse your library,
+  manage the queue, view synchronized lyrics, and control playback from one native TUI.
+
+  [![Validate](https://github.com/braces157/tutify/actions/workflows/ci.yml/badge.svg)](https://github.com/braces157/tutify/actions/workflows/ci.yml)
+  [![Latest release](https://img.shields.io/github/v/release/braces157/tutify?display_name=tag)](https://github.com/braces157/tutify/releases/latest)
+  [![Platform](https://img.shields.io/badge/platform-Windows-0078D4)](#requirements)
+  [![License](https://img.shields.io/github/license/braces157/tutify)](LICENSE)
+</div>
+
+---
+
+Tuitify is a standalone Spotify client built with Rust, Ratatui, and librespot. It
+plays audio directly through the Windows audio stack and keeps the whole listening
+workflow inside Windows Terminal—no Electron shell and no background service.
+
+> [!IMPORTANT]
+> Spotify Premium is required for audio playback. Tuitify is an independent,
+> personal-use project and is not affiliated with or endorsed by Spotify.
+
+## Highlights
+
+- **Direct playback** through librespot and WASAPI; Spotify Desktop can stay closed.
+- **Library and catalog browsing** for playlists, Liked Songs, tracks, artists, and
+  Spotify track links.
+- **Powerful queue tools** including play next, reorder, remove, undo, shuffle,
+  repeat, Track Radio, and Smart Shuffle suggestions.
+- **A responsive terminal UI** with keyboard and mouse support, five color themes,
+  a playback visualizer, and layouts that adapt to narrow terminals.
+- **Synchronized lyrics** from LRCLIB with automatic scrolling.
+- **Windows integration** for media keys, system media controls, metadata, and the
+  playback timeline.
+- **Discord Rich Presence** with track artwork and playback state; easy to disable.
+- **Local listening statistics** with aggregate play counts and listening time—no
+  analytics service or timestamped listening history.
+- **Resilient sessions** with a persisted queue, atomic state writes, metadata
+  caching, credential refresh, and paused-on-start restoration.
+
+## Requirements
+
+- Windows 10 or 11 on x86-64
+- [Windows Terminal](https://github.com/microsoft/terminal) or another terminal with
+  modern color and mouse support
+- A Spotify account; Premium is required for playback
+- A working Windows audio output device
+
+No Rust installation is needed when using a release build. Consolas and Cascadia
+Mono work out of the box; an icon font is not required.
+
+## Install
+
+1. Download `Tuitify-0.2.5-windows-x86_64.zip` from the
+   [latest release](https://github.com/braces157/tutify/releases/latest).
+2. Extract the archive.
+3. Open Windows Terminal in the extracted folder and run:
 
 ```powershell
 .\tuitify.exe
 ```
 
-For the first login, run `tuitify`. Tuitify follows Spotatui's PKCE flow and uses its
-shared catalog client by default, so no client secret or Developer app is required.
-The browser opens automatically and the callback listener is ready before it does.
-After the catalog authorization, Tuitify opens the second authorization. Use the
-**same Spotify account**.
+Tuitify opens the browser for guided sign-in on the first launch. Later launches
+reuse the credentials stored in Windows Credential Manager.
 
-If you prefer your own Web API app (for a private app allow-list or separate quota):
+To call `tuitify` from any directory, add the extracted folder to your user `PATH`.
 
-1. Open the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard).
-2. Create an app for personal use, select Web API, and register this exact redirect:
-   `http://127.0.0.1:8989/callback`.
-3. Run `tuitify auth --client-id YOUR_SPOTIFY_CLIENT_ID`. Paste the **client ID**, not
-   the client secret. In development mode, the app owner needs an active Premium
-   account and the Spotify account must be allowed to use the app.
-4. Finish the browser authorization. Tuitify automatically opens the second
-   authorization. Use the same Spotify account there as well.
+## Sign in
 
-The shared catalog client uses `http://127.0.0.1:8989/login`; you do not register
-that redirect in your own app. No Spotify password is entered into Tuitify.
+Tuitify uses two PKCE authorizations: one for Spotify catalog access and one for
+librespot streaming. Both are browser-based, require the same Spotify account, and
+never expose your password to Tuitify.
 
-The second PKCE login uses Spotatui/librespot's streaming client identity and
-`http://127.0.0.1:8989/login`. Spotify labels this authorization **Spotify for
-Desktop**. It does not launch or require the desktop application. You do not
-register this second redirect in your Developer app.
+The default setup uses Spotatui's shared catalog client, so you do not need a client
+secret or your own Spotify Developer application:
 
-The player opens automatically when setup finishes. Later launches reuse saved
-credentials without browser prompts or extra profile checks. If you complete only
-the first login, the next launch resumes at the missing second step.
+```powershell
+.\tuitify.exe auth
+```
 
-`tuitify auth` runs the same guided setup without opening the player. Add
-`--client-id YOUR_SPOTIFY_CLIENT_ID` to select a personal catalog app. Repeating
-`auth` reuses saved logins. Use `tuitify auth --force` to replace them, or
-`tuitify auth --streaming --force` to replace only the streaming login. These explicit
-replacements clear the queue.
+The second authorization may be labelled **Spotify for Desktop** by Spotify. This
+is the librespot streaming identity; it does not launch or require Spotify Desktop.
 
-**Why two logins?** Live validation found that the personal Developer app token
-could authenticate a streaming session but Spotify rejected its audio-metadata
-request. Librespot's streaming authorization resolved this. The selected catalog
-client ID is used for every Web API catalog request. Both logins use PKCE, random state,
-and Windows Credential Manager. This is an implementation change from the
-original single-login assumption.
+### Use your own Spotify application
 
-The callback listener binds only to `127.0.0.1:8989`, starts before the browser
-opens, and times out after five minutes. After authorization, the terminal reports
-token exchange and account verification progress. The callback page waits for the
-actual result: it confirms saved credentials or displays the setup error. Return
-to the original terminal to continue setup. If the browser
-shows a blank or blocked callback page, the terminal's **Login saved** message
-confirms success. Close any other process using port 8989.
+If you prefer a personal Web API application:
 
-HTTP 429 is a Spotify rate limit, not evidence of a Premium problem. Verification
-waits for `Retry-After` and retries once when the delay is at most 30 seconds.
-For longer delays, or a second rate limit, it displays the required wait and exits.
-Avoid repeating login attempts during that wait. A saved catalog account ID is
-reused when checking the streaming login to avoid an unnecessary profile request.
+1. Create an app in the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard).
+2. Enable Web API access and register `http://127.0.0.1:8989/callback` as a redirect URI.
+3. Run the setup with the app's public client ID:
 
-To use `tuitify` without the `.exe` path, add its folder to your user PATH.
+```powershell
+.\tuitify.exe auth --client-id YOUR_SPOTIFY_CLIENT_ID
+```
+
+Do not supply a client secret. Spotify development-mode restrictions still apply;
+the account may need to be explicitly allow-listed in your Developer Dashboard.
+
+To replace a revoked login, use `auth --force`. To replace only the streaming
+authorization, use `auth --streaming --force` and select the same account.
 
 ## Controls
 
-Windows media keys and system media controls support Play/Pause, Next, and
-Previous while Tuitify is running, including when the terminal is unfocused or
-you are entering a search. Windows shows the current title, artist, playback
-state, and timeline. Windows chooses which media session receives hardware keys
-when several players are open.
-
-The media session starts with Tuitify and is released on exit. Restored queues
-remain paused. An empty queue disables the session; Windows integration failures
-leave terminal controls available. This integration does not start a background
-service or stream audio through Windows MediaPlayer.
-
-### Discord Rich Presence
-
-Discord Rich Presence is enabled by default. When Discord desktop is running,
-Tuitify sends the current song title, artists, artwork, and playback timing to
-Discord through its local IPC pipe. Discord may display this to other people
-according to your activity privacy settings.
-
-- Shows a listening activity with song details, album artwork when available,
-  and a Play on Spotify link. The application name and presentation depend on
-  your Discord application and client.
-- Includes playback timestamps while playing and removes them while paused.
-- Updates at most once every four seconds and reconnects when Discord restarts.
-- Restored queues, loading tracks, and failed/stopped playback do not publish a
-  listening activity. Normal exit clears the activity and closes the connection.
-
-To disable it, close Tuitify and set `"discord_rpc": false` in
-`%LOCALAPPDATA%\Tuitify\config.json`, then restart. To use your own Discord
-application, set `"discord_client_id": "YOUR_ID"` there or set
-`TUITIFY_DISCORD_APP_ID`; a nonempty config value takes precedence. No Discord
-password or token is requested.
-
-Artwork comes from Spotify catalog metadata. If it is missing, the worker can
-request the track's public Spotify oEmbed metadata; no Spotify tokens are sent.
-Discord resolves artwork URLs, including the hosted Tuitify brand logo.
-Artwork lookups and their failures are cached in memory with a bounded size.
-
-Mouse controls (v0.2.2, in terminals with mouse reporting such as Windows Terminal):
-
-- Left-click a song/playlist to select it, or a navigation label to switch views.
-- Right-click a song for **Play**, **Add to queue**, or **Play next**. Queue rows
-  also offer **Remove from queue**; playlists offer **Open** and **Add playlist**.
-- Scroll the wheel over a list to move three rows; Help and plain lyrics scroll too.
-- Click the playing/paused badge to toggle playback, or the progress bar to seek.
-- Click outside the menu or press Esc to dismiss it; Up/Down and Enter also work.
-- Mouse capture prevents right-click from pasting clipboard text into the filter.
-  Use Ctrl+Shift+V for an intentional terminal paste into the search/filter field.
-  Mouse capture is released on normal exit and unwinding panic. Keyboard controls
-  remain available in terminals that do not send mouse events.
-
+Press `?` or `F1` at any time for the complete in-app reference.
 
 | Key | Action |
 | --- | --- |
-| `1`–`5` | Search, Playlists, Liked Songs, Queue, Help |
-| `Tab`, `Shift+Tab` | Switch focus between navigation and content |
-| Up/Down or `k`/`j` | Move selection; scroll Help |
-| `/` or `f` | Filter loaded Liked Songs/playlist rows; `/` edits the query in Search |
-| F2 | Search Spotify's catalog (songs, artists, or a Spotify track link) |
-| F3 | Search all saved Liked Songs and saved playlist tracks |
-| Enter | Submit search, open a playlist, or play the selected track |
-| Space | Pause/resume; retry failed playback from the saved position |
-| `n` / `p` | Next / previous; previous restarts after three seconds |
-| Left / Right | Seek backward / forward ten seconds |
-| Home / End | Jump to the start / end of the track |
-| `+` / `-` | Adjust volume by five percent (`=` also increases) |
-| `[` / `]` | Adjust volume by one percent for fine control |
-| `m` | Mute or restore the previous volume |
-| `s` | Cycle off → shuffle → Smart Shuffle, preserving the current occurrence |
+| `1`–`5` | Open Search, Playlists, Liked Songs, Queue, or Help |
+| `Tab` / `Shift+Tab` | Move focus between navigation and content |
+| `↑` / `↓` or `k` / `j` | Move the selection |
+| `Enter` | Search, open, or play the selected item |
+| `Space` | Pause, resume, or retry playback |
+| `n` / `p` | Next / previous track |
+| `←` / `→` | Seek backward / forward 10 seconds |
+| `+` / `-` | Change volume by 5% |
+| `m` | Mute or restore volume |
+| `s` | Cycle shuffle off → shuffle → Smart Shuffle |
 | `r` | Cycle repeat off → queue → track |
-| `t` | Cycle retro color themes (Classic, Phosphor Green, Amber, Mono, Cyberpunk) |
-| `v` | Toggle decorative retro visualizer (up to 30 FPS while playing) |
-| `l` | Toggle live synchronized lyrics (Lrclib auto-scroll) |
-| `S` / `Shift+S` | Toggle local aggregate song statistics overlay |
-| `R` | Track Radio: queue related recommendations for selected song |
-| `a` | Append selected track, or fetch and append an entire playlist |
-| `A` | Play Next: insert selected track directly after current track |
-| `K` / `J` | Move selected track up / down in Queue |
-| `C` | Clear the entire queue |
-| `u` / Ctrl+Z | Undo a queue edit; restore the previous queue paused |
-| `.` / `c` | Jump cursor to currently playing track in Queue |
-| Delete / `d` / `x` | Remove the selected Queue entry |
-| Page Down | Fetch and append another catalog page (infinite pagination) |
-| F5 | Refresh/retry catalog or queue metadata; restart saved-library search |
-| Backspace | Return from playlist contents to playlists |
-| `?` / F1 | Help |
-| `q` / Ctrl+C | Save and quit |
-| Esc | Close overlay/menu (Lyrics, Visualizer, Stats, Help), clear filter, cancel an active library scan, or quit |
+| `a` / `A` | Add selected item to queue / play next |
+| `K` / `J` | Move the selected queue item up / down |
+| `u` or `Ctrl+Z` | Undo the last queue edit |
+| `R` | Start Track Radio from the selected track |
+| `l` / `v` / `S` | Toggle lyrics / visualizer / statistics |
+| `t` | Cycle color themes |
+| `/` or `f` | Filter the current collection |
+| `F2` / `F3` | Search Spotify / search your saved library |
+| `F5` | Refresh catalog data or retry metadata |
+| `q` or `Ctrl+C` | Save and quit |
 
-The playback bar continuously shows elapsed time, total duration, percentage
-complete, and remaining time. Left/Right seeks while the track is loaded; Home
-and End jump to exact boundaries. Volume changes are reflected immediately in
-the `VOL` indicator, and `m` temporarily mutes without losing the previous level.
+Windows media keys can control Play/Pause, Next, and Previous while Tuitify is
+unfocused. Terminals that support mouse reporting can also select, scroll, seek,
+toggle playback, and open context menus.
 
-While entering a search, ordinary keys (including Space and `q`) enter text.
-Submit with Enter before using playback shortcuts. Clipboard paste is supported.
+## How playback and recommendations work
 
-Playing from Liked Songs or a playlist replaces the local queue with its **loaded
-pages**, starting at the selected track. Page Down loads more before playing.
-Playing a Spotify or saved-library search result starts **Track Radio**: the selected
-song plays immediately while suggestions load in the background. Press `R` to start
-Radio explicitly from other track views. Unavailable tracks are excluded.
+Playing a result replaces the local queue and starts audio in Tuitify. Track Radio
+first requests Spotify recommendations and falls back to artist-based search when
+that endpoint is unavailable. Smart Shuffle mixes marked suggestions into the
+existing queue while preserving original entries.
 
-Radio first requests Spotify's official track-seeded recommendations and preserves
-their returned order. If unavailable or empty, it falls back to artist searches.
-The queue title and status identify **Spotify recommendations** versus
-**Artist-search suggestions**. The fallback is not Spotify's personalized autoplay
-algorithm. Spotify restricts the recommendations endpoint for newer/development-mode
-apps; see [Spotify's API access changes](https://developer.spotify.com/blog/2024-11-27-changes-to-the-web-api).
+Spotify limits some Web API endpoints for newer or development-mode applications.
+Tuitify reports restricted playlist and recommendation responses instead of trying
+to bypass them. See Spotify's
+[Web API changes](https://developer.spotify.com/blog/2024-11-27-changes-to-the-web-api)
+and [February 2026 migration guide](https://developer.spotify.com/documentation/web-api/tutorials/february-2026-migration-guide).
 
-During the session, Radio requests more suggestions when three or fewer tracks
-remain after the playing song. It requests each seed at most once, excludes IDs
-already queued, and stops automatic requests after an error or no new results.
-Clearing, replacing, or undoing the queue cancels Radio. Restarting restores the
-saved queue paused without resuming automatic recommendation requests.
-Manual track and playlist additions go ahead of pending Radio suggestions in
-insertion order, without moving or restarting the playing track.
-Shuffle randomizes the order with the current occurrence first; disabling it
-restores list/insertion order. Outside Radio, appended songs go to the end of the current order.
-Press `s` again for **Smart Shuffle**: recommendations are mixed in after every
-three original queue tracks and marked `✦` in the queue and Now Playing. Original
-entries keep their shuffled order; unavailable tracks and IDs already in the
-queue are excluded. The playing song and the immediately upcoming entry are
-preserved when a recommendation batch arrives. Turning Smart Shuffle off removes
-injected entries, except a currently playing suggestion, which becomes a normal
-entry. Manual additions are never removed, even if they duplicate a suggestion.
+## Data and privacy
 
-This follows Spotify's [documented Smart Shuffle interaction](https://support.spotify.com/us/article/shuffle-play/),
-using Tuitify's own one-per-three insertion rule and existing recommendation
-client, not Spotify's private Smart Shuffle ranking algorithm. It tries Spotify
-recommendations first and labels the artist-search fallback when that endpoint
-is unavailable. Up to three original tracks seed requests per activation or
-queue replacement; failures stop requests until you cycle the mode again.
-Missing metadata delays requests. The queue, mode and suggestion markers survive
-restart and undo; restored playback stays paused. Starting Radio replaces this
-mode. No songs are written to your Spotify playlists.
-Repeat track applies to completion; manually pressing next still advances.
-Removing the playing entry stops playback instead of silently playing another.
+OAuth tokens are stored in **Windows Credential Manager**, not in project files.
+Application state lives under `%LOCALAPPDATA%\Tuitify`:
 
-At wider sizes the queue is also visible alongside the catalog. At narrow sizes
-use `4` for the queue. Minimum useful size is 32 columns × 10 rows; 80 × 24 or
-larger is recommended. Long names truncate to the available terminal width.
+| File | Contents |
+| --- | --- |
+| `config.json` | Public client ID and player preferences |
+| `queue.json` | Queue order, selection, and saved position |
+| `cache.json` | Bounded, expiring Spotify track metadata |
+| `stats.json` | Aggregate play counts and listening time |
 
-The queue supports up to 100,000 entries. Playlist enqueue follows pages in the
-background, shows the number actually added, and retains partial additions if a
-later page fails. Clearing or replacing the queue cancels its pending playlist
-and radio jobs; late responses cannot refill an unrelated queue.
+Tuitify does not collect analytics, store your Spotify password, keep a timestamped
+listening history, or provide an offline audio cache. Discord presence is sent only
+to the local Discord client and can be disabled by setting `"discord_rpc": false`
+in `config.json`.
 
-### Queue recovery and search (v0.2.3)
-
-**Preserve the queue after re-login.** After a successful catalog login, Tuitify
-compares the verified Spotify account with the previously saved account. Signing
-back into the **same account** preserves the queue and metadata cache, including
-queue order and saved playback position. A different account, or an unknown prior
-identity, clears the old account's queue/cache. Streaming reauthorization must
-match the catalog account and does not clear these files. Explicit `logout` still
-removes both credentials and the queue/cache.
-
-**Undo queue actions.** Press `u` or Ctrl+Z to recover from accidental removal,
-clearing, or queue replacement. Undo also covers adding tracks/playlists, reordering,
-shuffle changes, and starting radio. The previous order, current track, position,
-and shuffle setting are restored **paused**; press Space to resume. Pending queue
-jobs are cancelled so late playlist/radio results cannot overwrite the restoration.
-Right-click in the Queue view for **Undo queue change**, including when the queue
-is empty. History lasts only for the current session and retains at most ten
-snapshots with a combined limit of 100,000 track IDs; older snapshots are dropped.
-
-**Choose the search scope explicitly:**
-
-| Mode | What it searches | How to use it |
-| --- | --- | --- |
-| Filter loaded rows | Only Liked Songs or playlist rows already fetched into the current view | Press `/` or `f`; the field is labeled **FILTER LOADED**. |
-| Spotify search | Spotify's catalog, including music outside your saved library | Press F2 or click **F2 Spotify**, enter a query, then Enter. |
-| Saved-library search | All pages of saved Liked Songs and saved playlist tracks that Spotify allows the app to read | Press F3 or click **F3 Saved library**, enter a query, then Enter. |
-
-For example, filtering 50 loaded songs cannot find a saved song on a later page.
-F3 scans those later pages and the saved playlists as well. Choosing F2/F3 from an
-active filter carries its text into the selected search mode. Saved-library search
-matches title or artist text without case sensitivity and deduplicates track IDs.
-It fetches pages sequentially, with 200 ms between requests, and displays matches
-and a scanned-track count as results arrive. Scanned counts include duplicate
-occurrences across playlists; matching songs appear only once.
-
-Press Esc to cancel a scan while browsing its results; partial matches remain.
-If editing the query, Esc first leaves the input. F5 starts a fresh scan. Network
-errors, inaccessible playlists, rate limits, or traversal limits leave results
-explicitly marked **partial**, rather than claiming the whole library was searched.
-A scan is capped at 100,000 unique tracks, 100,000 playlists, and 100,000 page
-requests. Large libraries can take time and require network access; this is not
-an offline library index.
-
-The visualizer is a decorative animation, not audio-frequency analysis. The
-unchanged paused screen does not animate or continuously redraw. Long queue and
-catalog views build only visible rows, and filters reuse their results until
-rows or filter text change.
-
-Lyrics are requested from **Lrclib only when you open the lyrics view** and real
-track metadata is available. Requests send the track title, artist names, and
-duration to `lrclib.net`; no Spotify tokens are sent there. Lyrics are kept in
-memory. F5 retries failures. Plain lyrics scroll with Up/Down or Page Up/Down.
-
-### Listening statistics
-
-Press **Shift+S** for local, all-time statistics: total listening time, play count,
-unique songs, and your most-played song. The song table shows plays and listening
-time, plus each song's share of total listening time on wider terminals.
-
-Press `/` to search titles or artists, Enter to finish typing, and Tab to cycle
-sorting through plays, listening time, and title. Esc leaves text entry, then clears
-an active search, then closes statistics; Shift+S also closes the view outside text
-entry. Summary totals and listening shares always refer to all recorded songs,
-even while searching. Up/Down and Page Up/Down navigate the matching rows.
-
-These totals cover playback in Tuitify, not listening in other Spotify apps.
-Existing statistics are preserved; this update adds no dated listening history.
-
-## Spotify API behavior
-
-Search requests use `limit=10` and paginate with offsets. Restored queue metadata
-loads current/visible entries first, using at most five individual track requests
-at a time. Failures stop further hydration until F5; there is no automatic retry loop. Playlists use
-`GET /playlists/{id}/items`, including the renamed `item` response field. Liked
-songs and playlists use pages of up to 50 items. Null, local-file, and podcast
-entries are skipped. Missing optional metadata is tolerated.
-
-Spotify development-mode apps can retrieve playlist contents only when the user
-owns or collaborates on the playlist. A playlist can appear in your list while
-its contents are restricted. Tuitify reports both HTTP 403 and metadata-only
-responses with an explanation; it does not attempt to bypass restrictions.
-
-See [Spotify's migration guide](https://developer.spotify.com/documentation/web-api/tutorials/february-2026-migration-guide)
-for current rules, including changes made after February 2026.
-
-## Persistence and privacy
-
-`%LOCALAPPDATA%\Tuitify` contains:
-
-- `config.json`: version, client ID, volume, shuffle, repeat, theme, and Discord presence settings.
-- `queue.json`: version, track IDs, play order, current/selected queue indexes,
-  and playback position in milliseconds.
-- `cache.json`: versioned track names, artists, duration, availability, and metadata
-  fetch timestamps; at most 3,000 entries, expiring after 24 hours.
-- `stats.json`: versioned local aggregate song statistics (track ID, fallback title and artists, play count, cumulative listened time in milliseconds); at most 50,000 entries.
-- `instance.lock`: prevents two processes from racing on the same queue.
-
-JSON writes use a flushed temporary file followed by same-volume atomic
-replacement. Changed settings, queue, metadata, and song statistics are checkpointed asynchronously every two
-seconds and flushed on normal exit. Each file has its own coalescing background
-writer; unchanged files are not rewritten. Failed writes are reported and retried
-at the next checkpoint. A hard kill can lose changes since the last successful
-checkpoint, normally about two seconds. These are separate atomic files, not a
-multi-file transaction.
-Startup always restores **paused**, without opening an audio device or starting
-a stream. Queue names load into memory on demand.
-
-OAuth access/refresh tokens are stored only in Windows Credential Manager under
-Tuitify (`spotify-oauth` and `spotify-streaming-oauth`). The client ID is public
-configuration; no client secret is required. A successful catalog re-login to the
-same verified account preserves the queue, metadata cache, and song statistics. A changed or unknown
-prior account clears those files. Catalog login replaces the streaming login;
-streaming reauthorization must use the same account and preserves queue, cache, and statistics.
-
-The metadata cache retains tracks encountered during browsing and playback,
-including album names and artwork URLs when available. It
-is not a listening log: it stores no playback times or play counts. It contains no
-credentials. Local aggregate statistics in `stats.json` record only cumulative wall-clock
-listening time and play count per track (no timestamps, history log, or analytics transmission).
-A track stat retains fallback title and artist names so statistics display properly even if the
-metadata cache expires. There is no timestamped listening-history log, analytics, or audio download cache.
-Librespot uses temporary encrypted streaming buffers; normal
-stream teardown removes them. No offline playback is provided. Operational
-diagnostics retain only classified errors in RAM, not raw upstream URLs or tokens.
+Useful maintenance commands:
 
 ```powershell
+# Remove cached metadata while keeping login and queue data
+.\tuitify.exe clear-cache
+
+# Remove credentials, queue, metadata cache, and listening statistics
 .\tuitify.exe logout
 ```
 
-Logout deletes both credentials, `queue.json`, `cache.json`, and `stats.json`, retaining device
-settings and the public client ID. Explicit account replacement also clears the
-cache and statistics. Run `tuitify clear-cache` to remove cached metadata without logging out
-or losing song statistics.
-Close the player before logging in, logging out, or clearing its cache.
-
-If config or queue JSON is corrupted or from an unsupported version, Tuitify exits with its path
-and preserves it. Move the affected file aside and start again to reset it. A
-leftover uncommitted temporary write does not replace the previous valid snapshot.
-An old or invalid metadata cache is ignored with a status message and rebuilt as
-names load. An old or invalid song statistics file is likewise ignored with a status message
-and restarted fresh. F5 invalidates current/visible queue metadata and retries failed
-metadata and lyrics requests.
-
-## Troubleshooting
-
-- **Login revoked:** exit and run `tuitify auth --force`; for a streaming-only
-  failure, use `tuitify auth --streaming --force`. Expired access tokens refresh automatically.
-- **No audio:** select a working default output in Windows Sound settings, check
-  Premium and volume, then retry with Space. No device error terminates the app.
-- **Network loss:** browsing errors leave the queue intact. Press F5 to retry.
-  If streaming stalls or the session disconnects, playback stops with an error;
-  Space reconnects from the checkpoint. Loading is bounded to 45 seconds and
-  playback without progress to 30 seconds; connection attempts to 35 seconds.
-- **Quota:** Web API and refresh requests honor `Retry-After` (seconds or HTTP
-  date) and suppress requests during cooldown. Tuitify does not repeatedly skip
-  unavailable tracks or automatically retry failed catalog requests.
-- **Unavailable track:** choose another or retry manually; no skipping loop.
-- **Another instance:** quit the running player. The OS releases its lock even
-  after a crash; the presence of `instance.lock` alone does not mean it is running.
-- **Terminal failure:** the alternate screen, raw input, bracketed paste, and
-  cursor are restored on normal exit, returned errors, and unwinding panics.
-  Forced process termination cannot run cleanup; reopen the terminal if needed.
-
-## Build and verify
+## Build from source
 
 Install stable Rust for `x86_64-pc-windows-msvc`, Visual Studio 2022 Build Tools
-with **Desktop development with C++**, and the Windows SDK. This release was
-built with Rust 1.95.0. Direct dependencies are pinned and `Cargo.lock` is tracked.
+with **Desktop development with C++**, and the Windows SDK. The crate requires
+Rust 1.85 or newer.
 
 ```powershell
+git clone https://github.com/braces157/tutify.git
+cd tutify
 cargo build --release --locked
-cargo test --locked
+```
+
+The executable is written to `target\release\tuitify.exe`.
+
+Before contributing, run the same checks used by CI:
+
+```powershell
 cargo fmt --check
+cargo test --locked
 cargo clippy --all-targets --locked -- -D warnings
+cargo build --release --locked
 ```
 
-The executable is `target\release\tuitify.exe`. `scripts\release.ps1` runs checks,
-builds, copies documentation, and creates a ZIP and SHA-256 manifest under `dist`.
-
-The first-stage audio probe uses the same worker as the TUI:
-
-```powershell
-.\target\release\tuitify.exe probe spotify:track:4uLU6hMCjMI75M1A2tKUQC
-```
-
-Its controls are Space, Left/Right, +/-, and q. Close Spotify desktop first.
-An additional **opt-in** live integration test plays audible audio and exercises
-pause, seek, volume acknowledgement, injected session loss/reconnection, real
-completion near the end of a track, and credential reuse:
-
-```powershell
-cargo test --locked live_streaming_acceptance -- --ignored --nocapture --test-threads=1
-```
-
-To verify terminal restoration on exit and a caught panic, run in a real terminal:
-
-```powershell
-cargo test --locked terminal_cleanup_acceptance -- --ignored --nocapture --test-threads=1
-```
-
-The intentional panic message is expected; the test must finish with `ok`.
-
-To verify Windows media-session metadata, timeline, command delivery, and cleanup
-on an interactive Windows desktop without playing audio:
-
-```powershell
-cargo test --locked windows_media_session_acceptance -- --ignored --nocapture --test-threads=1
-```
-
-Website assets and browser tests use Node.js 22 or later:
+The static project website uses Node.js 22 or later:
 
 ```powershell
 npm ci
-npm run build:css
+npm run build
 npm test
 ```
 
-The generated stylesheet is committed for static hosting; the website needs no
-runtime Tailwind CDN or font service. See [BENCHMARKS.md](BENCHMARKS.md) for the
-reproducible offline rendering benchmark and limits of those measurements.
+## Project docs
 
-Normal tests use mocked HTTP servers and do not require Spotify or audio. They
-cover queue order and duplicate IDs, shuffle/repeat, completion handling, stale
-completion rejection, persistence/corruption, OAuth state and PKCE, refresh
-serialization/revocation, retry timing, pagination, restricted responses, and
-rendering all views at normal, narrow, and tiny sizes.
+- [Architecture](ARCHITECTURE.md) — module boundaries, state ownership, and runtime design
+- [Benchmarks](BENCHMARKS.md) — reproducible terminal rendering measurements
+- [Validation](VALIDATION.md) — completed checks and remaining acceptance limits
+- [Roadmap](ROADMAP.md) — planned work and explicit non-goals
+- [Performance review](PERFORMANCE_REVIEW.md) — profiling findings and optimization notes
+- [Refactor review](REFACTOR_REVIEW.md) — structural review and safeguards
 
-## Source map and scope
+## Scope
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the module map, state ownership,
-input/rendering boundaries, and refactoring safeguards.
+Tuitify is personal-use software built on unofficial librespot integration, so
+Spotify service changes can break playback. It intentionally does not support
+podcasts, offline downloads, playlist editing, background playback services, or
+cloud listening analytics.
 
-`auth` handles PKCE and credentials; `catalog` handles the Web API; `playback`
-owns streaming/audio with typed commands and events; `queue` owns order semantics;
-`storage` owns disk state; `app` orchestrates asynchronous tasks; `ui` renders and
-guards terminal state. Catalog requests, streaming, and file writes do not block
-the UI loop.
-
-This is personal-use software using unofficial librespot integration. Spotify
-service changes can break playback. It is not affiliated with or approved by
-Spotify. The [Spotify Developer Policy](https://developer.spotify.com/policy)
-remains relevant.
-
-V1 excludes playlist editing, podcasts, offline downloads, background services,
-listening logs, AI, and song tier lists. The preference for a future cloud AI API
-using your own key is recorded in `ROADMAP.md`; no AI key is requested or stored.
-
-See `VALIDATION.md` for checks actually performed and remaining acceptance limits.
+Released under the [MIT License](LICENSE).
