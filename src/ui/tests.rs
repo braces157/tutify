@@ -72,6 +72,97 @@ fn queue_uses_selected_theme_accent() {
             .any(|c| c.fg == Theme::Spotify.primary())
     );
 }
+
+#[test]
+fn semantic_palettes_are_cohesive_and_cyberpunk_has_one_accent_family() {
+    for theme in [
+        Theme::Spotify,
+        Theme::Amber,
+        Theme::Matrix,
+        Theme::Cyberpunk,
+        Theme::Monochrome,
+    ] {
+        let palette = theme.palette();
+        assert_ne!(palette.background, palette.surface);
+        assert_ne!(palette.surface, palette.surface_alt);
+        assert_ne!(palette.surface_alt, palette.surface_selected);
+        assert_ne!(palette.text, palette.text_muted);
+        assert_ne!(palette.text_muted, palette.text_subtle);
+        assert_ne!(palette.border, palette.border_focus);
+    }
+
+    let cyberpunk = Theme::Cyberpunk.palette();
+    assert!(matches!(cyberpunk.primary, Color::Rgb(_, g, b) if b >= g));
+    assert!(matches!(cyberpunk.primary_soft, Color::Rgb(_, g, b) if b >= g));
+    assert_ne!(cyberpunk.primary_soft, Color::Rgb(255, 0, 127));
+}
+
+#[test]
+fn selected_current_track_preserves_both_visual_states() {
+    let mut app = App::new(Config::default(), Queue::default());
+    let mut current = Track::unknown(&"0".repeat(22));
+    current.name = "Current and selected".into();
+    current.artists = "Artist".into();
+    current.duration_ms = 180_000;
+    app.catalog.rows = Rows::Tracks(vec![current.clone()]);
+    app.catalog.sidebar = false;
+    app.catalog.selected = 0;
+    app.queue.replace(vec![current.id.clone()], 0, false);
+    app.cache.insert(current.id.clone(), current);
+    app.state = State::Playing;
+
+    let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+    terminal
+        .draw(|frame| draw(frame, &app, &mut app.ui.render.borrow_mut()))
+        .unwrap();
+    let palette = Theme::Spotify.palette();
+    let buffer = terminal.backend().buffer();
+    assert!(
+        buffer
+            .content
+            .iter()
+            .any(|cell| cell.fg == palette.primary && cell.bg == palette.surface_selected),
+        "current-track accent should survive the selected-row surface"
+    );
+    assert!(
+        buffer
+            .content
+            .iter()
+            .any(|cell| cell.symbol() == "▌" && cell.fg == palette.primary),
+        "selected row should retain a non-color marker"
+    );
+}
+
+#[test]
+fn every_theme_renders_playback_states_at_required_sizes() {
+    for theme in [
+        Theme::Spotify,
+        Theme::Amber,
+        Theme::Matrix,
+        Theme::Cyberpunk,
+        Theme::Monochrome,
+    ] {
+        for (width, height) in [(120, 35), (80, 24), (48, 18), (32, 10), (20, 6)] {
+            for state in [State::Paused, State::Loading, State::Playing, State::Failed] {
+                let mut app = crate::demo::app();
+                app.config.theme = theme.as_str().into();
+                app.state = state;
+                let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+                terminal
+                    .draw(|frame| draw(frame, &app, &mut app.ui.render.borrow_mut()))
+                    .unwrap();
+                let text = terminal
+                    .backend()
+                    .buffer()
+                    .content
+                    .iter()
+                    .map(|cell| cell.symbol())
+                    .collect::<String>();
+                assert!(text.contains("TUITIFY"));
+            }
+        }
+    }
+}
 #[test]
 #[ignore = "Release microbenchmark; run with --release --ignored --nocapture"]
 fn benchmark_render_scaling() {

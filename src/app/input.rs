@@ -128,7 +128,7 @@ pub(super) fn key(
             KeyCode::Backspace => {
                 app.catalog.query.pop();
             }
-            KeyCode::Char(c) if !c.is_control() && app.catalog.query.len() < 500 => {
+            KeyCode::Char(c) if !c.is_control() && app.catalog.query.chars().count() < 500 => {
                 app.catalog.query.push(c)
             }
             _ => (),
@@ -162,7 +162,7 @@ pub(super) fn key(
                 app.catalog.selected = 0;
                 return;
             }
-            KeyCode::Char(c) if !c.is_control() && app.catalog.filter.len() < 100 => {
+            KeyCode::Char(c) if !c.is_control() && app.catalog.filter.chars().count() < 100 => {
                 app.catalog.filter.push(c);
                 app.catalog.selected = 0;
                 return;

@@ -47,16 +47,16 @@ use ratatui::{
 };
 use std::io::{Stdout, stdout};
 
-const BG: Color = Color::Rgb(14, 17, 16);
-const MUTED: Color = Color::Rgb(143, 155, 147);
-const FG: Color = Color::Rgb(227, 234, 229);
-
 pub fn draw(frame: &mut Frame<'_>, app: &App, render: &mut RenderState) {
     let area = frame.area();
     render.mouse_hits.clear();
     render.terminal_size = (area.width, area.height);
     let theme = Theme::from_str(&app.config.theme);
-    frame.render_widget(Block::default().style(Style::default().fg(FG).bg(BG)), area);
+    let palette = theme.palette();
+    frame.render_widget(
+        Block::default().style(Style::default().fg(palette.text).bg(palette.background)),
+        area,
+    );
     if area.width < 32 || area.height < 10 {
         frame.render_widget(
             Paragraph::new(format!(
@@ -84,7 +84,7 @@ pub fn draw(frame: &mut Frame<'_>, app: &App, render: &mut RenderState) {
     let vertical = Layout::vertical([
         Constraint::Length(if compact { 1 } else { 2 }),
         Constraint::Min(3),
-        Constraint::Length(4),
+        Constraint::Length(if area.height >= 24 { 5 } else { 4 }),
         Constraint::Length(if compact { 1 } else { 3 }),
     ])
     .split(area);

@@ -63,6 +63,17 @@ impl Drop for Tasks {
     }
 }
 impl Tasks {
+    pub(super) fn cancel_radio(&mut self, app: &mut App) {
+        if let Some(task) = self.recommendations.take() {
+            task.abort();
+        }
+        self.radio_active = false;
+        self.radio_attempted.clear();
+        app.radio_epoch = None;
+        app.radio_source = None;
+        app.radio_suggestions.clear();
+    }
+
     pub(super) fn new(catalog: Catalog, tx: mpsc::UnboundedSender<Background>) -> Result<Self> {
         Ok(Self {
             catalog,

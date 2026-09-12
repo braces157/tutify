@@ -2,41 +2,24 @@ use super::*;
 
 pub(super) fn playback(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, area: Rect) {
     let theme = Theme::from_str(&app.config.theme);
-    let outer = block_themed(" NOW PLAYING ", false, theme);
+    let palette = theme.palette();
+    let outer = block_themed(" NOW PLAYING ", false, theme)
+        .style(Style::default().fg(palette.text).bg(palette.surface_alt));
     let inner = outer.inner(area);
     frame.render_widget(outer, area);
-    let parts = Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).split(inner);
+    let parts = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Min(0),
+    ])
+    .split(inner);
     let track = app.current_track();
 
     let (badge_text, badge_style) = match app.state {
-        State::Paused => (
-            " || PAUSED ",
-            Style::default()
-                .fg(theme.primary())
-                .bg(theme.highlight_bg())
-                .bold(),
-        ),
-        State::Playing => (
-            " ► PLAYING ",
-            Style::default()
-                .fg(Color::Rgb(14, 17, 16))
-                .bg(theme.primary())
-                .bold(),
-        ),
-        State::Loading => (
-            " ... LOAD ",
-            Style::default()
-                .fg(Color::Yellow)
-                .bg(Color::Rgb(40, 35, 20))
-                .bold(),
-        ),
-        State::Failed => (
-            " ! ERROR ",
-            Style::default()
-                .fg(Color::Red)
-                .bg(Color::Rgb(45, 20, 20))
-                .bold(),
-        ),
+        State::Paused => (" Ⅱ PAUSED ", quiet_badge(theme)),
+        State::Playing => (" ▶ PLAYING ", primary_badge(theme)),
+        State::Loading => (" … LOADING ", warning_badge(theme)),
+        State::Failed => (" ! ERROR ", error_badge(theme)),
     };
 
     let (ctrl_width, bar_count) = if area.width >= 90 {
@@ -58,23 +41,23 @@ pub(super) fn playback(frame: &mut Frame<'_>, app: &App, render: &mut RenderStat
         .cursor
         .is_some_and(|c| app.queue.suggestions.contains(&app.queue.order[c]))
     {
-        track_spans.push(Span::styled(" ✦", Style::default().fg(theme.primary())));
+        track_spans.push(Span::styled(" ✦", Style::default().fg(palette.primary)));
     }
     if let Some(t) = &track {
         track_spans.push(Span::styled(
             format!("  {}", t.name),
-            Style::default().fg(FG).bold(),
+            Style::default().fg(palette.text).bold(),
         ));
         if !t.artists.is_empty() {
             track_spans.push(Span::styled(
-                format!("  •  {}", t.artists),
-                Style::default().fg(MUTED),
+                format!("  ·  {}", t.artists),
+                Style::default().fg(palette.text_muted),
             ));
         }
     } else {
         track_spans.push(Span::styled(
-            "  Choose a track to begin",
-            Style::default().fg(MUTED),
+            "  Choose a track to start listening",
+            Style::default().fg(palette.text_muted),
         ));
     }
     frame.render_widget(Paragraph::new(Line::from(track_spans)), row[0]);
@@ -95,7 +78,7 @@ pub(super) fn playback(frame: &mut Frame<'_>, app: &App, render: &mut RenderStat
             };
             ctrl_spans.push(Span::styled(
                 mini_bars,
-                Style::default().fg(theme.primary()).bold(),
+                Style::default().fg(palette.primary_soft).bold(),
             ));
             if area.width >= 70 {
                 ctrl_spans.push(Span::styled("   ", Style::default()));
@@ -119,18 +102,28 @@ pub(super) fn playback(frame: &mut Frame<'_>, app: &App, render: &mut RenderStat
                 Repeat::Queue => "R:Queue",
                 Repeat::Track => "R:Track",
             };
-            ctrl_spans.push(Span::styled(vol_str, Style::default().fg(FG).bold()));
+            ctrl_spans.push(Span::styled(
+                vol_str,
+                Style::default().fg(palette.text).bold(),
+            ));
             ctrl_spans.push(Span::styled("   ", Style::default()));
             ctrl_spans.push(Span::styled(
                 s_str,
                 Style::default().fg(if app.config.shuffle {
-                    theme.primary()
+                    palette.primary
                 } else {
-                    MUTED
+                    palette.text_subtle
                 }),
             ));
             ctrl_spans.push(Span::styled("   ", Style::default()));
-            ctrl_spans.push(Span::styled(r_str, Style::default().fg(FG).bold()));
+            ctrl_spans.push(Span::styled(
+                r_str,
+                Style::default().fg(if app.config.repeat == Repeat::Off {
+                    palette.text_subtle
+                } else {
+                    palette.primary
+                }),
+            ));
             ctrl_spans.push(Span::styled(" ", Style::default()));
         }
         frame.render_widget(
@@ -171,19 +164,34 @@ pub(super) fn playback(frame: &mut Frame<'_>, app: &App, render: &mut RenderStat
             }
         )
     };
-    frame.render_widget(
-        Gauge::default()
-            .ratio(ratio)
-            .label(Span::styled(
-                label,
-                Style::default().fg(Color::White).bold(),
-            ))
-            .use_unicode(true)
-            .gauge_style(
-                Style::default()
-                    .fg(theme.primary())
-                    .bg(theme.highlight_bg()),
-            ),
-        parts[1],
-    );
+    if parts[1].width >= 48 {
+        let label_width = (label.chars().count() as u16 + 2).min(parts[1].width.saturating_sub(8));
+        let progress = Layout::horizontal([Constraint::Length(label_width), Constraint::Min(8)])
+            .split(parts[1]);
+
+        frame.render_widget(
+            Paragraph::new(Span::styled(
+                format!(" {label}"),
+                Style::default().fg(palette.text_muted),
+            )),
+            progress[0],
+        );
+        frame.render_widget(
+            Gauge::default()
+                .ratio(ratio)
+                .label(Span::raw(""))
+                .use_unicode(true)
+                .gauge_style(
+                    Style::default()
+                        .fg(palette.primary)
+                        .bg(palette.surface_selected),
+                ),
+            progress[1],
+        );
+    } else {
+        frame.render_widget(
+            Paragraph::new(Span::styled(label, Style::default().fg(palette.text_muted))),
+            parts[1],
+        );
+    }
 }

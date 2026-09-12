@@ -2,6 +2,7 @@ use super::*;
 
 pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, area: Rect) {
     let theme = Theme::from_str(&app.config.theme);
+    let palette = theme.palette();
     let body = if app.catalog.view == View::Search {
         let split = Layout::vertical([
             Constraint::Length(1),
@@ -10,8 +11,8 @@ pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
         ])
         .split(area);
         let modes = [
-            (SearchScope::Spotify, " F2 Spotify "),
-            (SearchScope::Library, " F3 Saved library "),
+            (SearchScope::Spotify, " F2  Spotify "),
+            (SearchScope::Library, " F3  Your library "),
         ];
         let spans = modes
             .iter()
@@ -20,11 +21,11 @@ pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
                     *label,
                     if app.catalog.search_scope == *scope {
                         Style::default()
-                            .fg(theme.primary())
-                            .bg(theme.highlight_bg())
+                            .fg(palette.primary)
+                            .bg(palette.surface_selected)
                             .bold()
                     } else {
-                        Style::default().fg(MUTED)
+                        Style::default().fg(palette.text_muted)
                     },
                 )
             })
@@ -42,14 +43,14 @@ pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
         }
         let prompt_line = if app.catalog.query.is_empty() && !app.catalog.editing {
             Line::from(vec![
-                Span::styled(" 🔍 ", Style::default().fg(theme.primary())),
+                Span::styled("  / ", Style::default().fg(palette.primary).bold()),
                 Span::styled(
                     if app.catalog.search_scope == SearchScope::Library {
-                        "Search all saved Liked Songs and playlist tracks"
+                        "Search your saved songs and playlist tracks"
                     } else {
-                        "Search Spotify songs/artists, or paste a track link"
+                        "Search songs, artists, or paste a Spotify track link"
                     },
-                    Style::default().fg(MUTED).italic(),
+                    Style::default().fg(palette.text_muted).italic(),
                 ),
             ])
         } else {
@@ -64,14 +65,19 @@ pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
                 .rev()
                 .collect::<String>();
             Line::from(vec![
-                Span::styled(" ❯ ", Style::default().fg(theme.primary()).bold()),
-                Span::styled(visible, Style::default().fg(FG).bold()),
+                Span::styled("  › ", Style::default().fg(palette.primary).bold()),
+                Span::styled(visible, Style::default().fg(palette.text).bold()),
+                if app.catalog.editing {
+                    Span::styled("▎", Style::default().fg(palette.primary))
+                } else {
+                    Span::raw("")
+                },
             ])
         };
         frame.render_widget(
             Paragraph::new(prompt_line).block(block_themed(
                 if app.catalog.editing {
-                    " SEARCH • Enter submit • Esc cancel "
+                    " SEARCH  ·  Enter submit  ·  Esc cancel "
                 } else {
                     app.catalog.search_scope.label()
                 },
@@ -88,10 +94,10 @@ pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
         let split = Layout::vertical([Constraint::Length(3), Constraint::Min(1)]).split(area);
         let prompt_line = if app.catalog.filter.is_empty() && !app.catalog.filtering {
             Line::from(vec![
-                Span::styled(" 🔍 ", Style::default().fg(theme.primary())),
+                Span::styled("  / ", Style::default().fg(palette.primary).bold()),
                 Span::styled(
                     "Press / or f to filter",
-                    Style::default().fg(MUTED).italic(),
+                    Style::default().fg(palette.text_muted).italic(),
                 ),
             ])
         } else {
@@ -106,19 +112,19 @@ pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
                 .rev()
                 .collect::<String>();
             Line::from(vec![
-                Span::styled(" ❯ ", Style::default().fg(theme.primary()).bold()),
-                Span::styled(visible, Style::default().fg(FG).bold()),
+                Span::styled("  › ", Style::default().fg(palette.primary).bold()),
+                Span::styled(visible, Style::default().fg(palette.text).bold()),
                 if app.catalog.filtering {
-                    Span::styled("▎", Style::default().fg(theme.primary()))
+                    Span::styled("▎", Style::default().fg(palette.primary))
                 } else {
                     Span::raw("")
                 },
             ])
         };
         let filter_title = if app.catalog.filtering {
-            " FILTER LOADED • Enter play • Esc clear "
+            " FILTER LOADED  ·  Enter apply  ·  Esc clear "
         } else {
-            " FILTER LOADED • F2 Spotify • F3 Saved library "
+            " FILTER LOADED  ·  F2 Spotify  ·  F3 Your library "
         };
         frame.render_widget(
             Paragraph::new(prompt_line).block(block_themed(
@@ -172,16 +178,16 @@ pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
             row_hits(render, body, &visible, false, true);
             if tracks.is_empty() || (app.is_filtered() && indices.is_empty()) {
                 let empty_msg = if app.catalog.busy {
-                    "\n  ⟳ Fetching tracks from Spotify..."
+                    "\n\n  Loading tracks…\n  Playback controls stay available while this finishes."
                 } else if app.is_filtered() {
                     "\n  No loaded tracks match your filter.\n\n  • F3 searches all saved library tracks\n  • F2 searches Spotify\n  • Esc clears this loaded-page filter"
                 } else {
-                    "\n  No tracks found.\n\n  • Press / to search for songs or paste a track link\n  • Press 2 to browse your playlists\n  • Press 3 to see your liked songs"
+                    "\n\n  Nothing here yet.\n\n  /  Search songs or paste a Spotify link\n  2  Browse playlists\n  3  Open liked songs"
                 };
                 frame.render_widget(
                     Paragraph::new(empty_msg)
                         .block(block_themed(title, !app.catalog.sidebar, theme))
-                        .style(Style::default().fg(MUTED))
+                        .style(Style::default().fg(palette.text_muted))
                         .wrap(Wrap { trim: false }),
                     body,
                 );
@@ -206,7 +212,11 @@ pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
                         let index_cell =
                             Cell::from(format!(" {:>2} {:>3} ", indicator, display_idx + 1)).style(
                                 Style::default()
-                                    .fg(if current { theme.primary() } else { MUTED })
+                                    .fg(if current {
+                                        palette.primary
+                                    } else {
+                                        palette.text_subtle
+                                    })
                                     .bold(),
                             );
                         let title_cell = Cell::from(format!(
@@ -217,19 +227,19 @@ pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
                         .style(
                             Style::default()
                                 .fg(if current {
-                                    theme.primary()
+                                    palette.primary
                                 } else if t.playable {
-                                    FG
+                                    palette.text
                                 } else {
-                                    MUTED
+                                    palette.text_subtle
                                 })
                                 .bold(),
                         );
                         let artist_cell = Cell::from(t.artists.as_str()).style(
                             Style::default().fg(if t.playable {
-                                theme.accent_dim()
+                                palette.text_muted
                             } else {
-                                MUTED
+                                palette.text_subtle
                             }),
                         );
                         let time_cell = Cell::from(if t.duration_ms > 0 {
@@ -237,7 +247,7 @@ pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
                         } else {
                             "--:--".to_string()
                         })
-                        .style(Style::default().fg(MUTED));
+                        .style(Style::default().fg(palette.text_subtle));
 
                         Some(Row::new(vec![
                             index_cell,
@@ -269,7 +279,7 @@ pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
                     Cell::from("ARTIST"),
                     Cell::from(" TIME"),
                 ])
-                .style(Style::default().fg(MUTED).bold())
+                .style(table_header_style(theme))
                 .bottom_margin(1);
 
                 let mut state = TableState::default()
@@ -278,12 +288,8 @@ pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
                     Table::new(rows, widths)
                         .header(header)
                         .block(block_themed(title, !app.catalog.sidebar, theme))
-                        .row_highlight_style(
-                            Style::default()
-                                .fg(theme.primary())
-                                .bg(theme.highlight_bg())
-                                .bold(),
-                        ),
+                        .row_highlight_style(selected_row_style(theme))
+                        .highlight_symbol(selected_marker(theme)),
                     body,
                     &mut state,
                 );
@@ -300,16 +306,16 @@ pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
             row_hits(render, body, &visible, false, true);
             if playlists.is_empty() || (app.is_filtered() && indices.is_empty()) {
                 let empty_msg = if app.catalog.busy {
-                    "\n  ⟳ Fetching playlists from Spotify..."
+                    "\n\n  Loading playlists…"
                 } else if app.is_filtered() {
                     "\n  No playlists match your filter.\n\n  • Backspace to edit filter\n  • Esc to clear filter and show all playlists"
                 } else {
-                    "\n  No playlists found."
+                    "\n\n  No playlists found.\n  Press F5 to refresh or / to search."
                 };
                 frame.render_widget(
                     Paragraph::new(empty_msg)
                         .block(block_themed(title, !app.catalog.sidebar, theme))
-                        .style(Style::default().fg(MUTED))
+                        .style(Style::default().fg(palette.text_muted))
                         .wrap(Wrap { trim: false }),
                     body,
                 );
@@ -322,11 +328,11 @@ pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
                     .filter_map(|(display_idx, &p_idx)| {
                         let p = playlists.get(p_idx)?;
                         let index_cell = Cell::from(format!("  {:>3}", display_idx + 1))
-                            .style(Style::default().fg(MUTED));
-                        let name_cell =
-                            Cell::from(p.name.as_str()).style(Style::default().fg(FG).bold());
+                            .style(Style::default().fg(palette.text_subtle));
+                        let name_cell = Cell::from(p.name.as_str())
+                            .style(Style::default().fg(palette.text).bold());
                         let owner_cell = Cell::from(p.owner.as_str())
-                            .style(Style::default().fg(theme.accent_dim()));
+                            .style(Style::default().fg(palette.text_muted));
                         Some(Row::new(vec![index_cell, name_cell, owner_cell]))
                     })
                     .collect();
@@ -340,7 +346,7 @@ pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
                     Cell::from("PLAYLIST"),
                     Cell::from("OWNER"),
                 ])
-                .style(Style::default().fg(MUTED).bold())
+                .style(table_header_style(theme))
                 .bottom_margin(1);
                 let mut state = TableState::default()
                     .with_selected(Some(app.catalog.selected.saturating_sub(visible.start)));
@@ -348,12 +354,8 @@ pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
                     Table::new(rows, widths)
                         .header(header)
                         .block(block_themed(title, !app.catalog.sidebar, theme))
-                        .row_highlight_style(
-                            Style::default()
-                                .fg(theme.primary())
-                                .bg(theme.highlight_bg())
-                                .bold(),
-                        ),
+                        .row_highlight_style(selected_row_style(theme))
+                        .highlight_symbol(selected_marker(theme)),
                     body,
                     &mut state,
                 );

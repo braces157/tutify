@@ -25,20 +25,88 @@ pub(super) fn block_themed(
     focused: bool,
     theme: Theme,
 ) -> Block<'static> {
+    let palette = theme.palette();
     Block::default()
         .title(title)
         .borders(Borders::ALL)
-        .border_type(BorderType::Rounded)
+        .border_type(BorderType::Plain)
+        .style(Style::default().fg(palette.text).bg(palette.surface))
         .border_style(Style::default().fg(if focused {
-            theme.primary()
+            palette.border_focus
         } else {
-            theme.border_inactive()
+            palette.border
         }))
         .title_style(
             Style::default()
-                .fg(if focused { theme.primary() } else { MUTED })
+                .fg(if focused {
+                    palette.primary
+                } else {
+                    palette.text_muted
+                })
                 .bold(),
         )
+}
+
+pub(super) fn selected_row_style(theme: Theme) -> Style {
+    Style::default().bg(theme.palette().surface_selected)
+}
+
+pub(super) fn selected_marker(theme: Theme) -> Span<'static> {
+    Span::styled("▌ ", Style::default().fg(theme.palette().primary))
+}
+
+pub(super) fn table_header_style(theme: Theme) -> Style {
+    Style::default().fg(theme.palette().text_subtle).bold()
+}
+
+pub(super) fn key_hint(key: &'static str, theme: Theme, primary: bool) -> Span<'static> {
+    let palette = theme.palette();
+    Span::styled(
+        format!(" {key} "),
+        if primary {
+            Style::default()
+                .fg(palette.on_primary)
+                .bg(palette.primary)
+                .bold()
+        } else {
+            Style::default()
+                .fg(palette.text_muted)
+                .bg(palette.surface_alt)
+                .bold()
+        },
+    )
+}
+
+pub(super) fn quiet_badge(theme: Theme) -> Style {
+    let palette = theme.palette();
+    Style::default()
+        .fg(palette.text_muted)
+        .bg(palette.surface_selected)
+        .bold()
+}
+
+pub(super) fn primary_badge(theme: Theme) -> Style {
+    let palette = theme.palette();
+    Style::default()
+        .fg(palette.on_primary)
+        .bg(palette.primary)
+        .bold()
+}
+
+pub(super) fn warning_badge(theme: Theme) -> Style {
+    let palette = theme.palette();
+    Style::default()
+        .fg(palette.status_warning)
+        .bg(palette.status_warning_bg)
+        .bold()
+}
+
+pub(super) fn error_badge(theme: Theme) -> Style {
+    let palette = theme.palette();
+    Style::default()
+        .fg(palette.status_error)
+        .bg(palette.status_error_bg)
+        .bold()
 }
 pub(super) fn time(ms: u32) -> String {
     format!("{}:{:02}", ms / 60_000, ms / 1000 % 60)

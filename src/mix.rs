@@ -376,6 +376,10 @@ fn generate_normalized(
     // source occurrence; ID plus provenance prevents recommendation pins from
     // drifting to a different seed/provider when pools change.
     for (preview_position, entry) in requested_pins {
+        if preview_position >= candidates.len() {
+            invalid_pins.push(entry.track.name.clone());
+            continue;
+        }
         let exact = candidates
             .iter()
             .enumerate()
@@ -655,6 +659,28 @@ mod tests {
                 .iter()
                 .map(|e| &e.track.id)
                 .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn pin_beyond_shrunken_pool_is_released_with_warning() {
+        let original = source((0..6).map(|i| track(i, i, 180_000)).collect());
+        let first = generate(&original, MixSettings::default(), 1, &[], false, None);
+        let mut previous = first.entries.clone();
+        previous[2].pinned = true;
+        let pinned_id = previous[2].track.id.clone();
+        let reduced = source(vec![previous[0].track.clone(), previous[2].track.clone()]);
+
+        let regenerated = generate(&reduced, MixSettings::default(), 2, &previous, false, None);
+
+        assert!(regenerated.invalid_pin_warning.is_some());
+        assert!(regenerated.note.contains("was unpinned"));
+        assert!(
+            regenerated
+                .entries
+                .iter()
+                .filter(|entry| entry.track.id == pinned_id)
+                .all(|entry| !entry.pinned)
         );
     }
 

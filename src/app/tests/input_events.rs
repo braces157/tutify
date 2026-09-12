@@ -68,6 +68,41 @@ fn paste_routes_to_each_active_editor_with_shared_limits() {
     ));
 }
 
+#[test]
+fn typed_unicode_uses_character_limits_like_paste() {
+    let (mut tasks, _receiver) = tasks();
+    let mut app = App::new(Config::default(), Queue::default());
+    let (commands, _receiver) = mpsc::unbounded_channel();
+
+    app.catalog.editing = true;
+    app.catalog.query = "é".repeat(499);
+    key(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('夜'), KeyModifiers::NONE),
+        &mut tasks,
+        &commands,
+    );
+    assert_eq!(app.catalog.query.chars().count(), 500);
+    key(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE),
+        &mut tasks,
+        &commands,
+    );
+    assert_eq!(app.catalog.query.chars().count(), 500);
+
+    app.catalog.editing = false;
+    app.catalog.filtering = true;
+    app.catalog.filter = "界".repeat(99);
+    key(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('é'), KeyModifiers::NONE),
+        &mut tasks,
+        &commands,
+    );
+    assert_eq!(app.catalog.filter.chars().count(), 100);
+}
+
 #[tokio::test]
 async fn mouse_and_resize_events_use_the_shared_native_route() {
     let (mut tasks, _receiver) = tasks();

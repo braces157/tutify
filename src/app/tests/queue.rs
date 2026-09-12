@@ -123,6 +123,70 @@ async fn undo_queue_replacement_rejects_late_jobs_and_restores_previous_position
 }
 
 #[test]
+fn removing_current_radio_seed_rejects_late_recommendations() {
+    let mut queue = Queue::default();
+    queue.replace(vec![test_track(1).id], 0, false);
+    let epoch = queue.epoch;
+    let mut app = App::new(Config::default(), queue);
+    app.catalog.view = View::Queue;
+    app.radio_epoch = Some(epoch);
+    let (mut tasks, _rx) = tasks();
+    tasks.radio_active = true;
+    let (tx, _commands) = mpsc::unbounded_channel();
+
+    actions::apply(&mut app, Action::RemoveSelected, &mut tasks, &tx);
+    assert!(app.queue.ids.is_empty());
+    assert_eq!(app.radio_epoch, None);
+    assert!(!tasks.radio_active);
+
+    background(
+        &mut app,
+        &mut tasks,
+        Background::Recommendations(
+            epoch,
+            Ok(Recommendations {
+                tracks: vec![test_track(2)],
+                source: crate::catalog::RecommendationSource::Spotify,
+            }),
+        ),
+    );
+    assert!(app.queue.ids.is_empty());
+}
+
+#[test]
+fn removing_item_invalidates_inflight_smart_shuffle_request() {
+    let mut queue = Queue::default();
+    queue.replace((0..6).map(|i| test_track(i).id).collect(), 0, false);
+    queue.smart_shuffle = true;
+    let epoch = queue.epoch;
+    let mut app = App::new(Config::default(), queue);
+    app.catalog.view = View::Queue;
+    app.queue.selected = 5;
+    let (mut tasks, _rx) = tasks();
+    tasks.smart.request = 9;
+    let stale_request = tasks.smart.request;
+    let (tx, _commands) = mpsc::unbounded_channel();
+
+    actions::apply(&mut app, Action::RemoveSelected, &mut tasks, &tx);
+    assert_ne!(tasks.smart.request, stale_request);
+
+    let before = app.queue.ids.clone();
+    background(
+        &mut app,
+        &mut tasks,
+        Background::SmartRecommendations(
+            epoch,
+            stale_request,
+            Ok(Recommendations {
+                tracks: vec![test_track(20)],
+                source: crate::catalog::RecommendationSource::Spotify,
+            }),
+        ),
+    );
+    assert_eq!(app.queue.ids, before);
+}
+
+#[test]
 fn undo_history_is_bounded_by_action_count_and_total_tracks() {
     let mut app = App::new(Config::default(), Queue::default());
     for _ in 0..20 {

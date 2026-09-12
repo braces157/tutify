@@ -392,3 +392,29 @@ Discord presentation, and playlist access against a real account were not tested
 for this release milestone and remain live acceptance work. The v0.2.6 release
 package retains those limitations in its notes; website install commands and
 download links are pinned to the matching v0.2.6 tag and assets.
+
+## Version 0.2.7 release milestone — 2026-09-12
+
+Reviewed and built the semantic TUI redesign and the accompanying queue,
+authentication, Unicode-input, Mix Builder, installer, documentation, and
+website updates. Every theme now owns a complete palette; focus, selection,
+current playback, and application state remain distinguishable when combined.
+Responsive rendering coverage includes 120x35, 80x24, 48x18, 32x10, and 20x6
+across all five themes and paused, loading, playing, and failed states.
+
+Checks executed on Windows: `cargo fmt --check`, `cargo test --locked` (193
+passed, 5 opt-in tests ignored), `cargo clippy --all-targets --locked -- -D
+warnings`, and `cargo build --release --locked` all passed. The optimized
+`target\release\tuitify.exe` reported version 0.2.7, displayed help, opened the
+native demo in a real PTY, and restored the terminal normally on quit.
+
+Website validation ran after `npm ci`: npm audit reported zero vulnerabilities,
+the production Tailwind CSS rebuilt successfully, and all 11 Microsoft Edge
+Playwright tests passed. The browser demo theme order and labels now match the
+Rust application. Release packaging produced the versioned Windows ZIP, raw
+executable, SHA-256 checksum files, release notes, and the idempotent per-user
+PATH installer under `scripts/install.ps1`.
+
+Live Spotify catalog/playback, audible output, physical media keys, LRCLIB, and
+Discord presentation were not exercised for this release and remain
+environment-specific acceptance checks.

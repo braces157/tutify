@@ -59,6 +59,33 @@ fn account_matching_rejects_unknown_ids_for_streaming_reauth() {
 }
 
 #[test]
+fn saved_login_state_reauths_mismatched_or_unknown_streaming_accounts() {
+    let token = |account: &str| Tokens {
+        access_token: "access".into(),
+        refresh_token: "refresh".into(),
+        expires_at: 1,
+        account_id: account.into(),
+    };
+    let catalog = token("catalog");
+    let matching = token("catalog");
+    let different = token("different");
+    let unknown = token("");
+
+    assert_eq!(
+        saved_login_state(Some(&catalog), Some(&matching)),
+        (true, true, false)
+    );
+    assert_eq!(
+        saved_login_state(Some(&catalog), Some(&different)),
+        (true, false, true)
+    );
+    assert_eq!(
+        saved_login_state(Some(&catalog), Some(&unknown)),
+        (true, false, false)
+    );
+}
+
+#[test]
 fn setup_only_opens_missing_logins() {
     use LoginStep::*;
     assert_eq!(
@@ -101,14 +128,30 @@ fn saved_refresh_token_skips_browser_even_when_access_token_expired() {
         expires_at: 0,
         account_id: "account".into(),
     };
-    assert!(credential_saved(Ok(serde_json::to_string(&tokens).unwrap())).unwrap());
-    assert!(!credential_saved(Err(keyring::Error::NoEntry)).unwrap());
-    assert!(!credential_saved(Ok("broken json".into())).unwrap());
+    assert!(
+        credential_tokens(Ok(serde_json::to_string(&tokens).unwrap()))
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        credential_tokens(Err(keyring::Error::NoEntry))
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        credential_tokens(Ok("broken json".into()))
+            .unwrap()
+            .is_none()
+    );
     let empty = Tokens {
         refresh_token: String::new(),
         ..tokens
     };
-    assert!(!credential_saved(Ok(serde_json::to_string(&empty).unwrap())).unwrap());
+    assert!(
+        credential_tokens(Ok(serde_json::to_string(&empty).unwrap()))
+            .unwrap()
+            .is_none()
+    );
 }
 #[test]
 fn callback_reports_final_success_or_failure() {

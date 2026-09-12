@@ -73,6 +73,7 @@ pub(super) fn wrap_lyric_line(text: &str, max_width: usize) -> Vec<String> {
 
 pub(super) fn lyrics(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, area: Rect) {
     let theme = Theme::from_str(&app.config.theme);
+    let palette = theme.palette();
     let track = app.current_track();
     let title = if let Some(t) = &track {
         if area.width < 35 {
@@ -101,7 +102,7 @@ pub(super) fn lyrics(frame: &mut Frame<'_>, app: &App, render: &mut RenderState,
         frame.render_widget(
             Paragraph::new(error.as_str())
                 .wrap(Wrap { trim: false })
-                .style(Style::default().fg(MUTED)),
+                .style(Style::default().fg(palette.status_error)),
             inner,
         );
         return;
@@ -109,7 +110,7 @@ pub(super) fn lyrics(frame: &mut Frame<'_>, app: &App, render: &mut RenderState,
     if app.lyrics.loading {
         let p = Paragraph::new("\n  ⟳ Loading synchronized lyrics from Lrclib...")
             .wrap(Wrap { trim: false })
-            .style(Style::default().fg(theme.primary()).italic());
+            .style(Style::default().fg(palette.status_warning).italic());
         frame.render_widget(p, inner);
         return;
     }
@@ -117,7 +118,7 @@ pub(super) fn lyrics(frame: &mut Frame<'_>, app: &App, render: &mut RenderState,
     let Some(lyr) = &app.lyrics.content else {
         let p = Paragraph::new("\n  No lyrics available for this track.\n\n  • Press l to return to library view\n  • Songs with available lyrics will sync automatically")
             .wrap(Wrap { trim: false })
-            .style(Style::default().fg(MUTED));
+            .style(Style::default().fg(palette.text_muted));
         frame.render_widget(p, inner);
         return;
     };
@@ -140,7 +141,7 @@ pub(super) fn lyrics(frame: &mut Frame<'_>, app: &App, render: &mut RenderState,
 
             for (chunk_idx, chunk) in chunks.into_iter().enumerate() {
                 let prefix = if is_active && chunk_idx == 0 {
-                    Span::styled("► ", Style::default().fg(theme.primary()).bold())
+                    Span::styled("► ", Style::default().fg(palette.primary).bold())
                 } else {
                     Span::raw("  ")
                 };
@@ -148,12 +149,15 @@ pub(super) fn lyrics(frame: &mut Frame<'_>, app: &App, render: &mut RenderState,
                 let text_span = if is_active {
                     Span::styled(
                         chunk,
-                        Style::default().fg(FG).bg(theme.highlight_bg()).bold(),
+                        Style::default()
+                            .fg(palette.text)
+                            .bg(palette.surface_selected)
+                            .bold(),
                     )
                 } else if is_past {
-                    Span::styled(chunk, Style::default().fg(MUTED))
+                    Span::styled(chunk, Style::default().fg(palette.text_subtle))
                 } else {
-                    Span::styled(chunk, Style::default().fg(FG))
+                    Span::styled(chunk, Style::default().fg(palette.text_muted))
                 };
 
                 all_lines.push(Line::from(vec![prefix, text_span]));
@@ -168,7 +172,7 @@ pub(super) fn lyrics(frame: &mut Frame<'_>, app: &App, render: &mut RenderState,
     } else if let Some(plain) = &lyr.plain {
         let p = Paragraph::new(plain.as_str())
             .wrap(Wrap { trim: true })
-            .style(Style::default().fg(FG));
+            .style(Style::default().fg(palette.text));
         let max_scroll = p
             .line_count(inner.width)
             .saturating_sub(inner.height as usize);
@@ -183,7 +187,7 @@ pub(super) fn lyrics(frame: &mut Frame<'_>, app: &App, render: &mut RenderState,
     } else {
         let p = Paragraph::new("\n  No lyrics found for this track. Press l to return.")
             .wrap(Wrap { trim: false })
-            .style(Style::default().fg(MUTED));
+            .style(Style::default().fg(palette.text_muted));
         frame.render_widget(p, inner);
     }
 }

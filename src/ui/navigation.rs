@@ -2,25 +2,35 @@ use super::*;
 
 pub(super) fn navigation(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, area: Rect) {
     let theme = Theme::from_str(&app.config.theme);
+    let palette = theme.palette();
     let items = View::ALL
         .iter()
         .enumerate()
-        .map(|(i, v)| {
-            let label = match v {
-                View::Search => format!(" {} Search", i + 1),
-                View::Playlists => format!(" {} Playlists", i + 1),
-                View::Liked => format!(" {} Liked Songs", i + 1),
+        .map(|(i, view)| {
+            let active = if *view == app.catalog.view {
+                "•"
+            } else {
+                " "
+            };
+            let label = match view {
+                View::Search => format!("{active} {}  Search", i + 1),
+                View::Playlists => format!("{active} {}  Playlists", i + 1),
+                View::Liked => format!("{active} {}  Liked Songs", i + 1),
                 View::Queue => {
-                    let q_len = app.queue.ids.len();
-                    if q_len > 0 {
-                        format!(" {} Queue ({})", i + 1, q_len)
+                    let queue_len = app.queue.ids.len();
+                    if queue_len > 0 {
+                        format!("{active} {}  Queue  · {queue_len}", i + 1)
                     } else {
-                        format!(" {} Queue", i + 1)
+                        format!("{active} {}  Queue", i + 1)
                     }
                 }
-                View::Help => format!(" {} Help", i + 1),
+                View::Help => format!("{active} {}  Help", i + 1),
             };
-            ListItem::new(label)
+            ListItem::new(label).style(Style::default().fg(if *view == app.catalog.view {
+                palette.primary_soft
+            } else {
+                palette.text_muted
+            }))
         })
         .collect::<Vec<_>>();
     let mut state = ListState::default().with_selected(Some(if app.catalog.sidebar {
@@ -28,22 +38,23 @@ pub(super) fn navigation(frame: &mut Frame<'_>, app: &App, render: &mut RenderSt
     } else {
         app.catalog.view.index()
     }));
-    let (hl_style, hl_sym) = if app.catalog.sidebar {
+    let (highlight_style, highlight_symbol) = if app.catalog.sidebar {
         (
             Style::default()
-                .fg(theme.primary())
-                .bg(theme.highlight_bg())
+                .fg(palette.text)
+                .bg(palette.surface_selected)
                 .bold(),
-            "► ",
+            "▌ ",
         )
     } else {
-        (Style::default().fg(theme.primary()).bold(), "  ")
+        (Style::default().fg(palette.primary_soft).bold(), "  ")
     };
     frame.render_stateful_widget(
         List::new(items)
-            .block(block_themed(" LIBRARY ", app.catalog.sidebar, theme))
-            .highlight_style(hl_style)
-            .highlight_symbol(hl_sym),
+            .block(block_themed(" YOUR LIBRARY ", app.catalog.sidebar, theme))
+            .style(Style::default().bg(palette.surface))
+            .highlight_style(highlight_style)
+            .highlight_symbol(highlight_symbol),
         area,
         &mut state,
     );
@@ -68,6 +79,7 @@ pub(super) fn navigation(frame: &mut Frame<'_>, app: &App, render: &mut RenderSt
 
 pub(super) fn body(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, area: Rect) {
     let theme = Theme::from_str(&app.config.theme);
+    let palette = theme.palette();
     if app.ui.overlay == Overlay::MixBuilder {
         center(frame, app, render, area);
         return;
@@ -82,7 +94,7 @@ pub(super) fn body(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, a
         } else {
             vec![Constraint::Length(24), Constraint::Min(20)]
         };
-        let body = Layout::horizontal(widths).spacing(1).split(area);
+        let body = Layout::horizontal(widths).split(area);
         navigation(frame, app, render, body[0]);
         center(frame, app, render, body[1]);
         if body.len() == 3 {
@@ -93,8 +105,8 @@ pub(super) fn body(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, a
         let nav = View::ALL
             .iter()
             .enumerate()
-            .map(|(i, v)| {
-                let label = match v {
+            .map(|(i, view)| {
+                let label = match view {
                     View::Search => {
                         if area.width < 55 {
                             "Find"
@@ -131,18 +143,18 @@ pub(super) fn body(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, a
                         }
                     }
                 };
+                let focused = app.catalog.sidebar && app.catalog.nav == i;
+                let active = app.catalog.view == *view;
                 Span::styled(
-                    format!("{}:{} ", i + 1, label),
+                    format!("{}{}:{} ", if active { "•" } else { "" }, i + 1, label),
                     Style::default()
-                        .fg(
-                            if (app.catalog.sidebar && app.catalog.nav == i)
-                                || (!app.catalog.sidebar && app.catalog.view == *v)
-                            {
-                                theme.primary()
-                            } else {
-                                MUTED
-                            },
-                        )
+                        .fg(if focused {
+                            palette.primary
+                        } else if active {
+                            palette.primary_soft
+                        } else {
+                            palette.text_muted
+                        })
                         .bold(),
                 )
             })

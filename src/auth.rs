@@ -88,12 +88,14 @@ fn setup_steps(
     steps
 }
 
-fn credential_saved(result: std::result::Result<String, keyring::Error>) -> Result<bool> {
+fn credential_tokens(
+    result: std::result::Result<String, keyring::Error>,
+) -> Result<Option<Tokens>> {
     match result {
-        Ok(value) => Ok(serde_json::from_str::<Tokens>(&value).is_ok_and(|tokens| {
-            !tokens.access_token.is_empty() && !tokens.refresh_token.is_empty()
-        })),
-        Err(keyring::Error::NoEntry) => Ok(false),
+        Ok(value) => Ok(serde_json::from_str::<Tokens>(&value)
+            .ok()
+            .filter(|tokens| !tokens.access_token.is_empty() && !tokens.refresh_token.is_empty())),
+        Err(keyring::Error::NoEntry) => Ok(None),
         Err(error) => Err(error)
             .context("Cannot read Windows Credential Manager; saved logins have not been changed"),
     }
@@ -112,6 +114,26 @@ fn accounts_match(previous: Option<&str>, verified: &str) -> bool {
         (Some(previous), Some(verified)) => previous == verified,
         _ => false,
     }
+}
+
+fn saved_login_state(catalog: Option<&Tokens>, streaming: Option<&Tokens>) -> (bool, bool, bool) {
+    let catalog_saved = catalog.is_some();
+    let accounts_conflict = catalog.zip(streaming).is_some_and(|(catalog, streaming)| {
+        match (
+            known_account_id(&catalog.account_id),
+            known_account_id(&streaming.account_id),
+        ) {
+            (Some(catalog), Some(streaming)) => catalog != streaming,
+            _ => false,
+        }
+    });
+    let streaming_saved = streaming.is_some()
+        && (!catalog_saved
+            || accounts_match(
+                catalog.map(|tokens| tokens.account_id.as_str()),
+                streaming.map_or("", |tokens| tokens.account_id.as_str()),
+            ));
+    (catalog_saved, streaming_saved, accounts_conflict)
 }
 
 /// Read only the account identity from the saved catalog credential. A legacy
@@ -167,8 +189,22 @@ pub async fn setup(
     let client_changed = requested_id
         .as_ref()
         .is_some_and(|id| id != &config.client_id);
-    let catalog_saved = !config.client_id.is_empty() && credential_saved(entry()?.get_password())?;
-    let streaming_saved = credential_saved(stream_entry()?.get_password())?;
+    let catalog_tokens = (!config.client_id.is_empty())
+        .then(|| credential_tokens(entry()?.get_password()))
+        .transpose()?
+        .flatten();
+    let streaming_tokens = credential_tokens(stream_entry()?.get_password())?;
+    let (catalog_saved, streaming_saved, accounts_conflict) =
+        saved_login_state(catalog_tokens.as_ref(), streaming_tokens.as_ref());
+    if accounts_conflict {
+        // A previous catalog-account replacement may have committed its token
+        // before local snapshot cleanup or streaming credential invalidation
+        // completed. Treat the catalog account as authoritative and finish the
+        // cleanup before allowing setup to continue.
+        if let Some(catalog) = &catalog_tokens {
+            update_account_state(store, None, &catalog.account_id)?;
+        }
+    }
     let steps = setup_steps(
         catalog_saved,
         streaming_saved,

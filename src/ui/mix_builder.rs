@@ -2,6 +2,7 @@ use super::*;
 
 pub(super) fn mix_builder(frame: &mut Frame<'_>, app: &App, _render: &mut RenderState, area: Rect) {
     let theme = Theme::from_str(&app.config.theme);
+    let palette = theme.palette();
     let source = app
         .mix
         .source
@@ -30,7 +31,7 @@ pub(super) fn mix_builder(frame: &mut Frame<'_>, app: &App, _render: &mut Render
                 "Recipe name: {}_ • Enter save • Esc keep name",
                 app.mix.recipe_name
             ))
-            .style(Style::default().fg(theme.primary()).bold())
+            .style(Style::default().fg(palette.text).bold())
             .wrap(Wrap { trim: true })
             .scroll((0, 0)),
             inner,
@@ -56,7 +57,7 @@ pub(super) fn mix_builder(frame: &mut Frame<'_>, app: &App, _render: &mut Render
         );
         frame.render_widget(
             Paragraph::new(text)
-                .style(Style::default().fg(theme.accent_dim()))
+                .style(Style::default().fg(palette.text_muted))
                 .wrap(Wrap { trim: true })
                 .scroll((app.mix.detail_scroll, 0)),
             inner,
@@ -72,7 +73,7 @@ pub(super) fn mix_builder(frame: &mut Frame<'_>, app: &App, _render: &mut Render
                 "{marker} {} {track}\nEnter/A apply • p pin\n? details • Esc cancel",
                 app.mix.selected.saturating_add(1)
             ))
-            .style(Style::default().fg(theme.primary()).bold()),
+            .style(Style::default().fg(palette.text).bold()),
             inner,
         );
         return;
@@ -119,7 +120,7 @@ pub(super) fn mix_builder(frame: &mut Frame<'_>, app: &App, _render: &mut Render
     .split(inner);
     frame.render_widget(
         Paragraph::new(controls)
-            .style(Style::default().fg(MUTED))
+            .style(Style::default().fg(palette.text_muted))
             .wrap(Wrap { trim: true }),
         layout[0],
     );
@@ -139,16 +140,44 @@ pub(super) fn mix_builder(frame: &mut Frame<'_>, app: &App, _render: &mut Render
                 crate::mix::Provenance::Source { .. } => "SOURCE",
                 crate::mix::Provenance::Recommendation { .. } => "SUGGEST",
             };
+            let current = app.queue.current() == Some(entry.track.id.as_str());
             Row::new(vec![
                 Cell::from(format!(
-                    "{} {:>2}",
-                    if entry.pinned { "◆" } else { " " },
+                    "{}{:>3}",
+                    if current {
+                        if app.state == State::Playing {
+                            "►"
+                        } else {
+                            "Ⅱ"
+                        }
+                    } else if entry.pinned {
+                        "◆"
+                    } else {
+                        " "
+                    },
                     index + 1
-                )),
-                Cell::from(entry.track.name.clone()),
-                Cell::from(entry.track.artists.clone()),
-                Cell::from(kind),
-                Cell::from(time(entry.track.duration_ms)),
+                ))
+                .style(Style::default().fg(if current {
+                    palette.primary
+                } else if entry.pinned {
+                    palette.primary_soft
+                } else {
+                    palette.text_subtle
+                })),
+                Cell::from(entry.track.name.clone()).style(
+                    Style::default()
+                        .fg(if current {
+                            palette.primary
+                        } else {
+                            palette.text
+                        })
+                        .bold(),
+                ),
+                Cell::from(entry.track.artists.clone())
+                    .style(Style::default().fg(palette.text_muted)),
+                Cell::from(kind).style(Style::default().fg(palette.text_subtle)),
+                Cell::from(time(entry.track.duration_ms))
+                    .style(Style::default().fg(palette.text_subtle)),
             ])
         })
         .collect::<Vec<_>>();
@@ -174,13 +203,15 @@ pub(super) fn mix_builder(frame: &mut Frame<'_>, app: &App, _render: &mut Render
     );
     frame.render_stateful_widget(
         Table::new(rows, widths)
-            .block(Block::default().borders(Borders::TOP).title(" PREVIEW "))
-            .row_highlight_style(
-                Style::default()
-                    .fg(theme.primary())
-                    .bg(theme.highlight_bg())
-                    .bold(),
-            ),
+            .block(
+                Block::default()
+                    .borders(Borders::TOP)
+                    .border_style(Style::default().fg(palette.border))
+                    .title(" PREVIEW ")
+                    .title_style(Style::default().fg(palette.text_subtle).bold()),
+            )
+            .row_highlight_style(selected_row_style(theme))
+            .highlight_symbol(selected_marker(theme)),
         layout[1],
         &mut state,
     );
@@ -191,7 +222,7 @@ pub(super) fn mix_builder(frame: &mut Frame<'_>, app: &App, _render: &mut Render
     };
     frame.render_widget(
         Paragraph::new(note)
-            .style(Style::default().fg(theme.accent_dim()))
+            .style(Style::default().fg(palette.primary_soft))
             .wrap(Wrap { trim: true }),
         layout[2],
     );

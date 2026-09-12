@@ -70,10 +70,10 @@ test('shortcuts are scoped to the demo and do not intercept native buttons', asy
   await page.keyboard.press('Space');
   await expect(page.locator('#tui-play-btn')).toHaveAttribute('aria-label', 'Play demo playback');
   await page.keyboard.press('t');
-  await expect(page.locator('#tui-theme-label')).toHaveText('Phosphor Green CRT');
+  await expect(page.locator('#tui-theme-label')).toHaveText('Amber');
   await page.locator('#tui-shortcuts-toggle').uncheck();
   await page.keyboard.press('t');
-  await expect(page.locator('#tui-theme-label')).toHaveText('Phosphor Green CRT');
+  await expect(page.locator('#tui-theme-label')).toHaveText('Amber');
 });
 
 test('reduced motion and offscreen state pause decorative animation', async ({ page }) => {

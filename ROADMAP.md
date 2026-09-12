@@ -14,6 +14,11 @@ V0.2.6 delivers Smart Shuffle, the duration-targeted Mix Builder with inspectabl
 provenance, pinned deterministic regeneration and queue undo, plus an isolated native
 demo that exercises the real terminal UI without Spotify credentials or audio hardware.
 
+V0.2.7 delivers a semantic, restrained TUI design system across all five themes;
+clear focus, selection, current-track, and playback-state hierarchy; safer queue
+recommendation invalidation; account-consistent reauthorization; Unicode-safe text
+limits; Mix Builder pin recovery; and a per-user PATH installer.
+
 Deferred by user choice: persistent timestamped listening history, AI suggestions, and song
 tier lists. If an AI phase is pursued, the preferred integration is a cloud API
 using the user's own key. Do not add listening collection or send Spotify data to

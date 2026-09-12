@@ -32,7 +32,8 @@ workflow inside Windows Terminal—no Electron shell and no background service.
 - **Powerful queue tools** including play next, reorder, remove, undo, shuffle,
   repeat, and Track Radio.
 - **A responsive terminal UI** with keyboard and mouse support, five color themes,
-  a real-time FFT audio visualizer, and layouts that adapt to narrow terminals.
+  a semantic color system, restrained selection/focus states, a real-time FFT
+  audio visualizer, and layouts that adapt to narrow terminals.
 - **Synchronized lyrics** from LRCLIB with automatic scrolling.
 - **Windows integration** for media keys, system media controls, metadata, and the
   playback timeline.
@@ -44,9 +45,12 @@ workflow inside Windows Terminal—no Electron shell and no background service.
 
 ### Current release
 
-The latest published download is **v0.2.6**. It includes Smart Shuffle, Mix
-Builder, the credential-free native `demo` command, lyrics, the FFT visualizer,
-queue undo, Windows/Discord integration, and local statistics.
+The latest published download is **v0.2.7**. It adds a cohesive premium TUI,
+safer queue/radio and Smart Shuffle updates, account-consistent authentication,
+Unicode-safe search limits, Mix Builder pin recovery, and a reusable PATH
+installer. It also includes Smart Shuffle, Mix Builder, the credential-free
+native `demo` command, lyrics, the FFT visualizer, queue undo, Windows/Discord
+integration, and local statistics.
 
 ## Requirements
 
@@ -66,8 +70,8 @@ The native demo needs no Spotify account or audio device.
 
 ## Install
 
-1. Download `Tuitify-0.2.6-windows-x86_64.zip` from
-   [release v0.2.6](https://github.com/braces157/tutify/releases/tag/v0.2.6).
+1. Download `Tuitify-0.2.7-windows-x86_64.zip` from
+   [release v0.2.7](https://github.com/braces157/tutify/releases/tag/v0.2.7).
 2. Extract the archive.
 3. Open Windows Terminal in the extracted folder and run:
 
@@ -79,7 +83,19 @@ Tuitify opens the browser for guided sign-in on the first launch. Later launches
 reuse the credentials stored in Windows Credential Manager.
 Restored queues always start paused; press Space to resume.
 
-To call `tuitify` from any directory, add the extracted folder to your user `PATH`.
+To install the executable for your Windows user and add it to `PATH`, run:
+
+```powershell
+.\scripts\install.ps1
+```
+
+The installer copies `tuitify.exe` to `%LOCALAPPDATA%\Programs\Tuitify`, updates
+the user `PATH` idempotently, and verifies the installed executable. Open a new
+terminal afterward and run `tuitify` from any directory.
+
+The release archive includes the same installer under `scripts`. You can also
+keep the archive in a permanent folder and add that folder to your user `PATH`
+manually.
 
 ### Try the native demo without Spotify
 

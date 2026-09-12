@@ -192,7 +192,13 @@ pub(super) fn apply(
             if app.queue.selected < app.queue.order.len() {
                 app.remember_queue();
             }
-            if app.queue.remove(app.queue.selected) {
+            let removed_current = app.queue.remove(app.queue.selected);
+            if app.queue.smart_shuffle {
+                tasks.cancel_smart_shuffle();
+                tasks.refill_smart_shuffle(app);
+            }
+            if removed_current {
+                tasks.cancel_radio(app);
                 app.stop(tx);
             }
             app.status = "Queue item removed. Press u to undo.".into();

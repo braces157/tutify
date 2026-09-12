@@ -9,16 +9,17 @@ pub(super) fn queue(
 ) {
     hit(render, area, MouseTarget::QueueScroll);
     let theme = Theme::from_str(&app.config.theme);
+    let palette = theme.palette();
     if app.queue.order.is_empty() {
         let msg = if main {
-            "\n  Your queue is empty.\n\n  • Play a track or playlist from Search or Playlists\n  • Press a on any song to append it to the queue\n  • u or right-click to undo a queue change"
+            "\n\n  Your queue is ready.\n\n  Enter  Play a song or playlist\n  a      Add the selected song\n  A      Play selected song next\n  u      Undo the last queue edit"
         } else {
-            "\n  Queue is empty.\n  Press a to enqueue."
+            "\n  Queue is empty\n  Press a to add a track"
         };
         frame.render_widget(
             Paragraph::new(msg)
                 .block(block_themed(" QUEUE ", main && !app.catalog.sidebar, theme))
-                .style(Style::default().fg(MUTED)),
+                .style(Style::default().fg(palette.text_muted)),
             area,
         );
         return;
@@ -91,7 +92,11 @@ pub(super) fn queue(
 
             let index_cell = Cell::from(format!(" {:>2} {:>3} ", indicator, at + 1)).style(
                 Style::default()
-                    .fg(if is_current { theme.primary() } else { MUTED })
+                    .fg(if is_current {
+                        palette.primary
+                    } else {
+                        palette.text_subtle
+                    })
                     .bold(),
             );
             let name = if app.queue.suggestions.contains(i) {
@@ -100,24 +105,26 @@ pub(super) fn queue(
                 name.to_owned()
             };
             let name_cell = Cell::from(name).style(if is_current {
-                Style::default().fg(theme.primary()).bold()
+                Style::default().fg(palette.primary).bold()
             } else if is_placeholder {
-                Style::default().fg(MUTED).italic()
+                Style::default().fg(palette.text_subtle).italic()
             } else {
-                Style::default().fg(FG)
+                Style::default().fg(palette.text)
             });
 
             if main {
                 let artist_cell =
                     Cell::from(artist).style(Style::default().fg(if is_placeholder {
-                        MUTED
+                        palette.text_subtle
                     } else {
-                        theme.accent_dim()
+                        palette.text_muted
                     }));
-                let time_cell = Cell::from(duration).style(Style::default().fg(MUTED));
+                let time_cell =
+                    Cell::from(duration).style(Style::default().fg(palette.text_subtle));
                 Row::new(vec![index_cell, name_cell, artist_cell, time_cell])
             } else {
-                let time_cell = Cell::from(duration).style(Style::default().fg(MUTED));
+                let time_cell =
+                    Cell::from(duration).style(Style::default().fg(palette.text_subtle));
                 Row::new(vec![index_cell, name_cell, time_cell])
             }
         })
@@ -161,19 +168,15 @@ pub(super) fn queue(
             Cell::from("ARTIST"),
             Cell::from(" TIME"),
         ])
-        .style(Style::default().fg(MUTED).bold())
+        .style(table_header_style(theme))
         .bottom_margin(1);
 
         frame.render_stateful_widget(
             Table::new(rows, widths)
                 .header(header)
                 .block(block_themed(title, main && !app.catalog.sidebar, theme))
-                .row_highlight_style(
-                    Style::default()
-                        .fg(theme.primary())
-                        .bg(theme.highlight_bg())
-                        .bold(),
-                ),
+                .row_highlight_style(selected_row_style(theme))
+                .highlight_symbol(selected_marker(theme)),
             area,
             &mut state,
         );
@@ -186,11 +189,8 @@ pub(super) fn queue(
         frame.render_stateful_widget(
             Table::new(rows, widths)
                 .block(block_themed(title, main && !app.catalog.sidebar, theme))
-                .row_highlight_style(
-                    Style::default()
-                        .fg(theme.primary())
-                        .bg(theme.highlight_bg()),
-                ),
+                .row_highlight_style(selected_row_style(theme))
+                .highlight_symbol(selected_marker(theme)),
             area,
             &mut state,
         );

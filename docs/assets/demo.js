@@ -57,11 +57,11 @@
   ];
 
   const themes = [
-    { id: 'theme-spotify', name: 'Classic Spotify' },
-    { id: 'theme-phosphor', name: 'Phosphor Green CRT' },
-    { id: 'theme-amber', name: 'Amber VT220 CRT' },
-    { id: 'theme-monochrome', name: 'Monochrome Silver' },
-    { id: 'theme-cyberpunk', name: 'Cyberpunk Neon' },
+    { id: 'theme-spotify', name: 'Spotify' },
+    { id: 'theme-amber', name: 'Amber' },
+    { id: 'theme-phosphor', name: 'Matrix' },
+    { id: 'theme-cyberpunk', name: 'Cyberpunk' },
+    { id: 'theme-monochrome', name: 'Monochrome' },
   ];
 
   const playlistTrackIds = ['1', '3', '6', '8'];

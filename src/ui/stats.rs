@@ -2,6 +2,7 @@ use super::*;
 
 pub(super) fn stats(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, area: Rect) {
     let theme = Theme::from_str(&app.config.theme);
+    let palette = theme.palette();
     let title = if area.width < 35 {
         " STATS [S/Esc exit] ".to_string()
     } else {
@@ -22,7 +23,7 @@ pub(super) fn stats(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, 
             "\n  No song statistics yet.\n\n  • Play songs to build local listening statistics\n  • Press S or Esc to exit",
         )
         .wrap(Wrap { trim: false })
-        .style(Style::default().fg(MUTED));
+        .style(Style::default().fg(palette.text_muted));
         frame.render_widget(empty_p, inner);
         return;
     }
@@ -41,19 +42,31 @@ pub(super) fn stats(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, 
     ])
     .split(inner);
     let summary = vec![
-        Line::from(format!(
-            "All time: {} | {} plays | {} songs",
-            crate::stats::format_duration(view.total_ms),
-            view.total_plays,
-            view.unique_tracks
+        Line::from(vec![
+            Span::styled("All time: ", Style::default().fg(palette.text_subtle)),
+            Span::styled(
+                format!(
+                    "{} | {} plays | {} songs",
+                    crate::stats::format_duration(view.total_ms),
+                    view.total_plays,
+                    view.unique_tracks
+                ),
+                Style::default().fg(palette.text).bold(),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("Most played: ", Style::default().fg(palette.text_subtle)),
+            Span::styled(
+                view.top_song.clone(),
+                Style::default().fg(palette.primary_soft),
+            ),
+        ]),
+        Line::from(Span::styled(
+            "Local Tuitify playback only; Share = listening time %",
+            Style::default().fg(palette.text_subtle),
         )),
-        Line::from(format!("Most played: {}", view.top_song)),
-        Line::from("Local Tuitify playback only; Share = listening time %"),
     ];
-    frame.render_widget(
-        Paragraph::new(summary).style(Style::default().fg(theme.primary())),
-        areas[0],
-    );
+    frame.render_widget(Paragraph::new(summary), areas[0]);
     let footer = if view.editing {
         format!("Search: {}_ [Enter done]", view.query)
     } else if !view.query.is_empty() {
@@ -67,7 +80,7 @@ pub(super) fn stats(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, 
         format!("/ Search | Tab sort: {} | S/Esc exit", view.sort.label())
     };
     frame.render_widget(
-        Paragraph::new(footer).style(Style::default().fg(MUTED)),
+        Paragraph::new(footer).style(Style::default().fg(palette.text_muted)),
         areas[2],
     );
     let inner = areas[1];
@@ -97,10 +110,10 @@ pub(super) fn stats(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, 
                 Constraint::Length(9),
             ],
             Row::new(vec![
-                Cell::from(" #").style(Style::default().fg(MUTED).bold()),
-                Cell::from("Title").style(Style::default().fg(MUTED).bold()),
-                Cell::from("Plays").style(Style::default().fg(MUTED).bold()),
-                Cell::from("Time").style(Style::default().fg(MUTED).bold()),
+                Cell::from(" #").style(table_header_style(theme)),
+                Cell::from("Title").style(table_header_style(theme)),
+                Cell::from("Plays").style(table_header_style(theme)),
+                Cell::from("Time").style(table_header_style(theme)),
             ]),
         )
     } else {
@@ -114,12 +127,12 @@ pub(super) fn stats(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, 
                 Constraint::Length(6),
             ],
             Row::new(vec![
-                Cell::from(" #").style(Style::default().fg(MUTED).bold()),
-                Cell::from("Title").style(Style::default().fg(MUTED).bold()),
-                Cell::from("Artist").style(Style::default().fg(MUTED).bold()),
-                Cell::from("Plays").style(Style::default().fg(MUTED).bold()),
-                Cell::from("Time").style(Style::default().fg(MUTED).bold()),
-                Cell::from("Share").style(Style::default().fg(MUTED).bold()),
+                Cell::from(" #").style(table_header_style(theme)),
+                Cell::from("Title").style(table_header_style(theme)),
+                Cell::from("Artist").style(table_header_style(theme)),
+                Cell::from("Plays").style(table_header_style(theme)),
+                Cell::from("Time").style(table_header_style(theme)),
+                Cell::from("Share").style(table_header_style(theme)),
             ]),
         )
     };
@@ -141,51 +154,49 @@ pub(super) fn stats(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, 
             } else {
                 " "
             };
-            let rank_str = format!("{}{:>2} ", indicator, idx + 1);
+            let rank_str = format!(
+                "{}{:>2} ",
+                if current {
+                    indicator
+                } else if is_selected {
+                    "▌"
+                } else {
+                    " "
+                },
+                idx + 1
+            );
             let rank_cell = Cell::from(rank_str).style(
                 Style::default()
-                    .fg(if is_selected || current {
-                        theme.primary()
+                    .fg(if current {
+                        palette.primary
+                    } else if is_selected {
+                        palette.primary_soft
                     } else {
-                        MUTED
+                        palette.text_subtle
                     })
                     .bold(),
             );
             let title_cell = Cell::from(stat.name.as_str()).style(
                 Style::default()
-                    .fg(if is_selected || current {
-                        theme.primary()
+                    .fg(if current {
+                        palette.primary
                     } else {
-                        FG
+                        palette.text
                     })
                     .bold(),
             );
-            let plays_cell = Cell::from(format!("{:>5} ", stat.play_count)).style(
-                Style::default().fg(if is_selected || current {
-                    theme.primary()
-                } else {
-                    MUTED
-                }),
-            );
+            let plays_cell = Cell::from(format!("{:>5} ", stat.play_count))
+                .style(Style::default().fg(palette.text_muted));
             let time_cell = Cell::from(format!(
                 "{:>8} ",
                 crate::stats::format_duration(stat.listened_ms)
             ))
-            .style(Style::default().fg(if is_selected || current {
-                theme.primary()
-            } else {
-                MUTED
-            }));
+            .style(Style::default().fg(palette.text_muted));
 
             let mut cells = vec![rank_cell, title_cell];
             if !collapse_artist {
-                let artist_cell = Cell::from(stat.artists.as_str()).style(Style::default().fg(
-                    if is_selected || current {
-                        theme.primary()
-                    } else {
-                        theme.accent_dim()
-                    },
-                ));
+                let artist_cell = Cell::from(stat.artists.as_str())
+                    .style(Style::default().fg(palette.text_muted));
                 cells.push(artist_cell);
             }
             cells.push(plays_cell);
@@ -196,12 +207,15 @@ pub(super) fn stats(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, 
                 } else {
                     stat.listened_ms as f64 / view.total_ms as f64 * 100.0
                 };
-                cells.push(Cell::from(format!("{share:.1}%")));
+                cells.push(
+                    Cell::from(format!("{share:.1}%"))
+                        .style(Style::default().fg(palette.text_subtle)),
+                );
             }
 
             let mut row = Row::new(cells);
             if is_selected {
-                row = row.style(Style::default().bg(theme.highlight_bg()));
+                row = row.style(selected_row_style(theme));
             }
             row
         })
