@@ -848,3 +848,1127 @@ fn authentication_banner_uses_health_instead_of_status_wording() {
         assert_eq!(text.contains("AUTH EXPIRED"), expected);
     }
 }
+
+#[test]
+fn test_format_breadcrumb_trail_basics_and_collapsing() {
+    // 1. Full fit
+    let history = ["Search"];
+    assert_eq!(
+        format_breadcrumb_trail(history, "OK Computer", 80),
+        "Search › OK Computer"
+    );
+
+    // 2. Multi-level full fit
+    let multi = ["Search", "Radiohead"];
+    assert_eq!(
+        format_breadcrumb_trail(multi, "OK Computer", 80),
+        "Search › Radiohead › OK Computer"
+    );
+
+    // 3. Exact width fit
+    let full_len = "Search › OK Computer".chars().count();
+    assert_eq!(
+        format_breadcrumb_trail(history, "OK Computer", full_len),
+        "Search › OK Computer"
+    );
+
+    // 4. Intermediate collapsing with 3+ items
+    let deep = ["Search", "Level 1", "Level 2"];
+    assert_eq!(
+        format_breadcrumb_trail(deep, "Target", 22),
+        "… › Level 2 › Target"
+    );
+
+    // 5. Collapsing to last item
+    assert_eq!(format_breadcrumb_trail(deep, "Target", 12), "… › Target");
+
+    // 6. Two items where "… › current" fits
+    assert_eq!(
+        format_breadcrumb_trail(["Search"], "A Long Title", 16),
+        "… › A Long Title"
+    );
+
+    // 7. Narrow width truncates with ellipsis
+    let res = format_breadcrumb_trail(["Search"], "Extremely Long Title", 10);
+    assert!(res.ends_with('…'), "expected ellipsis at end, got {res}");
+    assert!(
+        res.chars().count() <= 10,
+        "expected <= 10 chars, got {}",
+        res.chars().count()
+    );
+
+    // 8. Empty history returns title
+    assert_eq!(
+        format_breadcrumb_trail(std::iter::empty::<&str>(), "Search", 80),
+        "Search"
+    );
+
+    // 9. Zero max_width returns full string without truncating
+    assert_eq!(
+        format_breadcrumb_trail(["Search", "Rock"], "Radiohead", 0),
+        "Search › Rock › Radiohead"
+    );
+}
+
+#[test]
+fn test_album_tracklist_ui_rendering() {
+    let mut app = App::new(Config::default(), Queue::default());
+    app.catalog.view = View::Album;
+    app.catalog.title = "OK Computer".into();
+
+    let t1 = Track {
+        id: "1".repeat(22),
+        name: "Airbag".into(),
+        artists: "Radiohead".into(),
+        duration_ms: 284_000,
+        playable: true,
+        track_number: Some(1),
+        album: Some("OK Computer".into()),
+        album_id: Some("album1".into()),
+        ..Default::default()
+    };
+    let t2 = Track {
+        id: "2".repeat(22),
+        name: "Paranoid Android".into(),
+        artists: "Radiohead".into(),
+        duration_ms: 383_000,
+        playable: false,
+        track_number: Some(2),
+        album: Some("OK Computer".into()),
+        album_id: Some("album1".into()),
+        ..Default::default()
+    };
+    let t3 = Track {
+        id: "3".repeat(22),
+        name: "Subterranean Homesick Alien".into(),
+        artists: "Radiohead".into(),
+        duration_ms: 267_000,
+        playable: true,
+        track_number: None, // fallback to sequence
+        album: Some("OK Computer".into()),
+        album_id: Some("album1".into()),
+        ..Default::default()
+    };
+
+    app.catalog.rows = Rows::Tracks(vec![t1.clone(), t2.clone(), t3.clone()]);
+    app.cache.insert(t1.id.clone(), t1.clone());
+    app.cache.insert(t2.id.clone(), t2.clone());
+    app.cache.insert(t3.id.clone(), t3.clone());
+
+    let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
+    terminal
+        .draw(|f| draw(f, &app, &mut app.ui.render.borrow_mut()))
+        .unwrap();
+
+    let text = terminal
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|c| c.symbol())
+        .collect::<String>();
+
+    assert!(text.contains("OK Computer"), "Missing album title: {text}");
+    assert!(text.contains("TITLE"), "Missing TITLE column: {text}");
+    assert!(text.contains("ARTIST"), "Missing ARTIST column: {text}");
+    assert!(text.contains("TIME"), "Missing TIME column: {text}");
+    assert!(text.contains("Airbag"), "Missing track 1: {text}");
+    assert!(
+        text.contains("Paranoid Android [unavailable]"),
+        "Missing unavailable track 2: {text}"
+    );
+    assert!(
+        text.contains("Subterranean Homesick Alien"),
+        "Missing track 3: {text}"
+    );
+    assert!(
+        text.contains("4:44"),
+        "Missing duration for track 1: {text}"
+    );
+
+    // Test empty album message
+    app.catalog.rows = Rows::Tracks(vec![]);
+    terminal
+        .draw(|f| draw(f, &app, &mut app.ui.render.borrow_mut()))
+        .unwrap();
+    let empty_text = terminal
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|c| c.symbol())
+        .collect::<String>();
+    assert!(
+        empty_text.contains("No tracks found in this album."),
+        "{empty_text}"
+    );
+    assert!(
+        empty_text.contains("Esc  Go back to previous view"),
+        "{empty_text}"
+    );
+}
+
+#[test]
+fn test_artist_top_tracks_ui_rendering() {
+    let mut app = App::new(Config::default(), Queue::default());
+    app.catalog.view = View::Artist;
+    app.catalog.title = "Radiohead • Top Tracks".into();
+
+    let t1 = Track {
+        id: "1".repeat(22),
+        name: "Creep".into(),
+        artists: "Radiohead".into(),
+        duration_ms: 238_000,
+        playable: true,
+        album: Some("Pablo Honey".into()),
+        ..Default::default()
+    };
+    let t2 = Track {
+        id: "2".repeat(22),
+        name: "Karma Police".into(),
+        artists: "Radiohead".into(),
+        duration_ms: 261_000,
+        playable: true,
+        album: None, // fallback to "-"
+        ..Default::default()
+    };
+    let t3 = Track {
+        id: "3".repeat(22),
+        name: "No Surprises".into(),
+        artists: "Radiohead".into(),
+        duration_ms: 228_000,
+        playable: false,
+        album: Some("OK Computer".into()),
+        ..Default::default()
+    };
+
+    app.catalog.rows = Rows::Tracks(vec![t1.clone(), t2.clone(), t3.clone()]);
+    app.cache.insert(t1.id.clone(), t1.clone());
+    app.cache.insert(t2.id.clone(), t2.clone());
+    app.cache.insert(t3.id.clone(), t3.clone());
+
+    let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
+    terminal
+        .draw(|f| draw(f, &app, &mut app.ui.render.borrow_mut()))
+        .unwrap();
+
+    let text = terminal
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|c| c.symbol())
+        .collect::<String>();
+
+    assert!(
+        text.contains("Radiohead • Top Tracks"),
+        "Missing artist title: {text}"
+    );
+    assert!(text.contains("TITLE"), "Missing TITLE column: {text}");
+    assert!(
+        text.contains("ALBUM"),
+        "Artist view must have ALBUM header: {text}"
+    );
+    assert!(
+        text.contains("Pablo Honey"),
+        "Missing album name for track 1: {text}"
+    );
+    assert!(text.contains("Karma Police"), "Missing track 2: {text}");
+    assert!(
+        text.contains("No Surprises [unavailable]"),
+        "Missing unavailable track 3: {text}"
+    );
+
+    // Test empty artist message
+    app.catalog.rows = Rows::Tracks(vec![]);
+    terminal
+        .draw(|f| draw(f, &app, &mut app.ui.render.borrow_mut()))
+        .unwrap();
+    let empty_text = terminal
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|c| c.symbol())
+        .collect::<String>();
+    assert!(
+        empty_text.contains("No top tracks found for this artist."),
+        "{empty_text}"
+    );
+    assert!(
+        empty_text.contains("Esc  Go back to previous view"),
+        "{empty_text}"
+    );
+}
+
+#[test]
+fn test_breadcrumb_ui_header_rendering() {
+    let mut app = App::new(Config::default(), Queue::default());
+    // Simulate navigation from Search to Album
+    app.catalog.title = "Search".into();
+    app.push_navigation("Search".into());
+    app.catalog.view = View::Album;
+    app.catalog.title = "OK Computer".into();
+    app.catalog.rows = Rows::Tracks(vec![Track {
+        id: "1".repeat(22),
+        name: "Airbag".into(),
+        artists: "Radiohead".into(),
+        duration_ms: 284_000,
+        playable: true,
+        track_number: Some(1),
+        ..Default::default()
+    }]);
+
+    let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
+    terminal
+        .draw(|f| draw(f, &app, &mut app.ui.render.borrow_mut()))
+        .unwrap();
+
+    let text = terminal
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|c| c.symbol())
+        .collect::<String>();
+
+    assert!(
+        text.contains("Search › OK Computer"),
+        "Breadcrumb header missing: {text}"
+    );
+
+    // Simulate multi-level navigation: Search -> OK Computer -> Radiohead • Top Tracks
+    app.push_navigation("OK Computer".into());
+    app.catalog.view = View::Artist;
+    app.catalog.title = "Radiohead • Top Tracks".into();
+
+    terminal
+        .draw(|f| draw(f, &app, &mut app.ui.render.borrow_mut()))
+        .unwrap();
+
+    let text2 = terminal
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|c| c.symbol())
+        .collect::<String>();
+
+    assert!(
+        text2.contains("Search › OK Computer › Radiohead • Top Tracks"),
+        "Multi-level breadcrumb header missing: {text2}"
+    );
+
+    // Narrow terminal bounds test (48 columns) - ensure it renders without panic and truncates gracefully
+    let mut narrow_terminal = Terminal::new(TestBackend::new(48, 18)).unwrap();
+    narrow_terminal
+        .draw(|f| draw(f, &app, &mut app.ui.render.borrow_mut()))
+        .unwrap();
+    let narrow_text = narrow_terminal
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|c| c.symbol())
+        .collect::<String>();
+    assert!(narrow_text.contains("TUITIFY"));
+    // Header should fit within 48 width and show collapsed or truncated trail
+    assert!(narrow_text.contains('…') || narrow_text.contains("Top Tracks"));
+}
+
+#[test]
+fn test_help_shortcuts_documented() {
+    let mut app = App::new(Config::default(), Queue::default());
+    app.catalog.view = View::Help;
+
+    let mut terminal = Terminal::new(TestBackend::new(160, 60)).unwrap();
+    terminal
+        .draw(|f| draw(f, &app, &mut app.ui.render.borrow_mut()))
+        .unwrap();
+
+    let text = terminal
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|c| c.symbol())
+        .collect::<String>();
+
+    assert!(
+        text.contains("View album for selected track"),
+        "Missing 'a' shortcut: {text}"
+    );
+    assert!(
+        text.contains("View artist top tracks"),
+        "Missing 'Shift+A / A' shortcut: {text}"
+    );
+    assert!(
+        text.contains("Add selected track to queue"),
+        "Missing 'e' shortcut: {text}"
+    );
+    assert!(
+        text.contains("Play next (in Album/Artist views) / Previous track"),
+        "Missing 'p' shortcut: {text}"
+    );
+    assert!(
+        text.contains("Back to previous view / Close overlay / Quit"),
+        "Missing 'Esc' shortcut: {text}"
+    );
+
+    // Also verify when scrolled down in normal terminal height (35 lines)
+    let mut terminal_35 = Terminal::new(TestBackend::new(120, 35)).unwrap();
+    app.catalog.selected = 25;
+    terminal_35
+        .draw(|f| draw(f, &app, &mut app.ui.render.borrow_mut()))
+        .unwrap();
+    let scrolled_text = terminal_35
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|c| c.symbol())
+        .collect::<String>();
+    assert!(
+        scrolled_text.contains("Add selected track to queue"),
+        "Missing 'e' shortcut in scrolled view: {scrolled_text}"
+    );
+}
+
+#[test]
+fn test_center_delegates_album_and_artist() {
+    let mut app = App::new(Config::default(), Queue::default());
+    let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+
+    // Album view
+    app.catalog.view = View::Album;
+    app.catalog.title = "In Rainbows".into();
+    app.catalog.rows = Rows::Tracks(vec![Track {
+        id: "1".repeat(22),
+        name: "15 Step".into(),
+        artists: "Radiohead".into(),
+        duration_ms: 237_000,
+        playable: true,
+        track_number: Some(1),
+        ..Default::default()
+    }]);
+
+    terminal
+        .draw(|f| draw(f, &app, &mut app.ui.render.borrow_mut()))
+        .unwrap();
+    let text = terminal
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|c| c.symbol())
+        .collect::<String>();
+    assert!(text.contains("In Rainbows"), "{text}");
+    assert!(text.contains("15 Step"), "{text}");
+
+    // Artist view
+    app.catalog.view = View::Artist;
+    app.catalog.title = "Radiohead • Top Tracks".into();
+    app.catalog.rows = Rows::Tracks(vec![Track {
+        id: "2".repeat(22),
+        name: "Karma Police".into(),
+        artists: "Radiohead".into(),
+        duration_ms: 261_000,
+        playable: true,
+        album: Some("OK Computer".into()),
+        ..Default::default()
+    }]);
+
+    terminal
+        .draw(|f| draw(f, &app, &mut app.ui.render.borrow_mut()))
+        .unwrap();
+    let text2 = terminal
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|c| c.symbol())
+        .collect::<String>();
+    assert!(text2.contains("Karma Police"), "{text2}");
+    assert!(text2.contains("ALBUM"), "{text2}");
+}
+
+#[test]
+fn test_adversarial_album_tracklist_rendering() {
+    let mut app = App::new(Config::default(), Queue::default());
+    app.catalog.view = View::Album;
+    app.catalog.title = "OK Computer".into();
+
+    // 1. Tracks with track_number: None (sequence fallback) and large track numbers (e.g. disc 2 track 45)
+    let tracks = vec![
+        Track {
+            id: "1".repeat(22),
+            name: "Airbag".into(),
+            artists: "Radiohead".into(),
+            duration_ms: 284_000,
+            playable: true,
+            track_number: None, // Sequence fallback -> 1
+            ..Default::default()
+        },
+        Track {
+            id: "2".repeat(22),
+            name: "Paranoid Android".into(),
+            artists: "Radiohead".into(),
+            duration_ms: 383_000,
+            playable: true,
+            track_number: Some(2),
+            ..Default::default()
+        },
+        Track {
+            id: "3".repeat(22),
+            name: "Subterranean Homesick Alien".into(),
+            artists: "Radiohead".into(),
+            duration_ms: 267_000,
+            playable: true,
+            track_number: None, // Sequence fallback -> 3
+            ..Default::default()
+        },
+        Track {
+            id: "4".repeat(22),
+            name: "Exit Music (For a Film)".into(),
+            artists: "Radiohead".into(),
+            duration_ms: 264_000,
+            playable: true,
+            track_number: Some(45), // Large track number (disc 2 track 45)
+            ..Default::default()
+        },
+        Track {
+            id: "5".repeat(22),
+            name: "Let Down".into(),
+            artists: "Radiohead".into(),
+            duration_ms: 299_000,
+            playable: true,
+            track_number: Some(99), // 2-digit max
+            ..Default::default()
+        },
+        Track {
+            id: "6".repeat(22),
+            name: "Karma Police".into(),
+            artists: "Radiohead".into(),
+            duration_ms: 261_000,
+            playable: true,
+            track_number: Some(120), // 3-digit large track number
+            ..Default::default()
+        },
+    ];
+
+    app.catalog.rows = Rows::Tracks(tracks);
+    let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
+    terminal
+        .draw(|f| draw(f, &app, &mut app.ui.render.borrow_mut()))
+        .unwrap();
+
+    let buffer = terminal.backend().buffer();
+    let mut rendered_lines = Vec::new();
+    for y in 0..buffer.area.height {
+        let mut line = String::new();
+        for x in 0..buffer.area.width {
+            line.push_str(buffer[(x, y)].symbol());
+        }
+        rendered_lines.push(line);
+    }
+    let all_text = rendered_lines.join("\n");
+
+    // Verify track 1 sequence fallback (1)
+    assert!(all_text.contains("Airbag"), "Missing Airbag: {all_text}");
+    assert!(
+        rendered_lines
+            .iter()
+            .any(|l| l.contains("  1 ") && l.contains("Airbag")),
+        "Track 1 should render sequence fallback '  1 ':\n{all_text}"
+    );
+
+    // Verify track 2 explicit track_number (2)
+    assert!(
+        rendered_lines
+            .iter()
+            .any(|l| l.contains("  2 ") && l.contains("Paranoid Android")),
+        "Track 2 should render track_number '  2 ':\n{all_text}"
+    );
+
+    // Verify track 3 sequence fallback (3)
+    assert!(
+        rendered_lines
+            .iter()
+            .any(|l| l.contains("  3 ") && l.contains("Subterranean")),
+        "Track 3 should render sequence fallback '  3 ':\n{all_text}"
+    );
+
+    // Verify track 4 large track number 45 (disc 2 track 45)
+    assert!(
+        rendered_lines
+            .iter()
+            .any(|l| l.contains(" 45 ") && l.contains("Exit Music")),
+        "Track 4 should render large track_number ' 45 ':\n{all_text}"
+    );
+
+    // Verify track 5 track number 99
+    assert!(
+        rendered_lines
+            .iter()
+            .any(|l| l.contains(" 99 ") && l.contains("Let Down")),
+        "Track 5 should render track_number ' 99 ':\n{all_text}"
+    );
+
+    // Verify track 6 3-digit track number 120
+    assert!(
+        rendered_lines
+            .iter()
+            .any(|l| l.contains("120 ") && l.contains("Karma Police")),
+        "Track 6 should render 3-digit track_number '120 ':\n{all_text}"
+    );
+
+    // 2. 100% unplayable albums
+    let unplayable_tracks: Vec<Track> = (1..=5)
+        .map(|i| Track {
+            id: format!("{:022}", i),
+            name: format!("Track {i}"),
+            artists: "Various Artists".into(),
+            duration_ms: 180_000,
+            playable: false,
+            track_number: Some(i),
+            ..Default::default()
+        })
+        .collect();
+
+    app.catalog.rows = Rows::Tracks(unplayable_tracks);
+    terminal
+        .draw(|f| draw(f, &app, &mut app.ui.render.borrow_mut()))
+        .unwrap();
+
+    let unplayable_text = terminal
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|c| c.symbol())
+        .collect::<String>();
+
+    for i in 1..=5 {
+        assert!(
+            unplayable_text.contains(&format!("Track {i} [unavailable]")),
+            "Missing unavailable tag for track {i}: {unplayable_text}"
+        );
+    }
+    // Verify it doesn't show empty message
+    assert!(
+        !unplayable_text.contains("No tracks found in this album"),
+        "Unplayable album should render rows, not empty message: {unplayable_text}"
+    );
+
+    // Verify DIM style on unplayable tracks
+    let unplayable_buffer = terminal.backend().buffer();
+    let has_dim = unplayable_buffer
+        .content
+        .iter()
+        .any(|cell| cell.modifier.contains(Modifier::DIM));
+    assert!(has_dim, "Unplayable track titles must have DIM modifier");
+
+    // 3. Empty album states
+    app.catalog.rows = Rows::Tracks(vec![]);
+    terminal
+        .draw(|f| draw(f, &app, &mut app.ui.render.borrow_mut()))
+        .unwrap();
+    let empty_text = terminal
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|c| c.symbol())
+        .collect::<String>();
+    assert!(
+        empty_text.contains("No tracks found in this album."),
+        "Empty album missing guidance: {empty_text}"
+    );
+    assert!(
+        empty_text.contains("Esc  Go back to previous view"),
+        "Empty album missing Esc hint: {empty_text}"
+    );
+
+    // Empty album while busy loading
+    app.catalog.busy = true;
+    terminal
+        .draw(|f| draw(f, &app, &mut app.ui.render.borrow_mut()))
+        .unwrap();
+    let busy_text = terminal
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|c| c.symbol())
+        .collect::<String>();
+    assert!(
+        busy_text.contains("Loading tracks"),
+        "Busy album should show loading tracks: {busy_text}"
+    );
+    app.catalog.busy = false;
+
+    // Verify that empty album specifically presents album guidance, not playlist or liked filter message
+    assert!(
+        empty_text.contains("No tracks found in this album."),
+        "Empty album should show specific album guidance: {empty_text}"
+    );
+}
+
+#[test]
+fn test_adversarial_artist_top_tracks_rendering() {
+    let mut app = App::new(Config::default(), Queue::default());
+    app.catalog.view = View::Artist;
+    app.catalog.title = "Radiohead • Top Tracks".into();
+
+    // 1. 0 tracks (empty state)
+    app.catalog.rows = Rows::Tracks(vec![]);
+    let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
+    terminal
+        .draw(|f| draw(f, &app, &mut app.ui.render.borrow_mut()))
+        .unwrap();
+    let empty_text = terminal
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|c| c.symbol())
+        .collect::<String>();
+    assert!(
+        empty_text.contains("No top tracks found for this artist."),
+        "Empty artist missing guidance: {empty_text}"
+    );
+    assert!(
+        empty_text.contains("Esc  Go back to previous view"),
+        "Empty artist missing Esc hint: {empty_text}"
+    );
+
+    // 2. Exactly 1 track
+    let single_track = vec![Track {
+        id: "1".repeat(22),
+        name: "Creep".into(),
+        artists: "Radiohead".into(),
+        duration_ms: 238_000,
+        playable: true,
+        album: Some("Pablo Honey".into()),
+        ..Default::default()
+    }];
+    app.catalog.rows = Rows::Tracks(single_track);
+    terminal
+        .draw(|f| draw(f, &app, &mut app.ui.render.borrow_mut()))
+        .unwrap();
+    let single_text = terminal
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|c| c.symbol())
+        .collect::<String>();
+    assert!(single_text.contains("ALBUM"), "Missing ALBUM column header");
+    assert!(single_text.contains("Creep"), "Missing track title");
+    assert!(single_text.contains("Pablo Honey"), "Missing album name");
+    assert!(single_text.contains("3:58"), "Missing duration");
+
+    // 3. Exactly 10 tracks (standard Spotify top-tracks count)
+    let ten_tracks: Vec<Track> = (1..=10)
+        .map(|i| Track {
+            id: format!("{:022}", i),
+            name: format!("Top Song {i}"),
+            artists: "Radiohead".into(),
+            duration_ms: 200_000 + (i as u32 * 10_000),
+            playable: true,
+            album: if i == 5 {
+                None // 4. album: None fallback test
+            } else if i == 7 {
+                // 5. long album name test
+                Some(
+                    "The Rise and Fall of Ziggy Stardust and the Spiders from Mars (2012 Remaster)"
+                        .into(),
+                )
+            } else {
+                Some(format!("Album {i}"))
+            },
+            ..Default::default()
+        })
+        .collect();
+
+    app.catalog.rows = Rows::Tracks(ten_tracks);
+    terminal
+        .draw(|f| draw(f, &app, &mut app.ui.render.borrow_mut()))
+        .unwrap();
+
+    let buffer = terminal.backend().buffer();
+    let mut lines = Vec::new();
+    for y in 0..buffer.area.height {
+        let mut line = String::new();
+        for x in 0..buffer.area.width {
+            line.push_str(buffer[(x, y)].symbol());
+        }
+        lines.push(line);
+    }
+    let all_text = lines.join("\n");
+
+    // Verify all ranks 1..=10 rendered in sequential order
+    for rank in 1..=10 {
+        let rank_str = format!("{:>3}", rank);
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.contains(&rank_str) && l.contains(&format!("Top Song {rank}"))),
+            "Missing rank {rank} for Top Song {rank}:\n{all_text}"
+        );
+    }
+
+    // Verify rank 10 doesn't distort alignment (contains " 10 ")
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.contains(" 10 ") && l.contains("Top Song 10")),
+        "Rank 10 formatting issue:\n{all_text}"
+    );
+
+    // Verify track 5 with album: None falls back to "-"
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.contains("Top Song 5") && l.contains(" - ")),
+        "Track 5 with album: None must render '-' in ALBUM column:\n{all_text}"
+    );
+
+    // Verify track 7 with long album name renders without panic and truncates/clips cleanly
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.contains("Top Song 7") && l.contains("The Rise and Fall")),
+        "Track 7 with long album name should render cleanly:\n{all_text}"
+    );
+
+    // Verify header switches to ALBUM instead of ARTIST
+    assert!(
+        all_text.contains("ALBUM"),
+        "Header must have ALBUM: {all_text}"
+    );
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.contains("   #    ") && l.contains("TITLE") && l.contains("ALBUM")),
+        "Header row structure check:\n{all_text}"
+    );
+}
+
+#[test]
+fn test_adversarial_width_scaling_and_alignment() {
+    let mut app = App::new(Config::default(), Queue::default());
+    app.catalog.view = View::Artist;
+    app.catalog.title = "David Bowie • Top Tracks".into();
+
+    let tracks = vec![
+        Track {
+            id: "1".repeat(22),
+            name: "Space Oddity".into(),
+            artists: "David Bowie".into(),
+            duration_ms: 318_000,
+            playable: true,
+            album: Some("David Bowie (Space Oddity)".into()),
+            ..Default::default()
+        },
+        Track {
+            id: "2".repeat(22),
+            name: "Heroes - 2017 Remaster".into(),
+            artists: "David Bowie".into(),
+            duration_ms: 371_000,
+            playable: true,
+            album: Some("Heroes (2017 Remaster)".into()),
+            ..Default::default()
+        },
+        Track {
+            id: "3".repeat(22),
+            name: "Starman - 2012 Remaster".into(),
+            artists: "David Bowie".into(),
+            duration_ms: 254_000,
+            playable: false,
+            album: Some("The Rise and Fall of Ziggy Stardust and the Spiders from Mars".into()),
+            ..Default::default()
+        },
+    ];
+    app.catalog.rows = Rows::Tracks(tracks);
+
+    // Width test cases:
+    // Narrow widths (<= 90 cols): 48, 70, 80, 90
+    // Wide widths (> 90 cols): 91, 100, 120, 160
+    let test_widths = [48, 70, 80, 90, 91, 100, 120, 160];
+
+    for &width in &test_widths {
+        let mut terminal = Terminal::new(TestBackend::new(width, 24)).unwrap();
+        terminal
+            .draw(|f| draw(f, &app, &mut app.ui.render.borrow_mut()))
+            .unwrap();
+
+        let buffer = terminal.backend().buffer();
+        let mut lines = Vec::new();
+        for y in 0..buffer.area.height {
+            let mut line = String::new();
+            for x in 0..buffer.area.width {
+                line.push_str(buffer[(x, y)].symbol());
+            }
+            lines.push(line);
+        }
+        let full_text = lines.join("\n");
+
+        // Verify fundamental elements render at every size without panic or crash
+        assert!(
+            full_text.contains("Space Oddity"),
+            "Width {width}: Space Oddity not found:\n{full_text}"
+        );
+
+        if width >= 60 {
+            // Check that TITLE column header is present
+            assert!(
+                full_text.contains("TITLE"),
+                "Width {width}: missing TITLE header"
+            );
+        }
+
+        if width <= 90 {
+            // Narrow width checks:
+            // Ensure column widths and truncation remain aligned and readable.
+            if width == 48 {
+                // At width 48, terminal is compact and TIME column is 0 width.
+                // Title should still be visible and readable
+                assert!(full_text.contains("Space Oddity"));
+            } else if width == 80 {
+                // At width 80 (sidebar 24 + center 56), center < 60, TIME column is suppressed
+                // Title and Album should be readable without overlap
+                assert!(full_text.contains("Space Oddity"));
+            } else if width == 90 {
+                // At width 90 (sidebar 24 + center 66), center >= 60, TIME column is visible
+                assert!(full_text.contains("5:18")); // Space Oddity duration
+            }
+        } else {
+            // Wide width checks (> 90 cols):
+            // Widths 91, 100, 120, 160
+            assert!(full_text.contains("TITLE"));
+            assert!(full_text.contains("ALBUM"));
+            assert!(full_text.contains("5:18")); // Space Oddity duration
+            assert!(full_text.contains("6:11")); // Heroes duration
+        }
+    }
+}
+
+#[test]
+fn test_breadcrumb_adversarial_deep_nesting_and_width_fuzzing() {
+    let history: Vec<String> = (1..=20).map(|i| format!("Level {:02}", i)).collect();
+    let history_refs: Vec<&str> = history.iter().map(|s| s.as_str()).collect();
+    let current_title = "Final Destination Album";
+
+    // Test across a full spectrum of widths: 0 to 300
+    for width in 0..=300 {
+        let trail = format_breadcrumb_trail(history_refs.iter().copied(), current_title, width);
+        if width > 0 {
+            assert!(
+                trail.chars().count() <= width,
+                "Width violation at max_width={width}: got len {} with content '{trail}'",
+                trail.chars().count()
+            );
+        } else {
+            // max_width == 0 is unbounded contract
+            assert_eq!(
+                trail,
+                format!("{} › {}", history.join(" › "), current_title)
+            );
+        }
+
+        // At very wide width (>= 260), entire 20-level trail must be present
+        if width >= 260 {
+            assert!(trail.starts_with("Level 01 › Level 02"));
+            assert!(trail.ends_with("Level 20 › Final Destination Album"));
+        }
+
+        // At standard 80 cols, must be collapsed and contain ellipsis
+        if width == 80 {
+            assert!(trail.starts_with("… › "));
+            assert!(trail.ends_with("Final Destination Album"));
+            assert!(trail.chars().count() <= 80);
+        }
+
+        // At narrow 40 cols, must fit
+        if width == 40 {
+            assert!(trail.chars().count() <= 40);
+        }
+
+        // At very narrow 20 cols, must fit
+        if width == 20 {
+            assert!(trail.chars().count() <= 20);
+        }
+    }
+}
+
+#[test]
+fn test_breadcrumb_adversarial_unicode_emojis_rtl_and_extreme_lengths() {
+    let extreme_cases = [
+        // 1. Extreme length (150+ chars ASCII)
+        "The Rise and Fall of Ziggy Stardust and the Spiders from Mars (50th Anniversary Half-Speed Mastered Edition) [2022 Remaster] - Super Deluxe Extended Edition",
+        // 2. Japanese (CJK)
+        "シン・エヴァンゲリオン劇場版:|| 原声音乐集 • 鷺巣詩郎",
+        // 3. Chinese
+        "千里江山图 • 故宫博物院院藏古琴音乐合辑",
+        // 4. Arabic (RTL)
+        "فيروز • أروع ما غنت فيروز في مسرحيات الرحابنة",
+        // 5. Hebrew (RTL)
+        "שלום עליכם • אלבום מופת ישראלי לכל הזמנים",
+        // 6. Cyrillic
+        "Чайковский • Лебединое озеро (Полная версия)",
+        // 7. Greek
+        "Μίκης Θεοδωράκης • Το Άξιον Εστί",
+        // 8. Single and Multi-byte emojis
+        "🔥 Summer Hits 2026 🌴 🎧 🎵 💃 ✨ 🚀 🏖️",
+        // 9. Complex ZWJ sequence emojis (Family, Rainbow Flag, etc.)
+        "👨‍👩‍👧‍👦 Family Band 🏳️‍🌈 Pride Anthems 🧑‍💻 Coding Beats",
+        // 10. Combining diacritics / Zalgo
+        "Ẑa̗ĺğò D́ëât́ḧ Ḿët́âĺ",
+        // 11. Empty and single character
+        "",
+        "X",
+        "🎵",
+        // 12. Whitespace and punctuation
+        "   ",
+        "!!! ??? *** / \\ | < > : \" '",
+    ];
+
+    let history_cases: &[&[&str]] = &[
+        &[],                                     // empty history
+        &["Search"],                             // 1-item
+        &["Search", "Rock"],                     // 2-item
+        &["Search", "Rock", "90s", "Radiohead"], // multi-item
+        &["", "Search", "", "Rock", ""],         // empty history elements
+        &["🔍 Поиск", "🎸 ロック", "🎶 עִבְרִית"],  // Unicode history
+    ];
+
+    let test_widths = [
+        0, 1, 2, 3, 4, 5, 10, 15, 20, 25, 30, 40, 50, 80, 100, 120, 160, 200, 300,
+    ];
+
+    for history in history_cases {
+        for title in extreme_cases {
+            for &width in &test_widths {
+                let trail = format_breadcrumb_trail(history.iter().copied(), title, width);
+                if width > 0 {
+                    assert!(
+                        trail.chars().count() <= width,
+                        "Truncation failed at width={width} for title='{title}': got len {} with result '{trail}'",
+                        trail.chars().count()
+                    );
+                }
+
+                // Verify valid UTF-8 and no panic on byte boundaries
+                let _ = trail.as_bytes();
+                for c in trail.chars() {
+                    let mut b = [0u8; 4];
+                    c.encode_utf8(&mut b);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn test_breadcrumb_adversarial_full_ui_render_widths() {
+    let mut app = App::new(Config::default(), Queue::default());
+
+    // Setup 20 navigation history entries with various titles
+    for i in 1..=20 {
+        app.push_navigation(format!("Level {:02} 🎵", i));
+    }
+    app.catalog.view = View::Album;
+    app.catalog.title =
+        "極道 • The Extreme Length Japanese & Arabic فيروز Album (Deluxe Edition) 🚀".into();
+    app.catalog.rows = Rows::Tracks(vec![Track {
+        id: "1".repeat(22),
+        name: "Test Track 1".into(),
+        artists: "Test Artist".into(),
+        duration_ms: 200_000,
+        playable: true,
+        track_number: Some(1),
+        ..Default::default()
+    }]);
+
+    let test_dimensions = [
+        (200, 50), // Ultra wide
+        (120, 35), // Wide
+        (80, 24),  // Standard
+        (40, 20),  // Narrow
+        (20, 15),  // Very narrow
+        (15, 10),  // Tiny
+        (10, 8),   // Extremely tiny
+        (5, 5),    // Micro
+    ];
+
+    for (w, h) in test_dimensions {
+        // Test normal view
+        let mut term = Terminal::new(TestBackend::new(w, h)).unwrap();
+        term.draw(|f| draw(f, &app, &mut app.ui.render.borrow_mut()))
+            .unwrap();
+
+        // Test with active filter
+        app.catalog.filter = "Track".into();
+        app.catalog.filtering = true;
+        term.draw(|f| draw(f, &app, &mut app.ui.render.borrow_mut()))
+            .unwrap();
+
+        // Test with busy loading indicator
+        app.catalog.busy = true;
+        term.draw(|f| draw(f, &app, &mut app.ui.render.borrow_mut()))
+            .unwrap();
+
+        // Reset filter/busy
+        app.catalog.filter.clear();
+        app.catalog.filtering = false;
+        app.catalog.busy = false;
+    }
+}
+
+#[test]
+fn test_breadcrumb_history_variations_ui_behavior() {
+    let mut app = App::new(Config::default(), Queue::default());
+    app.catalog.view = View::Album;
+    app.catalog.title = "Current Album".into();
+
+    // 1. Empty history: catalog header displays catalog.title directly without breadcrumb separator
+    let mut term = Terminal::new(TestBackend::new(80, 24)).unwrap();
+    term.draw(|f| draw(f, &app, &mut app.ui.render.borrow_mut()))
+        .unwrap();
+    let text_empty = term
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|c| c.symbol())
+        .collect::<String>();
+    assert!(text_empty.contains("Current Album"));
+    assert!(!text_empty.contains('›'));
+
+    // 2. 1-item history: "Search" -> "Current Album"
+    app.push_navigation("Search".into());
+    term.draw(|f| draw(f, &app, &mut app.ui.render.borrow_mut()))
+        .unwrap();
+    let text_1 = term
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|c| c.symbol())
+        .collect::<String>();
+    assert!(text_1.contains("Search › Current Album"));
+
+    // 3. Multi-item history: "Search" -> "Radiohead" -> "Current Album"
+    app.push_navigation("Radiohead".into());
+    term.draw(|f| draw(f, &app, &mut app.ui.render.borrow_mut()))
+        .unwrap();
+    let text_multi = term
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|c| c.symbol())
+        .collect::<String>();
+    assert!(text_multi.contains("Search › Radiohead › Current Album"));
+}

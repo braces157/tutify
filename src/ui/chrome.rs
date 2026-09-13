@@ -111,6 +111,9 @@ pub(super) fn footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
         push_hint(&mut hints, "Esc", "Cancel", false, theme);
     } else {
         push_hint(&mut hints, "Space", "Play/Pause", true, theme);
+        if !app.catalog.history.is_empty() {
+            push_hint(&mut hints, "Esc", "Back", false, theme);
+        }
         push_hint(
             &mut hints,
             "/",

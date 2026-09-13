@@ -418,3 +418,32 @@ PATH installer under `scripts/install.ps1`.
 Live Spotify catalog/playback, audible output, physical media keys, LRCLIB, and
 Discord presentation were not exercised for this release and remain
 environment-specific acceptance checks.
+
+## Version 0.2.8 release milestone — 2026-09-13
+
+Reviewed and built the native Album and Artist browsing milestone with dynamic
+breadcrumb navigation, view stack history, track context menu actions, universal
+Spotify URI/URL search resolution, and offline demo catalog datasets. The navigation
+stack preserves view, browse, rows, selected cursor, scroll offset, and breadcrumb
+trail, popping cleanly with Esc without issuing redundant network requests. The
+search parser accepts standard URIs, web URLs, internationalized locale paths,
+and query parameters for tracks, albums, and artists. Track context menus expose
+"View Album" and "View Artist" on all individual track rows while appropriately
+excluding them from playlist directory rows.
+
+Checks executed on Windows:
+
+- `cargo fmt --check`: passed with zero formatting diffs.
+- `cargo test --locked`: **278 passed, 0 failed, 5 ignored**. Coverage expanded
+  from 193 to 278 tests, including navigation stack transitions, breadcrumb trail
+  formatting and adversarial width fuzzing, context menu hit-testing and revision
+  guards, universal URI/URL parsing, and offline demo catalog parity.
+- `cargo clippy --all-targets --locked -- -D warnings`: passed cleanly with zero warnings.
+- `cargo build --release --locked`: passed, producing optimized `target\release\tuitify.exe`.
+- `npm test`: **11 Microsoft Edge Playwright tests passed** with zero vulnerabilities.
+- Native demo exercised in real PTY: tested `tuitify demo` with album tracklist
+  inspection (`a`), artist top tracks discovery (`Shift+A`), breadcrumb header
+  rendering, and `Esc` back-navigation without Spotify credentials or network access.
+
+Live Spotify streaming audio, physical media keys, and live account authentication
+remain environment-specific acceptance checks and were not exercised for this build.

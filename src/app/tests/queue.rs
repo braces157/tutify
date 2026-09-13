@@ -1,4 +1,5 @@
 use super::*;
+use crate::model::Repeat;
 
 #[tokio::test]
 async fn shift_j_reorders_and_page_down_only_navigates() {
@@ -206,4 +207,134 @@ fn undo_history_is_bounded_by_action_count_and_total_tracks() {
         100_000
     );
     assert_eq!(app.undo.len(), 2);
+}
+
+#[test]
+fn time_to_preload_triggers_next_track_preload_and_updates_on_play_next() {
+    let mut q = Queue::default();
+    let id0 = "0".repeat(22);
+    let id1 = "1".repeat(22);
+    let id_next = "9".repeat(22);
+    q.replace(vec![id0.clone(), id1.clone()], 0, false);
+    let mut app = App::new(Config::default(), q);
+    let (tx, mut rx) = mpsc::unbounded_channel();
+
+    // Start track 0
+    app.generation = 1;
+    app.playback_event(
+        Event::Playing {
+            generation: 1,
+            position_ms: 0,
+        },
+        &tx,
+    );
+    assert_eq!(app.preload_requested, None);
+
+    // Time to preload arrives for generation 1
+    app.playback_event(Event::TimeToPreload { generation: 1 }, &tx);
+    assert_eq!(app.preload_requested, Some(1));
+    assert_eq!(app.last_preloaded_id, Some(id1.clone()));
+
+    // Verify Command::Preload was sent for track 1
+    let cmd = rx.try_recv().expect("Command::Preload should be sent");
+    match cmd {
+        Command::Preload { id } => assert_eq!(id, id1),
+        other => panic!("Unexpected command: {other:?}"),
+    }
+
+    // Now insert a new track to play next
+    app.queue.insert_next(id_next.clone());
+    app.check_preload(&tx);
+    assert_eq!(app.last_preloaded_id, Some(id_next.clone()));
+
+    // Verify updated Command::Preload was sent for track 9
+    let cmd = rx
+        .try_recv()
+        .expect("Updated Command::Preload should be sent");
+    match cmd {
+        Command::Preload { id } => assert_eq!(id, id_next),
+        other => panic!("Unexpected command: {other:?}"),
+    }
+}
+
+#[test]
+fn preload_respects_repeat_modes() {
+    let mut q = Queue::default();
+    let id0 = "0".repeat(22);
+    let id1 = "1".repeat(22);
+    q.replace(vec![id0.clone(), id1.clone()], 1, false); // cursor on last track (id1)
+    let mut app = App::new(Config::default(), q);
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    app.generation = 1;
+
+    // With Repeat::Off on last track, no next track
+    app.config.repeat = Repeat::Off;
+    app.playback_event(Event::TimeToPreload { generation: 1 }, &tx);
+    assert_eq!(app.last_preloaded_id, None);
+    assert!(rx.try_recv().is_err());
+
+    // With Repeat::Queue on last track, loops back to id0
+    app.config.repeat = Repeat::Queue;
+    app.check_preload(&tx);
+    assert_eq!(app.last_preloaded_id, Some(id0.clone()));
+    match rx.try_recv().unwrap() {
+        Command::Preload { id } => assert_eq!(id, id0),
+        other => panic!("Unexpected command: {other:?}"),
+    }
+
+    // With Repeat::Track, preloads current track (id1)
+    app.config.repeat = Repeat::Track;
+    app.check_preload(&tx);
+    assert_eq!(app.last_preloaded_id, Some(id1.clone()));
+    match rx.try_recv().unwrap() {
+        Command::Preload { id } => assert_eq!(id, id1),
+        other => panic!("Unexpected command: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn enqueue_triggers_preload_when_at_end_of_queue() {
+    let mut q = Queue::default();
+    let id0 = "0".repeat(22);
+    let id1 = "1".repeat(22);
+    q.replace(vec![id0], 0, false);
+    let mut app = App::new(Config::default(), q);
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    app.generation = 1;
+    app.config.repeat = Repeat::Off;
+
+    // Time to preload arrives while playing id0 (the only/last track in queue)
+    app.playback_event(Event::TimeToPreload { generation: 1 }, &tx);
+    assert_eq!(app.last_preloaded_id, None);
+    assert!(rx.try_recv().is_err());
+
+    // User enqueues track 1
+    let (bg_tx, _bg_rx) = mpsc::unbounded_channel();
+    let mut tasks = Tasks::new(crate::catalog::Catalog::mock("http://127.0.0.1"), bg_tx).unwrap();
+    app.catalog.rows = crate::catalog::Rows::Tracks(vec![crate::model::Track {
+        id: id1.clone(),
+        name: "Next Song".into(),
+        artists: "Artist".into(),
+        duration_ms: 180_000,
+        playable: true,
+        ..Default::default()
+    }]);
+    app.catalog.view = View::Search;
+    app.catalog.selected = 0;
+    crate::app::actions::apply(
+        &mut app,
+        crate::app::Action::EnqueueSelected,
+        &mut tasks,
+        &tx,
+    );
+
+    // Track 1 should now be preloaded!
+    assert_eq!(app.last_preloaded_id, Some(id1.clone()));
+    match rx
+        .try_recv()
+        .expect("Command::Preload should be sent on EnqueueSelected")
+    {
+        Command::Preload { id } => assert_eq!(id, id1),
+        other => panic!("Unexpected command: {other:?}"),
+    }
 }

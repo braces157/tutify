@@ -69,6 +69,7 @@ impl DemoPlayback {
                 );
             }
             Command::Load { .. } => (),
+            Command::Preload { .. } => (),
             Command::Seek(position_ms) if self.active_generation == Some(app.generation) => {
                 // Production seeking reports a position update and preserves the
                 // current play/pause intent.

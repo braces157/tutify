@@ -9,7 +9,9 @@ pub(super) fn help(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, a
     Up/Down, j/k   Move cursor in current view\n\
     Enter          Play track or open playlist\n\
     Backspace      Return from playlist to playlists index\n\
-    Esc            Close Help / exit Lyrics, Visualizer, or Stats\n\n\
+    a              View album for selected track\n\
+    Shift+A / A    View artist top tracks\n\
+    Esc            Back to previous view / Close overlay / Quit\n\n\
     Mouse controls\n\
     Left click     Select row / switch view / edit search\n\
     Right click    Track or playlist actions (Esc closes)\n\
@@ -19,7 +21,8 @@ pub(super) fn help(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, a
     Playback\n\
     Media keys     Play/pause, next/previous outside terminal\n\
     Space          Play, pause, or retry failed playback\n\
-    n / p          Next / previous track (restarts after 3s)\n\
+    n              Next track\n\
+    p              Play next (in Album/Artist views) / Previous track\n\
     Left / Right   Seek backward / forward 10 seconds\n\
     Home / End     Jump to beginning / end of track\n\n\
     Volume\n\
@@ -28,8 +31,7 @@ pub(super) fn help(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, a
     m              Mute / restore previous volume\n\n\
     Queue & playlists\n\
     u / Ctrl-Z     Undo queue edit (restores paused)\n\
-    a              Append selected track to Queue (or enqueue entire playlist)\n\
-    A (Shift-A)    Play Next (insert directly after current track)\n\
+    e              Add selected track to queue\n\
     R (Shift-R)    Start Track Radio (play track & queue related recommendations)\n\
     K / J          Move selected track Up / Down in Queue\n\
     d / x / Delete Remove selected item from Queue\n\

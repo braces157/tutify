@@ -1040,7 +1040,7 @@ pub(super) fn background(app: &mut App, tasks: &mut Tasks, event: Background) ->
                     }
                     app.catalog.apply_page(page);
                     app.status = format!(
-                        "{} loaded | Enter play/open | a enqueue{}",
+                        "{} loaded | Enter play/open | e enqueue{}",
                         app.len(),
                         if app.catalog.next.is_some() {
                             " | PgDn loads more"

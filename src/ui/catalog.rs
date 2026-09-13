@@ -140,30 +140,49 @@ pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
         area
     };
 
+    let is_album = app.catalog.view == View::Album
+        || matches!(app.catalog.browse, crate::catalog::Browse::Album(_));
+    let is_artist = app.catalog.view == View::Artist
+        || matches!(app.catalog.browse, crate::catalog::Browse::Artist(_));
+
+    let status_suffix = if app.catalog.busy {
+        " • Loading..."
+    } else {
+        ""
+    };
+
+    let base_title = if !app.catalog.history.is_empty() {
+        let filter_suffix_len = if app.is_filtered() {
+            let matched = app.filtered_indices().len();
+            let total = app.raw_len();
+            format!(" • {} of {} loaded matches", matched, total)
+                .chars()
+                .count()
+        } else {
+            0
+        };
+        let status_len = status_suffix.chars().count();
+        let reserved = 4 + filter_suffix_len + status_len;
+        let available_width = (body.width as usize).saturating_sub(reserved);
+
+        format_breadcrumb_trail(
+            app.catalog.history.iter().map(|e| e.breadcrumb.as_str()),
+            &app.catalog.title,
+            available_width,
+        )
+    } else {
+        app.catalog.title.clone()
+    };
+
     let title = if app.is_filtered() {
         let matched = app.filtered_indices().len();
         let total = app.raw_len();
         format!(
             " {} • {} of {} loaded matches{} ",
-            app.catalog.title,
-            matched,
-            total,
-            if app.catalog.busy {
-                " • Loading..."
-            } else {
-                ""
-            }
+            base_title, matched, total, status_suffix
         )
     } else {
-        format!(
-            " {}{} ",
-            app.catalog.title,
-            if app.catalog.busy {
-                " • Loading..."
-            } else {
-                ""
-            }
-        )
+        format!(" {}{} ", base_title, status_suffix)
     };
 
     match &app.catalog.rows {
@@ -181,6 +200,10 @@ pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
                     "\n\n  Loading tracks…\n  Playback controls stay available while this finishes."
                 } else if app.is_filtered() {
                     "\n  No loaded tracks match your filter.\n\n  • F3 searches all saved library tracks\n  • F2 searches Spotify\n  • Esc clears this loaded-page filter"
+                } else if is_album {
+                    "\n\n  No tracks found in this album.\n\n  Esc  Go back to previous view"
+                } else if is_artist {
+                    "\n\n  No top tracks found for this artist.\n\n  Esc  Go back to previous view"
                 } else {
                     "\n\n  Nothing here yet.\n\n  /  Search songs or paste a Spotify link\n  2  Browse playlists\n  3  Open liked songs"
                 };
@@ -209,8 +232,17 @@ pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
                         } else {
                             "  "
                         };
-                        let index_cell =
-                            Cell::from(format!(" {:>2} {:>3} ", indicator, display_idx + 1)).style(
+                        let num_str = if is_album {
+                            if let Some(num) = t.track_number {
+                                format!("{num:>3}")
+                            } else {
+                                format!("{:>3}", display_idx + 1)
+                            }
+                        } else {
+                            format!("{:>3}", display_idx + 1)
+                        };
+                        let index_cell = Cell::from(format!(" {:>2} {} ", indicator, num_str))
+                            .style(
                                 Style::default()
                                     .fg(if current {
                                         palette.primary
@@ -219,29 +251,41 @@ pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
                                     })
                                     .bold(),
                             );
-                        let title_cell = Cell::from(format!(
+                        let title_text = format!(
                             "{}{}",
                             t.name,
                             if t.playable { "" } else { " [unavailable]" }
-                        ))
-                        .style(
-                            Style::default()
-                                .fg(if current {
-                                    palette.primary
-                                } else if t.playable {
-                                    palette.text
-                                } else {
-                                    palette.text_subtle
-                                })
-                                .bold(),
                         );
-                        let artist_cell = Cell::from(t.artists.as_str()).style(
-                            Style::default().fg(if t.playable {
+                        let mut title_style = Style::default().fg(if current {
+                            palette.primary
+                        } else if t.playable {
+                            palette.text
+                        } else {
+                            palette.text_subtle
+                        });
+                        if t.playable {
+                            title_style = title_style.bold();
+                        } else {
+                            title_style = title_style.add_modifier(Modifier::DIM);
+                        }
+                        let title_cell = Cell::from(title_text).style(title_style);
+
+                        let third_cell = if is_artist {
+                            let album_name = t.album.as_deref().unwrap_or("-");
+                            Cell::from(album_name).style(Style::default().fg(if t.playable {
                                 palette.text_muted
                             } else {
                                 palette.text_subtle
-                            }),
-                        );
+                            }))
+                        } else {
+                            Cell::from(t.artists.as_str()).style(Style::default().fg(
+                                if t.playable {
+                                    palette.text_muted
+                                } else {
+                                    palette.text_subtle
+                                },
+                            ))
+                        };
                         let time_cell = Cell::from(if t.duration_ms > 0 {
                             time(t.duration_ms)
                         } else {
@@ -250,10 +294,7 @@ pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
                         .style(Style::default().fg(palette.text_subtle));
 
                         Some(Row::new(vec![
-                            index_cell,
-                            title_cell,
-                            artist_cell,
-                            time_cell,
+                            index_cell, title_cell, third_cell, time_cell,
                         ]))
                     })
                     .collect();
@@ -273,10 +314,11 @@ pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
                         Constraint::Length(0),
                     ]
                 };
+                let third_header = if is_artist { "ALBUM" } else { "ARTIST" };
                 let header = Row::new(vec![
                     Cell::from("   #    "),
                     Cell::from("TITLE"),
-                    Cell::from("ARTIST"),
+                    Cell::from(third_header),
                     Cell::from(" TIME"),
                 ])
                 .style(table_header_style(theme))
@@ -361,5 +403,50 @@ pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
                 );
             }
         }
+    }
+}
+
+/// Formats a dynamic breadcrumb trail joining history entries with the current title using ` › `.
+/// Gracefully truncates to fit within `max_width` bounds.
+pub fn format_breadcrumb_trail<'a>(
+    history: impl IntoIterator<Item = &'a str>,
+    current_title: &str,
+    max_width: usize,
+) -> String {
+    let mut parts: Vec<&str> = history.into_iter().filter(|s| !s.is_empty()).collect();
+    if !current_title.is_empty() {
+        parts.push(current_title);
+    }
+    let full = parts.join(" › ");
+
+    if max_width == 0 || full.chars().count() <= max_width {
+        return full;
+    }
+
+    // If trail exceeds max_width and has more than 2 components,
+    // try collapsing intermediate entries: "… › [subset] › current"
+    if parts.len() > 2 {
+        for start_idx in 1..parts.len() - 1 {
+            let candidate = format!("… › {}", parts[start_idx..].join(" › "));
+            if candidate.chars().count() <= max_width {
+                return candidate;
+            }
+        }
+    }
+
+    // Try collapsing to just: "… › current"
+    if parts.len() > 1 && !current_title.is_empty() {
+        let last_collapsed = format!("… › {}", current_title);
+        if last_collapsed.chars().count() <= max_width {
+            return last_collapsed;
+        }
+    }
+
+    // Gracefully truncate with ellipsis
+    if max_width > 3 {
+        let truncated: String = full.chars().take(max_width.saturating_sub(1)).collect();
+        format!("{truncated}…")
+    } else {
+        full.chars().take(max_width).collect()
     }
 }

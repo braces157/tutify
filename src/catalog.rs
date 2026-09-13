@@ -24,6 +24,10 @@ pub enum Browse {
     Playlists,
     Liked,
     Playlist(String),
+    #[allow(dead_code)]
+    Album(String),
+    #[allow(dead_code)]
+    Artist(String),
 }
 #[derive(Clone, Debug)]
 pub enum Rows {
@@ -111,7 +115,7 @@ impl Catalog {
         }
     }
 
-    async fn get(&self, path: &str, query: &[(&str, String)]) -> Result<Value> {
+    pub(crate) async fn get(&self, path: &str, query: &[(&str, String)]) -> Result<Value> {
         let result = self.request(path, query).await;
         match &result {
             Ok(_) => self.health.store(1, Ordering::Relaxed),
@@ -334,6 +338,95 @@ impl Catalog {
                 });
             }
         }
+        if let Browse::Album(id) = browse {
+            if !valid_id(id) {
+                bail!("Invalid album ID");
+            }
+            let query = [("limit", "50".to_string()), ("offset", offset.to_string())];
+            let value = self.get(&format!("/albums/{id}/tracks"), &query).await?;
+            let items = value["items"]
+                .as_array()
+                .context("Spotify omitted catalog items; press F5 to retry")?;
+            let mut tracks = Vec::new();
+            for item in items {
+                if let Some(mut track) = parse_track(item) {
+                    track.album_id = Some(id.clone());
+                    if let Some(num) = item["track_number"].as_u64() {
+                        track.track_number = Some(num as u32);
+                    }
+                    tracks.push(track);
+                }
+            }
+            let next = if !value["next"].is_null()
+                && value.get("next").is_some()
+                && value["next"].as_str() != Some("")
+            {
+                Some(offset + 50)
+            } else {
+                None
+            };
+            return Ok(Page {
+                rows: Rows::Tracks(tracks),
+                offset,
+                next,
+            });
+        }
+        if let Browse::Artist(id) = browse {
+            if !valid_id(id) {
+                bail!("Invalid artist ID");
+            }
+            let query = [("market", "from_token".to_string())];
+            match self.get(&format!("/artists/{id}/top-tracks"), &query).await {
+                Ok(value) => {
+                    let tracks = value["tracks"]
+                        .as_array()
+                        .context("Spotify omitted catalog items; press F5 to retry")?
+                        .iter()
+                        .filter_map(parse_track)
+                        .collect();
+                    return Ok(Page {
+                        rows: Rows::Tracks(tracks),
+                        offset,
+                        next: None,
+                    });
+                }
+                Err(err) if !err.is::<MissingItem>() => {
+                    // In Development Mode, Spotify rejects /artists/{id}/top-tracks with 403 Forbidden.
+                    // Fall back to resolving the artist's name and searching their popular tracks.
+                    if let Ok(info) = self.get(&format!("/artists/{id}"), &[]).await {
+                        if let Some(name) = info["name"].as_str() {
+                            let search_query = [
+                                ("type", "track".to_string()),
+                                ("q", format!("artist:\"{name}\"")),
+                                ("limit", "10".to_string()),
+                                ("offset", offset.to_string()),
+                            ];
+                            if let Ok(search_val) = self.get("/search", &search_query).await {
+                                if let Some(items) = search_val["tracks"]["items"].as_array() {
+                                    let tracks: Vec<Track> =
+                                        items.iter().filter_map(parse_track).collect();
+                                    let next = if !search_val["tracks"]["next"].is_null()
+                                        && search_val["tracks"].get("next").is_some()
+                                        && search_val["tracks"]["next"].as_str() != Some("")
+                                    {
+                                        Some(offset + 10)
+                                    } else {
+                                        None
+                                    };
+                                    return Ok(Page {
+                                        rows: Rows::Tracks(tracks),
+                                        offset,
+                                        next,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    return Err(err);
+                }
+                Err(err) => return Err(err),
+            }
+        }
         let limit = if matches!(browse, Browse::Search(_)) {
             10
         } else {
@@ -353,6 +446,7 @@ impl Catalog {
                 }
                 format!("/playlists/{id}/items")
             }
+            Browse::Album(_) | Browse::Artist(_) => unreachable!("handled above"),
         };
         let value = self.get(&path, &query).await?;
         let page = if matches!(browse, Browse::Search(_)) {
@@ -434,7 +528,7 @@ pub fn normalize_title(name: &str) -> String {
 fn clean(s: &str) -> String {
     s.chars().filter(|c| !c.is_control()).collect()
 }
-fn parse_track(v: &Value) -> Option<Track> {
+pub(crate) fn parse_track(v: &Value) -> Option<Track> {
     if v["is_local"].as_bool() == Some(true) || v["type"].as_str().is_some_and(|t| t != "track") {
         return None;
     }
@@ -444,6 +538,11 @@ fn parse_track(v: &Value) -> Option<Track> {
         .and_then(|imgs| imgs.first())
         .and_then(|img| img["url"].as_str())
         .map(clean);
+    let album_id = v["album"]["id"]
+        .as_str()
+        .filter(|id| valid_id(id))
+        .map(str::to_owned);
+    let track_number = v["track_number"].as_u64().map(|n| n as u32);
 
     Some(Track {
         id: v["id"].as_str().filter(|id| valid_id(id))?.into(),
@@ -474,6 +573,8 @@ fn parse_track(v: &Value) -> Option<Track> {
             && v.get("restrictions").is_none_or(|r| r.is_null()),
         album,
         album_art_url,
+        album_id,
+        track_number,
     })
 }
 
@@ -823,5 +924,294 @@ mod tests {
         );
         assert!(track_id("https://evil.com/track/0000000000000000000001").is_none());
         assert!(track_id("https://open.spotify.com/track/bad").is_none());
+    }
+
+    #[tokio::test]
+    async fn album_tracks_pagination_and_deserialization() {
+        let (server, catalog) = catalog().await;
+        let album_id = "0000000000000000000001";
+
+        let track1 = serde_json::json!({
+            "id": "1111111111111111111111",
+            "name": "Track 1",
+            "artists": [{"id": "9999999999999999999999", "name": "Artist 1"}],
+            "track_number": 1,
+            "duration_ms": 180000,
+            "type": "track",
+            "is_playable": true
+        });
+        let track2 = serde_json::json!({
+            "id": "2222222222222222222222",
+            "name": "Track 2",
+            "artists": [{"id": "9999999999999999999999", "name": "Artist 1"}],
+            "track_number": 2,
+            "duration_ms": 200000,
+            "type": "track",
+            "is_playable": true
+        });
+        let track3 = serde_json::json!({
+            "id": "3333333333333333333333",
+            "name": "Track 3",
+            "artists": [{"id": "9999999999999999999999", "name": "Artist 1"}],
+            "track_number": 3,
+            "duration_ms": 220000,
+            "type": "track",
+            "is_playable": true
+        });
+
+        Mock::given(method("GET"))
+            .and(path(format!("/albums/{album_id}/tracks")))
+            .and(query_param("limit", "50"))
+            .and(query_param("offset", "0"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "items": [track1, track2],
+                "limit": 50,
+                "offset": 0,
+                "total": 3,
+                "next": format!("{}/albums/{album_id}/tracks?limit=50&offset=50", server.uri())
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path(format!("/albums/{album_id}/tracks")))
+            .and(query_param("limit", "50"))
+            .and(query_param("offset", "50"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "items": [track3],
+                "limit": 50,
+                "offset": 50,
+                "total": 3,
+                "next": null
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let page1 = catalog
+            .page(&Browse::Album(album_id.into()), 0)
+            .await
+            .unwrap();
+        assert_eq!(page1.offset, 0);
+        assert_eq!(page1.next, Some(50));
+        match page1.rows {
+            Rows::Tracks(tracks) => {
+                assert_eq!(tracks.len(), 2);
+                assert_eq!(tracks[0].id, "1111111111111111111111");
+                assert_eq!(tracks[0].name, "Track 1");
+                assert_eq!(tracks[0].album_id.as_deref(), Some(album_id));
+                assert_eq!(tracks[0].track_number, Some(1));
+                assert_eq!(tracks[1].id, "2222222222222222222222");
+                assert_eq!(tracks[1].album_id.as_deref(), Some(album_id));
+                assert_eq!(tracks[1].track_number, Some(2));
+            }
+            Rows::Playlists(_) => panic!("expected tracks"),
+        }
+
+        let page2 = catalog
+            .page(&Browse::Album(album_id.into()), 50)
+            .await
+            .unwrap();
+        assert_eq!(page2.offset, 50);
+        assert_eq!(page2.next, None);
+        match page2.rows {
+            Rows::Tracks(tracks) => {
+                assert_eq!(tracks.len(), 1);
+                assert_eq!(tracks[0].id, "3333333333333333333333");
+                assert_eq!(tracks[0].album_id.as_deref(), Some(album_id));
+                assert_eq!(tracks[0].track_number, Some(3));
+            }
+            Rows::Playlists(_) => panic!("expected tracks"),
+        }
+    }
+
+    #[tokio::test]
+    async fn artist_top_tracks_deserialization() {
+        let (server, catalog) = catalog().await;
+        let artist_id = "0000000000000000000002";
+        let album_id = "0000000000000000000003";
+
+        let full_track = serde_json::json!({
+            "id": "4444444444444444444444",
+            "name": "Hit Song",
+            "artists": [{"id": artist_id, "name": "Top Artist"}],
+            "album": {
+                "id": album_id,
+                "name": "Greatest Hits",
+                "images": [{"url": "https://i.scdn.co/image/hit"}]
+            },
+            "track_number": 5,
+            "duration_ms": 210000,
+            "type": "track",
+            "is_playable": true
+        });
+
+        Mock::given(method("GET"))
+            .and(path(format!("/artists/{artist_id}/top-tracks")))
+            .and(query_param("market", "from_token"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "tracks": [full_track]
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let page = catalog
+            .page(&Browse::Artist(artist_id.into()), 0)
+            .await
+            .unwrap();
+        assert_eq!(page.offset, 0);
+        assert_eq!(page.next, None);
+        match page.rows {
+            Rows::Tracks(tracks) => {
+                assert_eq!(tracks.len(), 1);
+                assert_eq!(tracks[0].id, "4444444444444444444444");
+                assert_eq!(tracks[0].name, "Hit Song");
+                assert_eq!(tracks[0].album.as_deref(), Some("Greatest Hits"));
+                assert_eq!(tracks[0].album_id.as_deref(), Some(album_id));
+                assert_eq!(tracks[0].track_number, Some(5));
+                assert_eq!(
+                    tracks[0].album_art_url.as_deref(),
+                    Some("https://i.scdn.co/image/hit")
+                );
+            }
+            Rows::Playlists(_) => panic!("expected tracks"),
+        }
+    }
+
+    #[tokio::test]
+    async fn album_tracks_rate_limit_backoff() {
+        let (server, catalog) = catalog().await;
+        let album_id = "0000000000000000000001";
+
+        Mock::given(method("GET"))
+            .and(path(format!("/albums/{album_id}/tracks")))
+            .respond_with(ResponseTemplate::new(429).insert_header("Retry-After", "45"))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let err = catalog
+            .page(&Browse::Album(album_id.into()), 0)
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("45"));
+
+        // Subsequent request immediately rejected by cooldown
+        let cooldown_err = catalog
+            .page(&Browse::Album(album_id.into()), 0)
+            .await
+            .unwrap_err();
+        assert!(cooldown_err.to_string().contains("Spotify rate limit"));
+    }
+
+    #[tokio::test]
+    async fn artist_top_tracks_missing_item_404() {
+        let (server, catalog) = catalog().await;
+        let artist_id = "0000000000000000000002";
+
+        Mock::given(method("GET"))
+            .and(path(format!("/artists/{artist_id}/top-tracks")))
+            .respond_with(ResponseTemplate::new(404))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let err = catalog
+            .page(&Browse::Artist(artist_id.into()), 0)
+            .await
+            .unwrap_err();
+        assert!(err.is::<MissingItem>());
+    }
+
+    #[tokio::test]
+    async fn album_and_artist_invalid_id_rejected() {
+        let (server, catalog) = catalog().await;
+
+        // Invalid album IDs
+        let err_album = catalog
+            .page(&Browse::Album("too_short".into()), 0)
+            .await
+            .unwrap_err();
+        assert!(err_album.to_string().contains("Invalid album ID"));
+
+        // Invalid artist IDs
+        let err_artist = catalog
+            .page(&Browse::Artist("invalid_chars_here!!".into()), 0)
+            .await
+            .unwrap_err();
+        assert!(err_artist.to_string().contains("Invalid artist ID"));
+
+        // Verify zero mock server requests were made
+        assert_eq!(server.received_requests().await.unwrap().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn artist_top_tracks_dev_mode_403_falls_back_to_search() {
+        let (server, catalog) = catalog().await;
+        let artist_id = "0000000000000000000003";
+
+        // /artists/{id}/top-tracks returns 403 in Development Mode
+        Mock::given(method("GET"))
+            .and(path(format!("/artists/{artist_id}/top-tracks")))
+            .respond_with(ResponseTemplate::new(403))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        // Fallback queries /artists/{id} for the artist name
+        Mock::given(method("GET"))
+            .and(path(format!("/artists/{artist_id}")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "name": "Radiohead"
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        // Fallback then queries /search for artist's tracks
+        Mock::given(method("GET"))
+            .and(path("/search"))
+            .and(query_param("type", "track"))
+            .and(query_param("q", "artist:\"Radiohead\""))
+            .and(query_param("limit", "10"))
+            .and(query_param("offset", "0"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "tracks": {
+                    "items": [{
+                        "id": "3333333333333333333333",
+                        "name": "Creep",
+                        "is_playable": true,
+                        "artists": [{"id": artist_id, "name": "Radiohead"}],
+                        "album": {
+                            "id": "1111111111111111111111",
+                            "name": "Pablo Honey",
+                            "images": []
+                        },
+                        "duration_ms": 238640,
+                        "track_number": 2
+                    }],
+                    "next": null
+                }
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let page = catalog
+            .page(&Browse::Artist(artist_id.into()), 0)
+            .await
+            .unwrap();
+        assert_eq!(page.offset, 0);
+        assert_eq!(page.next, None);
+        match page.rows {
+            Rows::Tracks(tracks) => {
+                assert_eq!(tracks.len(), 1);
+                assert_eq!(tracks[0].name, "Creep");
+                assert_eq!(tracks[0].artists, "Radiohead");
+            }
+            Rows::Playlists(_) => panic!("expected tracks"),
+        }
     }
 }

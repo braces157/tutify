@@ -8,6 +8,7 @@ pub(super) fn choose_search(app: &mut App, scope: SearchScope, tasks: &mut Tasks
     if app.is_filtered() {
         app.catalog.query = app.catalog.filter.clone();
     }
+    app.catalog.history.clear();
     app.catalog.search_scope = scope;
     tasks.view(app, View::Search);
     app.context_menu = None;
@@ -151,6 +152,7 @@ pub(super) fn mouse(
     match target {
         MouseTarget::SearchMode(scope) if !right => choose_search(app, scope, tasks),
         MouseTarget::Navigation(view) if !right => {
+            app.catalog.history.clear();
             tasks.view(app, view);
             app.ui.overlay = Overlay::None;
         }
@@ -196,24 +198,33 @@ pub(super) fn mouse(
             if right {
                 let playlist = app.catalog.view == View::Playlists
                     && matches!(app.catalog.rows, Rows::Playlists(_));
-                let mut actions = if playlist {
+                let actions = if playlist {
                     vec![
                         ("Open playlist", Action::PlaySelected),
                         ("Add playlist to queue", Action::EnqueueSelected),
                     ]
+                } else if app.catalog.view == View::Queue {
+                    let mut queue_actions = vec![
+                        ("Play", Action::PlaySelected),
+                        ("Add to queue", Action::EnqueueSelected),
+                        ("Play next", Action::PlayNext),
+                        ("Remove from queue", Action::RemoveSelected),
+                        ("View Album", Action::ViewAlbum),
+                        ("View Artist", Action::ViewArtist),
+                    ];
+                    if app.can_undo() {
+                        queue_actions.push(("Undo queue change", Action::Undo));
+                    }
+                    queue_actions
                 } else {
                     vec![
                         ("Play", Action::PlaySelected),
                         ("Add to queue", Action::EnqueueSelected),
                         ("Play next", Action::PlayNext),
+                        ("View Album", Action::ViewAlbum),
+                        ("View Artist", Action::ViewArtist),
                     ]
                 };
-                if app.catalog.view == View::Queue {
-                    actions.push(("Remove from queue", Action::RemoveSelected));
-                    if app.can_undo() {
-                        actions.push(("Undo queue change", Action::Undo));
-                    }
-                }
                 app.context_menu = Some(ContextMenu {
                     x: event.column,
                     y: event.row,

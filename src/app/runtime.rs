@@ -153,6 +153,7 @@ pub async fn run(store: Storage) -> Result<()> {
                     checkpoints.retry |= background(&mut app, &mut tasks, event);
                     // Process bursts together; bound the batch so keyboard input stays fair.
                     for _ in 0..63 { match bg_rx.try_recv() { Ok(event) => checkpoints.retry |= background(&mut app, &mut tasks, event), Err(_) => break } }
+                    app.check_preload(&playback.commands);
                     app.ui.render.borrow_mut().mouse_hits.clear();
                     dirty = true; metadata_dirty = true; lyrics_dirty = true;
                 }

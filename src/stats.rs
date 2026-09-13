@@ -438,6 +438,8 @@ mod tests {
             playable: true,
             album: None,
             album_art_url: None,
+            album_id: None,
+            track_number: None,
         };
         cache.insert(id.clone(), real_track);
         stats.refresh_metadata(&cache);

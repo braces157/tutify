@@ -17,6 +17,8 @@ use lyrics::*;
 mod stats;
 use stats::*;
 mod catalog;
+#[allow(unused_imports)]
+pub use catalog::format_breadcrumb_trail;
 use catalog::*;
 mod queue;
 use queue::*;
@@ -108,7 +110,9 @@ fn center(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, area: Rect
         Overlay::None => match app.catalog.view {
             View::Help => help(frame, app, render, area),
             View::Queue => queue(frame, app, render, area, true),
-            _ => catalog(frame, app, render, area),
+            View::Search | View::Playlists | View::Liked | View::Album | View::Artist => {
+                catalog(frame, app, render, area)
+            }
         },
     }
 }

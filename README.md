@@ -27,8 +27,8 @@ workflow inside Windows Terminal—no Electron shell and no background service.
 ## Highlights
 
 - **Direct playback** through librespot and WASAPI; Spotify Desktop can stay closed.
-- **Library and catalog browsing** for playlists and Liked Songs, plus track
-  search by title or artist and support for Spotify track links.
+- **Library and catalog browsing** for playlists, Liked Songs, complete album
+  tracklists, and artist top tracks, plus track/album/artist search and link navigation.
 - **Powerful queue tools** including play next, reorder, remove, undo, shuffle,
   repeat, and Track Radio.
 - **A responsive terminal UI** with keyboard and mouse support, five color themes,
@@ -45,12 +45,13 @@ workflow inside Windows Terminal—no Electron shell and no background service.
 
 ### Current release
 
-The latest published download is **v0.2.7**. It adds a cohesive premium TUI,
-safer queue/radio and Smart Shuffle updates, account-consistent authentication,
-Unicode-safe search limits, Mix Builder pin recovery, and a reusable PATH
-installer. It also includes Smart Shuffle, Mix Builder, the credential-free
-native `demo` command, lyrics, the FFT visualizer, queue undo, Windows/Discord
-integration, and local statistics.
+The latest published download is **v0.2.8**. It introduces native album
+tracklist browsing, artist top tracks discovery, multi-level breadcrumb
+navigation with seamless `Esc` back-navigation, track context menus ("View Album"
+and "View Artist"), instant search resolution for Spotify album/artist web links
+and URIs, and offline native demo catalogs for album and artist browsing. It
+builds upon the cohesive semantic TUI design system, Smart Shuffle, Mix Builder,
+synchronized lyrics, real-time FFT visualizer, and Windows media integration.
 
 ## Requirements
 
@@ -70,8 +71,8 @@ The native demo needs no Spotify account or audio device.
 
 ## Install
 
-1. Download `Tuitify-0.2.7-windows-x86_64.zip` from
-   [release v0.2.7](https://github.com/braces157/tutify/releases/tag/v0.2.7).
+1. Download `Tuitify-0.2.8-windows-x86_64.zip` from
+   [release v0.2.8](https://github.com/braces157/tutify/releases/tag/v0.2.8).
 2. Extract the archive.
 3. Open Windows Terminal in the extracted folder and run:
 
@@ -105,9 +106,12 @@ Run the actual terminal application in its isolated demo mode:
 .\tuitify.exe demo
 ```
 
-For an executable on `PATH`, use `tuitify demo`. Demo data is session-only and
-does not read or write the production queue, settings, statistics, recipes, or
-credentials.
+For an executable on `PATH`, use `tuitify demo`. The offline demo runtime bundles
+representative fictional album and artist catalog datasets, allowing you to test
+native album tracklists, artist top tracks discovery, breadcrumb navigation, and
+context menus without network access, credentials, Discord, or audio devices. Demo
+data is session-only and does not read or write the production queue, settings,
+statistics, recipes, or credentials.
 
 ## Sign in
 
@@ -161,13 +165,17 @@ text; finish text entry before using playback commands.
 | `↑` / `↓` or `k` / `j` | Move the selection |
 | `Enter` | Search, open, or play the selected item |
 | `Space` | Pause, resume, or retry playback |
-| `n` / `p` | Next / previous track |
+| `n` | Next track |
+| `p` | Play next (in Album/Artist views) / previous track |
 | `←` / `→` | Seek backward / forward 10 seconds |
 | `+` / `-` | Change volume by 5% |
 | `m` | Mute or restore volume |
 | `s` | Cycle shuffle off → shuffle → Smart Shuffle |
 | `r` | Cycle repeat off → queue → track |
-| `a` / `A` | Add selected item to queue / play next |
+| `a` | View album tracklist for selected track |
+| `A` (`Shift+A`) | View artist top tracks for selected track |
+| `e` | Add selected track to queue |
+| `Esc` | Back to previous view / exit overlay / quit |
 | `K` / `J` | Move the selected queue item up / down |
 | `u` or `Ctrl+Z` | Undo the last queue edit |
 | `R` | Start Track Radio from the selected track |
@@ -184,7 +192,34 @@ text; finish text entry before using playback commands.
 
 Windows media keys can control Play/Pause, Next, and Previous while Tuitify is
 unfocused. Terminals that support mouse reporting can also select, scroll, seek,
-toggle playback, and open context menus.
+toggle playback, and open context menus (including "View Album" and "View Artist"
+actions on track rows).
+
+## Album and artist browsing
+
+Tuitify v0.2.8 includes native in-terminal browsing for albums and artists:
+
+- **Album tracklists:** Select any track in Search, Liked Songs, or Queue and
+  press `a`, or right-click to choose **View Album**. This opens the full album
+  tracklist showing ordered track numbers, song titles, artist credits, durations,
+  and playability indicators. Press `Enter` to play, `e` to enqueue, or `p` to
+  play next.
+- **Artist top tracks:** Select any track and press `Shift+A` (or `A`), or
+  right-click to choose **View Artist**. This displays the artist's top 10 popular
+  tracks ranked 1 through 10 with album names, durations, and full playback/queue
+  actions.
+- **Breadcrumb navigation & history stack:** Navigating into albums and artists
+  pushes your viewing context onto an in-memory navigation stack and displays a
+  dynamic breadcrumb trail in the catalog header (e.g. `Search › OK Computer › Thom Yorke`).
+  On narrow terminals, breadcrumb segments collapse gracefully (`… › Thom Yorke`).
+  Press `Esc` at any time to pop the stack and return to the previous view, exactly
+  restoring your prior selection cursor and scroll position without redundant network requests.
+- **Instant search link & URI resolution:** Paste or type Spotify Album and Artist
+  web URLs (such as `https://open.spotify.com/album/<id>`, internationalized
+  `/intl-<locale>/` links, or URLs with query parameters) or Spotify URIs
+  (`spotify:album:<id>`, `spotify:artist:<id>`) directly into the Search input box (`F2`
+  or `1`). Pressing `Enter` resolves the entity instantly and opens the corresponding
+  album or artist view without running a text search.
 
 ## Using Mix Builder
 

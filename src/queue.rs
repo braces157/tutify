@@ -134,6 +134,22 @@ impl Queue {
         self.select(next);
         true
     }
+    pub fn peek_next(&self, repeat: Repeat) -> Option<&str> {
+        if self.order.is_empty() {
+            return None;
+        }
+        let next = match self.cursor {
+            None => 0,
+            Some(c) if repeat == Repeat::Track => c,
+            Some(c) if c + 1 < self.order.len() => c + 1,
+            Some(_) if repeat == Repeat::Queue => 0,
+            _ => return None,
+        };
+        self.order
+            .get(next)
+            .and_then(|i| self.ids.get(*i))
+            .map(String::as_str)
+    }
     pub fn previous(&mut self) -> bool {
         if self.cursor.is_none() {
             return false;
@@ -335,5 +351,20 @@ mod tests {
         assert!(q.move_item(1, 3));
         q.validate().unwrap();
         assert_eq!(q.cursor, Some(3));
+    }
+    #[test]
+    fn peek_next_respects_repeat_and_queue_bounds() {
+        let mut q = queue();
+        // cursor is 2, ids are 0..=4
+        assert_eq!(q.cursor, Some(2));
+        assert_eq!(q.peek_next(Repeat::Off), Some(q.ids[3].as_str()));
+        // Advance to last track (4)
+        q.select(4);
+        assert_eq!(q.peek_next(Repeat::Off), None);
+        assert_eq!(q.peek_next(Repeat::Track), Some(q.ids[4].as_str()));
+        assert_eq!(q.peek_next(Repeat::Queue), Some(q.ids[0].as_str()));
+        // Empty queue
+        let empty = Queue::default();
+        assert_eq!(empty.peek_next(Repeat::Off), None);
     }
 }

@@ -32,7 +32,16 @@ $installRoot = [System.IO.Path]::GetFullPath($InstallDir)
 $destination = Join-Path $installRoot 'tuitify.exe'
 
 New-Item -ItemType Directory -Path $installRoot -Force | Out-Null
-Copy-Item -LiteralPath $source -Destination $destination -Force
+try {
+    Copy-Item -LiteralPath $source -Destination $destination -Force -ErrorAction Stop
+} catch {
+    $backup = Join-Path $installRoot "tuitify.exe.old"
+    if (Test-Path -LiteralPath $backup) {
+        Remove-Item -LiteralPath $backup -Force -ErrorAction SilentlyContinue
+    }
+    Move-Item -LiteralPath $destination -Destination $backup -Force
+    Copy-Item -LiteralPath $source -Destination $destination -Force
+}
 
 $currentUserPath = [Environment]::GetEnvironmentVariable('Path', 'User')
 $pathEntries = if ([string]::IsNullOrWhiteSpace($currentUserPath)) {

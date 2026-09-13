@@ -120,10 +120,41 @@ pub(super) fn key(
             KeyCode::Esc => app.catalog.editing = false,
             KeyCode::Enter => {
                 app.catalog.editing = false;
-                app.catalog.browse = Browse::Search(app.catalog.query.trim().into());
-                app.catalog.selected = 0;
-                app.reset_rows();
-                tasks.request(app, 0);
+                let query = app.catalog.query.trim();
+                if let Some(id) = crate::model::album_id(query) {
+                    if app.catalog.view == View::Album
+                        && matches!(&app.catalog.browse, Browse::Album(curr) if curr == &id)
+                    {
+                        app.status = "Already viewing this album.".into();
+                        return;
+                    }
+                    app.push_navigation(query.to_string());
+                    app.catalog.view = View::Album;
+                    app.catalog.browse = Browse::Album(id);
+                    app.catalog.title = "Album".to_string();
+                    app.catalog.selected = 0;
+                    app.reset_rows();
+                    tasks.request(app, 0);
+                } else if let Some(id) = crate::model::artist_id(query) {
+                    if app.catalog.view == View::Artist
+                        && matches!(&app.catalog.browse, Browse::Artist(curr) if curr == &id)
+                    {
+                        app.status = "Already viewing this artist.".into();
+                        return;
+                    }
+                    app.push_navigation(query.to_string());
+                    app.catalog.view = View::Artist;
+                    app.catalog.browse = Browse::Artist(id);
+                    app.catalog.title = "Artist • Top Tracks".to_string();
+                    app.catalog.selected = 0;
+                    app.reset_rows();
+                    tasks.request(app, 0);
+                } else {
+                    app.catalog.browse = Browse::Search(query.into());
+                    app.catalog.selected = 0;
+                    app.reset_rows();
+                    tasks.request(app, 0);
+                }
             }
             KeyCode::Backspace => {
                 app.catalog.query.pop();
@@ -231,6 +262,12 @@ pub(super) fn key(
             app.catalog.filtering = false;
             app.catalog.selected = 0;
         }
+        KeyCode::Esc if !app.catalog.history.is_empty() => {
+            if let Some(task) = tasks.browse.take() {
+                task.abort();
+            }
+            app.pop_navigation();
+        }
         KeyCode::Esc if app.catalog.view != View::Help => app.quit = true,
         KeyCode::Esc => tasks.view(app, View::Search),
         KeyCode::Tab | KeyCode::BackTab => {
@@ -238,7 +275,10 @@ pub(super) fn key(
             app.catalog.nav = app.catalog.view.index();
         }
         KeyCode::Char('?') | KeyCode::F(1) => tasks.view(app, View::Help),
-        KeyCode::Char(c @ '1'..='5') => tasks.view(app, View::ALL[c as usize - '1' as usize]),
+        KeyCode::Char(c @ '1'..='5') => {
+            app.catalog.history.clear();
+            tasks.view(app, View::PRIMARY_TABS[c as usize - '1' as usize]);
+        }
         KeyCode::Char('/') => {
             if matches!(app.catalog.view, View::Liked | View::Playlists) {
                 app.catalog.filter.clear();
@@ -311,7 +351,7 @@ pub(super) fn key(
             tasks.retry_metadata(app);
             if matches!(
                 app.catalog.view,
-                View::Search | View::Playlists | View::Liked
+                View::Search | View::Playlists | View::Liked | View::Album | View::Artist
             ) {
                 tasks.request(app, 0);
             }
@@ -319,19 +359,27 @@ pub(super) fn key(
         KeyCode::Backspace if matches!(app.catalog.browse, Browse::Playlist(_)) => {
             tasks.view(app, View::Playlists)
         }
-        KeyCode::Enter if app.catalog.sidebar => tasks.view(app, View::ALL[app.catalog.nav]),
+        KeyCode::Enter if app.catalog.sidebar => {
+            app.catalog.history.clear();
+            tasks.view(app, View::PRIMARY_TABS[app.catalog.nav]);
+        }
         KeyCode::Enter if app.catalog.view != View::Help => {
             actions::apply(app, Action::PlaySelected, tasks, tx)
+        }
+        KeyCode::Char('p') if matches!(app.catalog.view, View::Album | View::Artist) => {
+            actions::apply(app, Action::PlayNext, tasks, tx);
         }
         code if playback_control(code).is_some() => {
             app.control(playback_control(code).unwrap(), tx);
         }
         KeyCode::Char('s') => {
             tasks.cycle_shuffle(app);
+            app.check_preload(tx);
         }
         KeyCode::Char('r') => {
             app.config.repeat = app.config.repeat.cycle();
             app.status = format!("Repeat: {:?}", app.config.repeat);
+            app.check_preload(tx);
         }
         KeyCode::Char('t') => {
             let current = ui::Theme::from_str(&app.config.theme);
@@ -365,11 +413,22 @@ pub(super) fn key(
             app.status = "Song statistics (press S or Esc to exit)".into();
         }
         KeyCode::Char('M') => tasks.open_mix(app),
-        KeyCode::Char('a') if app.catalog.view != View::Help => {
-            actions::apply(app, Action::EnqueueSelected, tasks, tx)
+        KeyCode::Char('a')
+            if key
+                .modifiers
+                .contains(crossterm::event::KeyModifiers::SHIFT)
+                && app.catalog.view != View::Help =>
+        {
+            actions::apply(app, Action::ViewArtist, tasks, tx);
         }
         KeyCode::Char('A') if app.catalog.view != View::Help => {
-            actions::apply(app, Action::PlayNext, tasks, tx)
+            actions::apply(app, Action::ViewArtist, tasks, tx);
+        }
+        KeyCode::Char('a') if app.catalog.view != View::Help => {
+            actions::apply(app, Action::ViewAlbum, tasks, tx);
+        }
+        KeyCode::Char('e') if app.catalog.view != View::Help => {
+            actions::apply(app, Action::EnqueueSelected, tasks, tx);
         }
         KeyCode::Char('R') if app.catalog.view != View::Help => {
             actions::apply(app, Action::StartRadio, tasks, tx)

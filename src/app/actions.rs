@@ -2,7 +2,7 @@ use super::*;
 
 /// Application intent, independent of the key or menu that invoked it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Action {
+pub(crate) enum Action {
     PlaySelected,
     EnqueueSelected,
     PlayNext,
@@ -12,6 +12,8 @@ pub(super) enum Action {
     MoveDown,
     RemoveSelected,
     Undo,
+    ViewAlbum,
+    ViewArtist,
 }
 
 pub(super) fn apply(
@@ -121,6 +123,7 @@ pub(super) fn apply(
                         app.remember_queue();
                     }
                     app.status = if app.enqueue_manual(track.id) {
+                        app.check_preload(tx);
                         format!("Added {} to queue", track.name)
                     } else {
                         "Queue limit reached (100,000 tracks).".into()
@@ -137,6 +140,7 @@ pub(super) fn apply(
                         app.remember_queue();
                     }
                     app.status = if app.queue.insert_next(track.id) {
+                        app.check_preload(tx);
                         format!("Playing next: {}", track.name)
                     } else {
                         "Queue limit reached (100,000 tracks).".into()
@@ -175,6 +179,7 @@ pub(super) fn apply(
             let to = from - 1;
             app.remember_queue();
             app.queue.move_item(from, to);
+            app.check_preload(tx);
             app.status = "Moved track up in queue".into();
         }
         Action::MoveDown
@@ -186,6 +191,7 @@ pub(super) fn apply(
             let to = from + 1;
             app.remember_queue();
             app.queue.move_item(from, to);
+            app.check_preload(tx);
             app.status = "Moved track down in queue".into();
         }
         Action::RemoveSelected if app.catalog.view == View::Queue => {
@@ -200,8 +206,95 @@ pub(super) fn apply(
             if removed_current {
                 tasks.cancel_radio(app);
                 app.stop(tx);
+            } else {
+                app.check_preload(tx);
             }
             app.status = "Queue item removed. Press u to undo.".into();
+        }
+        Action::ViewAlbum if app.catalog.view != View::Help => {
+            if let Some(track) = app.selected_track() {
+                if let Some(album_id) = track.album_id.filter(|id| !id.is_empty()) {
+                    if app.catalog.view == View::Album
+                        && matches!(&app.catalog.browse, Browse::Album(curr) if curr == &album_id)
+                    {
+                        app.status = format!(
+                            "Already viewing album '{}'",
+                            track.album.as_deref().unwrap_or("Album")
+                        );
+                        return;
+                    }
+                    let label = if matches!(app.catalog.view, View::Album | View::Artist)
+                        || matches!(app.catalog.browse, Browse::Playlist(_))
+                    {
+                        app.catalog.title.clone()
+                    } else {
+                        app.catalog.view.name().to_string()
+                    };
+                    app.push_navigation(label);
+                    app.catalog.view = View::Album;
+                    app.catalog.browse = Browse::Album(album_id);
+                    app.catalog.title = track.album.unwrap_or_else(|| "Album".into());
+                    app.reset_rows();
+                    app.catalog.selected = 0;
+                    app.ui.render.borrow_mut().catalog_scroll = 0;
+                    app.catalog.filter.clear();
+                    app.catalog.filtering = false;
+                    tasks.request(app, 0);
+                } else {
+                    app.status = "No album information available for this track.".into();
+                }
+            } else {
+                app.status = "Select a track to view album.".into();
+            }
+        }
+        Action::ViewArtist if app.catalog.view != View::Help => {
+            if let Some(track) = app.selected_track() {
+                if let Some(artist_id) = track
+                    .artist_ids
+                    .first()
+                    .cloned()
+                    .filter(|id| !id.is_empty())
+                {
+                    if app.catalog.view == View::Artist
+                        && matches!(&app.catalog.browse, Browse::Artist(curr) if curr == &artist_id)
+                    {
+                        app.status = format!(
+                            "Already viewing artist '{}'",
+                            if track.artists.is_empty() {
+                                "Artist"
+                            } else {
+                                &track.artists
+                            }
+                        );
+                        return;
+                    }
+                    let label = if matches!(app.catalog.view, View::Album | View::Artist)
+                        || matches!(app.catalog.browse, Browse::Playlist(_))
+                    {
+                        app.catalog.title.clone()
+                    } else {
+                        app.catalog.view.name().to_string()
+                    };
+                    app.push_navigation(label);
+                    app.catalog.view = View::Artist;
+                    app.catalog.browse = Browse::Artist(artist_id);
+                    app.catalog.title = if track.artists.is_empty() {
+                        "Artist • Top Tracks".into()
+                    } else {
+                        format!("{} • Top Tracks", track.artists)
+                    };
+                    app.reset_rows();
+                    app.catalog.selected = 0;
+                    app.ui.render.borrow_mut().catalog_scroll = 0;
+                    app.catalog.filter.clear();
+                    app.catalog.filtering = false;
+                    tasks.request(app, 0);
+                } else {
+                    app.status = "No artist information available for this track.".into();
+                }
+            } else {
+                app.status = "Select a track to view artist.".into();
+            }
         }
         _ => (),
     }

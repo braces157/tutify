@@ -1,5 +1,24 @@
-use super::{Browse, Rows, SearchScope, View};
+use super::{App, Browse, Rows, SearchScope, View};
 use std::{cell::RefCell, sync::Arc};
+
+#[derive(Clone, Debug)]
+pub struct HistoryEntry {
+    pub view: View,
+    pub browse: Browse,
+    pub title: String,
+    pub selected: usize,
+    pub scroll: usize,
+    pub rows: Rows,
+    pub next: Option<usize>,
+    pub query: String,
+    pub search_scope: SearchScope,
+    pub filter: String,
+    pub filtering: bool,
+    #[allow(dead_code)]
+    pub breadcrumb: String,
+    pub queue_selected: usize,
+    pub queue_scroll: usize,
+}
 
 #[derive(Default)]
 struct FilterCache {
@@ -25,6 +44,7 @@ pub struct BrowseState {
     pub title: String,
     pub next: Option<usize>,
     pub browse: Browse,
+    pub history: Vec<HistoryEntry>,
     pub(super) request: u64,
     pub filter: String,
     pub filtering: bool,
@@ -47,6 +67,7 @@ impl BrowseState {
             title: "Search".into(),
             next: None,
             browse: Browse::Search(String::new()),
+            history: Vec::new(),
             request: 0,
             filter: String::new(),
             filtering: false,
@@ -150,6 +171,66 @@ impl BrowseState {
                 (Rows::Playlists(a), Rows::Playlists(b)) => a.extend(b),
                 _ => (),
             }
+        }
+    }
+
+    pub fn push_history(&mut self, entry: HistoryEntry) {
+        if self.history.len() >= 20 {
+            self.history.remove(0);
+        }
+        self.history.push(entry);
+    }
+
+    pub fn pop_history(&mut self) -> Option<HistoryEntry> {
+        self.history.pop()
+    }
+}
+
+impl App {
+    pub fn push_navigation(&mut self, breadcrumb: String) {
+        let entry = HistoryEntry {
+            view: self.catalog.view,
+            browse: self.catalog.browse.clone(),
+            title: self.catalog.title.clone(),
+            selected: self.catalog.selected,
+            scroll: self.ui.render.borrow().catalog_scroll,
+            rows: self.catalog.rows.clone(),
+            next: self.catalog.next,
+            query: self.catalog.query.clone(),
+            search_scope: self.catalog.search_scope,
+            filter: self.catalog.filter.clone(),
+            filtering: self.catalog.filtering,
+            breadcrumb,
+            queue_selected: self.queue.selected,
+            queue_scroll: self.ui.render.borrow().queue_scroll,
+        };
+        self.catalog.push_history(entry);
+    }
+
+    pub fn pop_navigation(&mut self) -> bool {
+        if let Some(entry) = self.catalog.pop_history() {
+            self.catalog.view = entry.view;
+            self.catalog.nav = entry.view.index();
+            self.catalog.browse = entry.browse;
+            self.catalog.title = entry.title;
+            self.catalog.selected = entry.selected;
+            self.catalog.rows = entry.rows;
+            self.catalog.next = entry.next;
+            self.catalog.query = entry.query;
+            self.catalog.search_scope = entry.search_scope;
+            self.catalog.filter = entry.filter;
+            self.catalog.filtering = entry.filtering;
+            self.catalog.editing = false;
+            self.catalog.request = self.catalog.request.wrapping_add(1);
+            self.catalog.busy = false;
+            self.catalog.rows_revision = self.catalog.rows_revision.wrapping_add(1);
+
+            self.ui.render.borrow_mut().catalog_scroll = entry.scroll;
+            self.queue.selected = entry.queue_selected;
+            self.ui.render.borrow_mut().queue_scroll = entry.queue_scroll;
+            true
+        } else {
+            false
         }
     }
 }

@@ -4,6 +4,7 @@ mod input_events;
 mod jobs;
 mod mix_builder;
 mod mouse;
+mod navigation;
 mod overlays;
 mod persistence;
 mod queue;

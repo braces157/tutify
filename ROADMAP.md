@@ -19,6 +19,14 @@ clear focus, selection, current-track, and playback-state hierarchy; safer queue
 recommendation invalidation; account-consistent reauthorization; Unicode-safe text
 limits; Mix Builder pin recovery; and a per-user PATH installer.
 
+V0.2.8 delivers native Album tracklist browsing with ordered track numbers,
+durations, and playability status; Artist top tracks discovery; dynamic
+breadcrumb navigation with a history stack and Esc back-navigation (restoring
+prior view, scroll offset, and selection); track context menu actions ("View Album"
+and "View Artist"); instant Spotify search resolution for album and artist URLs/URIs
+(including internationalized URLs and query parameters); and offline native demo
+catalog datasets for album and artist browsing.
+
 Deferred by user choice: persistent timestamped listening history, AI suggestions, and song
 tier lists. If an AI phase is pursued, the preferred integration is a cloud API
 using the user's own key. Do not add listening collection or send Spotify data to

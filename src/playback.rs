@@ -5,7 +5,7 @@ use librespot_core::{
 };
 use librespot_playback::{
     audio_backend::{Sink, SinkError, SinkResult},
-    config::PlayerConfig,
+    config::{Bitrate, PlayerConfig},
     convert::Converter,
     decoder::AudioPacket,
     mixer::{Mixer, MixerConfig, softmixer::SoftMixer},
@@ -25,6 +25,9 @@ pub enum Command {
         position_ms: u32,
         generation: u64,
     },
+    Preload {
+        id: String,
+    },
     Pause,
     Resume,
     Seek(u32),
@@ -39,6 +42,7 @@ pub enum Event {
     Playing { generation: u64, position_ms: u32 },
     Paused { generation: u64, position_ms: u32 },
     Position { generation: u64, position_ms: u32 },
+    TimeToPreload { generation: u64 },
     Completed(u64),
     Volume(u8),
     Error(String),
@@ -165,9 +169,11 @@ async fn connect(
         );
     }
     let mixer = SoftMixer::open(MixerConfig::default())?;
-    mixer.set_volume(volume as u16 * 655);
+    mixer.set_volume(((volume as u32 * 65535) / 100) as u16);
     let player = Player::new(
         PlayerConfig {
+            bitrate: Bitrate::Bitrate320,
+            gapless: true,
             position_update_interval: Some(Duration::from_millis(500)),
             ..PlayerConfig::default()
         },
@@ -246,6 +252,13 @@ where
                             let _ = tx.send(Event::TrackError { generation, message: format!("Invalid track: {e}") });
                         }
                     },
+                    Command::Preload { id } => {
+                        if let Some(e) = &engine {
+                            if let Ok(uri) = SpotifyUri::from_uri(&format!("spotify:track:{id}")) {
+                                e.player.preload(uri);
+                            }
+                        }
+                    },
                     Command::Volume(v) => { volume = v.min(100); if let Some(e) = &engine { e.mixer.set_volume((volume as u32 * 65535 / 100) as u16); } let _ = tx.send(Event::Volume(volume)); },
                     Command::Stop => { connecting = None; desired = None; active = None; loading_since = None; playing = false; pending.clear(); engine = None; },
                     #[cfg(test)]
@@ -288,6 +301,7 @@ where
                     PlayerEvent::Playing { position_ms, .. } => { loading_since = None; playing = true; last_progress = Instant::now(); Some(Event::Playing { generation, position_ms }) },
                     PlayerEvent::Paused { position_ms, .. } => { loading_since = None; playing = false; Some(Event::Paused { generation, position_ms }) },
                     PlayerEvent::PositionChanged { position_ms, .. } | PlayerEvent::PositionCorrection { position_ms, .. } | PlayerEvent::Seeked { position_ms, .. } => { last_progress = Instant::now(); Some(Event::Position { generation, position_ms }) },
+                    PlayerEvent::TimeToPreloadNextTrack { .. } => Some(Event::TimeToPreload { generation }),
                     PlayerEvent::EndOfTrack { .. } => { active = None; playing = false; Some(Event::Completed(generation)) },
                     PlayerEvent::Unavailable { .. } => { loading_since = None; active = None; playing = false; Some(Event::TrackError { generation, message: format!("{}. Choose another track or Space to retry; persistent errors may need tuitify auth --streaming --force or a librespot update.", crate::diagnostics::take().unwrap_or_else(|| "Track unavailable or network interrupted".into())) }) },
                     _ => None,
@@ -305,13 +319,189 @@ where
     Ok(())
 }
 
+const SINK_BUFFER_HEADROOM_CHUNKS: usize = 24;
+pub const SINC_TAPS: usize = 16;
+pub const SINC_RADIUS: usize = 8;
+pub const SINC_PHASES: usize = 256;
+
+/// High-quality bandlimited windowed-sinc resampler for stereo audio.
+/// Eliminates linear interpolation distortion when output device operates at 48 kHz or != 44.1 kHz.
+pub struct SincResampler {
+    in_rate: u32,
+    out_rate: u32,
+    ratio: f64,
+    table: Vec<[f32; SINC_TAPS]>,
+    pos: f64,
+    history: Vec<[f32; 2]>,
+}
+
+impl SincResampler {
+    pub fn new(in_rate: u32, out_rate: u32) -> Self {
+        let in_rate = in_rate.max(1);
+        let out_rate = out_rate.max(1);
+        let ratio = in_rate as f64 / out_rate as f64;
+        let mut table = Vec::with_capacity(SINC_PHASES + 1);
+
+        // If downsampling (out_rate < in_rate), scale cutoff for anti-aliasing low-pass
+        let cutoff = (out_rate as f64 / in_rate as f64).min(1.0);
+
+        for p in 0..=SINC_PHASES {
+            let delta = p as f64 / SINC_PHASES as f64;
+            let mut weights = [0.0f32; SINC_TAPS];
+            let mut sum = 0.0f64;
+
+            for (tap_idx, j) in (-(SINC_RADIUS as isize - 1)..=SINC_RADIUS as isize).enumerate() {
+                let x = (j as f64 - delta) * cutoff;
+                let sinc = if x.abs() < 1e-7 {
+                    1.0
+                } else {
+                    (x * std::f64::consts::PI).sin() / (x * std::f64::consts::PI)
+                };
+
+                let u = (j as f64 - delta) / SINC_RADIUS as f64;
+                let w = if u.abs() <= 1.0 {
+                    0.42 + 0.5 * (std::f64::consts::PI * u).cos()
+                        + 0.08 * (2.0 * std::f64::consts::PI * u).cos()
+                } else {
+                    0.0
+                };
+
+                let val = sinc * w * cutoff;
+                sum += val;
+                weights[tap_idx] = val as f32;
+            }
+
+            // Normalize weights so DC gain is strictly 1.0
+            if sum.abs() > 1e-7 {
+                let inv_sum = 1.0 / sum;
+                for w in &mut weights {
+                    *w = (*w as f64 * inv_sum) as f32;
+                }
+            }
+
+            table.push(weights);
+        }
+
+        Self {
+            in_rate,
+            out_rate,
+            ratio,
+            table,
+            pos: 0.0,
+            history: Vec::new(),
+        }
+    }
+
+    pub fn reset(&mut self) {
+        self.history.clear();
+        self.pos = 0.0;
+    }
+
+    pub fn resample_stereo(&mut self, samples: &[f32]) -> Vec<f32> {
+        if self.in_rate == self.out_rate {
+            return samples.to_vec();
+        }
+        let num_frames = samples.len() / 2;
+        if num_frames == 0 {
+            return Vec::new();
+        }
+        if self.history.is_empty() {
+            let pad = SINC_RADIUS - 1;
+            for _ in 0..pad {
+                self.history.push([0.0, 0.0]);
+            }
+            self.pos = pad as f64;
+        }
+        self.history.reserve(num_frames);
+        for chunk in samples.chunks_exact(2) {
+            self.history.push([chunk[0], chunk[1]]);
+        }
+        self.process_history(num_frames)
+    }
+
+    #[allow(dead_code)]
+    pub fn resample(&mut self, input: &[[f32; 2]]) -> Vec<f32> {
+        if self.in_rate == self.out_rate {
+            let mut out = Vec::with_capacity(input.len() * 2);
+            for frame in input {
+                out.push(frame[0]);
+                out.push(frame[1]);
+            }
+            return out;
+        }
+
+        if input.is_empty() {
+            return Vec::new();
+        }
+
+        // Initialize history with padding if starting fresh
+        if self.history.is_empty() {
+            let pad = SINC_RADIUS - 1;
+            for _ in 0..pad {
+                self.history.push([0.0, 0.0]);
+            }
+            self.pos = pad as f64;
+        }
+
+        self.history.extend_from_slice(input);
+        self.process_history(input.len())
+    }
+
+    fn process_history(&mut self, input_frames: usize) -> Vec<f32> {
+        let est_frames = (input_frames as f64 / self.ratio) as usize + 32;
+        let mut output = Vec::with_capacity(est_frames * 2);
+
+        while (self.pos.floor() as usize) + SINC_RADIUS < self.history.len() {
+            let k = self.pos.floor() as usize;
+            let delta = self.pos - k as f64;
+            let u = delta * SINC_PHASES as f64;
+            let p = (u.floor() as usize).min(SINC_PHASES - 1);
+            let frac = (u - p as f64) as f32;
+            let w0 = &self.table[p];
+            let w1 = &self.table[p + 1];
+
+            let window_start = k.saturating_sub(SINC_RADIUS - 1);
+            let window = &self.history[window_start..window_start + SINC_TAPS];
+
+            let mut left = 0.0f32;
+            let mut right = 0.0f32;
+            for (j, frame) in window.iter().enumerate() {
+                let w = w0[j] + frac * (w1[j] - w0[j]);
+                left += w * frame[0];
+                right += w * frame[1];
+            }
+
+            output.push(left);
+            output.push(right);
+
+            self.pos += self.ratio;
+        }
+
+        // Keep unconsumed frames in history for seamless transition to next chunk
+        let keep_start = (self.pos.floor() as usize).saturating_sub(SINC_RADIUS - 1);
+        if keep_start > 0 {
+            if keep_start >= self.history.len() {
+                self.history.clear();
+                self.pos = 0.0;
+            } else {
+                self.history.drain(0..keep_start);
+                self.pos -= keep_start as f64;
+            }
+        }
+
+        output
+    }
+}
+
 /// Opens Rodio/CPAL on librespot's audio thread (WASAPI on Windows).
 /// No process::exit or unwrap on device failure; buffers have a bounded drain time.
 struct WindowsAudio {
-    output: Option<(rodio::Sink, rodio::OutputStream)>,
+    output: Option<(rodio::Sink, rodio::OutputStream, u32)>,
     tx: mpsc::UnboundedSender<Event>,
     visualizer: Arc<crate::visualizer::AudioVisualizer>,
+    resampler: SincResampler,
 }
+
 impl WindowsAudio {
     fn new(
         tx: mpsc::UnboundedSender<Event>,
@@ -321,8 +511,10 @@ impl WindowsAudio {
             output: None,
             tx,
             visualizer,
+            resampler: SincResampler::new(44_100, 44_100),
         }
     }
+
     fn fail(&self, detail: impl std::fmt::Display) -> SinkError {
         let message = format!(
             "Windows audio failed: {detail}. Select a working default output in Windows Sound settings, then press Space to retry."
@@ -330,19 +522,83 @@ impl WindowsAudio {
         let _ = self.tx.send(Event::Error(message.clone()));
         SinkError::ConnectionRefused(message)
     }
+
+    fn open_output(&self) -> SinkResult<(rodio::Sink, rodio::OutputStream, u32)> {
+        use rodio::cpal::traits::{DeviceTrait, HostTrait};
+        let host = rodio::cpal::default_host();
+        let device = host
+            .default_output_device()
+            .ok_or_else(|| self.fail("no default audio output device available"))?;
+
+        // 1. Try native stereo 44.1 kHz playback first to avoid any resampling if supported
+        let preferred_config = device.supported_output_configs().ok().and_then(|configs| {
+            configs
+                .filter(|c| c.channels() == 2)
+                .find_map(|c| c.try_with_sample_rate(rodio::cpal::SampleRate(44_100)))
+        });
+
+        if let Some(config) = preferred_config {
+            if let Ok((stream, handle)) =
+                rodio::OutputStream::try_from_device_config(&device, config)
+            {
+                if let Ok(sink) = rodio::Sink::try_new(&handle) {
+                    return Ok((sink, stream, 44_100));
+                }
+            }
+        }
+
+        // 2. Try default config on the default device
+        if let Ok(default_config) = device.default_output_config() {
+            let rate = default_config.sample_rate().0;
+            if let Ok((stream, handle)) =
+                rodio::OutputStream::try_from_device_config(&device, default_config)
+            {
+                if let Ok(sink) = rodio::Sink::try_new(&handle) {
+                    return Ok((sink, stream, rate));
+                }
+            }
+        }
+
+        // 3. Try any other available output devices with their respective default configs
+        if let Ok(devices) = host.output_devices() {
+            for other in devices {
+                if let Ok(config) = other.default_output_config() {
+                    let rate = config.sample_rate().0;
+                    if let Ok((stream, handle)) =
+                        rodio::OutputStream::try_from_device_config(&other, config)
+                    {
+                        if let Ok(sink) = rodio::Sink::try_new(&handle) {
+                            return Ok((sink, stream, rate));
+                        }
+                    }
+                }
+            }
+        }
+
+        // 4. Last resort: try_default()
+        let (stream, handle) = rodio::OutputStream::try_default().map_err(|e| self.fail(e))?;
+        let sink = rodio::Sink::try_new(&handle).map_err(|e| self.fail(e))?;
+        let rate = device
+            .default_output_config()
+            .map(|c| c.sample_rate().0)
+            .unwrap_or(44_100);
+        Ok((sink, stream, rate))
+    }
 }
+
 impl Sink for WindowsAudio {
     fn start(&mut self) -> SinkResult<()> {
         if self.output.is_none() {
-            let (stream, handle) = rodio::OutputStream::try_default().map_err(|e| self.fail(e))?;
-            let sink = rodio::Sink::try_new(&handle).map_err(|e| self.fail(e))?;
-            self.output = Some((sink, stream));
+            let (sink, stream, sample_rate) = self.open_output()?;
+            self.resampler = SincResampler::new(44_100, sample_rate);
+            self.output = Some((sink, stream, sample_rate));
         }
         self.output.as_ref().unwrap().0.play();
         Ok(())
     }
+
     fn stop(&mut self) -> SinkResult<()> {
-        if let Some((sink, _)) = &self.output {
+        if let Some((sink, _, _)) = &self.output {
             let until = Instant::now() + Duration::from_secs(2);
             while !sink.empty() && Instant::now() < until {
                 std::thread::sleep(Duration::from_millis(10));
@@ -350,20 +606,33 @@ impl Sink for WindowsAudio {
             sink.clear();
             sink.pause();
         }
+        self.resampler.reset();
         Ok(())
     }
+
     fn write(&mut self, packet: AudioPacket, converter: &mut Converter) -> SinkResult<()> {
         let samples = packet.samples().map_err(|e| self.fail(e))?;
-        let samples = converter.f64_to_f32(samples);
-        let (sink, _) = self
+        let samples_f32 = converter.f64_to_f32(samples);
+        let (sink, _, sample_rate) = self
             .output
             .as_ref()
             .ok_or_else(|| self.fail("output disconnected"))?;
-        let buffer = rodio::buffer::SamplesBuffer::new(2, 44_100, samples);
+        let sample_rate = *sample_rate;
+
+        let resampled = if sample_rate == 44_100 {
+            samples_f32
+        } else {
+            self.resampler.resample_stereo(&samples_f32)
+        };
+
+        let buffer = rodio::buffer::SamplesBuffer::new(2, sample_rate, resampled);
         let source = crate::visualizer::VisualizerSource::new(buffer, self.visualizer.clone());
         sink.append(source);
         let until = Instant::now() + Duration::from_secs(3);
-        while sink.len() > 12 {
+        while sink.len() > SINK_BUFFER_HEADROOM_CHUNKS {
+            if sink.is_paused() {
+                break;
+            }
             if Instant::now() > until {
                 return Err(self.fail("output stopped consuming audio"));
             }
@@ -549,6 +818,184 @@ mod tests {
         assert_eq!(intent.position_ms, 4321);
         intent.control(&Command::Resume);
         assert!(!intent.paused);
+    }
+    #[test]
+    fn test_resampler_identity() {
+        let mut resampler = SincResampler::new(44_100, 44_100);
+        let input: Vec<[f32; 2]> = vec![[0.1, -0.2], [0.5, 0.9], [-0.8, 0.3]];
+        let output = resampler.resample(&input);
+        assert_eq!(output.len(), 6);
+        assert_eq!(output, vec![0.1, -0.2, 0.5, 0.9, -0.8, 0.3]);
+    }
+    #[test]
+    fn test_resampler_dc_unity_gain() {
+        let mut resampler = SincResampler::new(44_100, 48_000);
+        // Feed 1000 frames of constant 0.75 DC
+        let input: Vec<[f32; 2]> = vec![[0.75, 0.75]; 1000];
+        let output = resampler.resample(&input);
+        assert!(!output.is_empty());
+        // After initial filter ramp-up (first 16 frames), DC output must stay within 0.75 +/- 0.001
+        for &sample in &output[32..output.len() - 32] {
+            assert!(
+                (sample - 0.75).abs() < 0.005,
+                "DC sample {sample} deviated from 0.75"
+            );
+        }
+    }
+    #[test]
+    fn test_resampler_chunked_continuity() {
+        let mut continuous_resampler = SincResampler::new(44_100, 48_000);
+        let mut chunked_resampler = SincResampler::new(44_100, 48_000);
+
+        // 2000 frames of 440 Hz sine wave
+        let frames: Vec<[f32; 2]> = (0..2000)
+            .map(|i| {
+                let t = i as f32 / 44_100.0;
+                let s = (2.0 * std::f32::consts::PI * 440.0 * t).sin();
+                [s, s * 0.5]
+            })
+            .collect();
+
+        let continuous_out = continuous_resampler.resample(&frames);
+
+        // Feed in irregular chunk sizes: 100, 250, 73, 500, etc.
+        let mut chunked_out = Vec::new();
+        let chunk_sizes = [100, 250, 73, 500, 127, 450, 500];
+        let mut offset = 0;
+        for &size in &chunk_sizes {
+            let end = (offset + size).min(frames.len());
+            let chunk = &frames[offset..end];
+            chunked_out.extend(chunked_resampler.resample(chunk));
+            offset = end;
+            if offset >= frames.len() {
+                break;
+            }
+        }
+
+        // The chunked output must match continuous output closely
+        let compare_len = continuous_out.len().min(chunked_out.len());
+        assert!(compare_len > 1500);
+        let mut max_diff = 0.0f32;
+        for i in 0..compare_len {
+            let diff = (continuous_out[i] - chunked_out[i]).abs();
+            if diff > max_diff {
+                max_diff = diff;
+            }
+        }
+        assert!(
+            max_diff < 1e-4,
+            "Chunked boundary continuity error: max_diff = {max_diff}"
+        );
+    }
+    #[test]
+    fn test_resampler_high_frequency_fidelity() {
+        let mut resampler = SincResampler::new(44_100, 48_000);
+        // 12 kHz tone (well within 20 kHz audio range)
+        let frames: Vec<[f32; 2]> = (0..2000)
+            .map(|i| {
+                let t = i as f32 / 44_100.0;
+                let s = (2.0 * std::f32::consts::PI * 12_000.0 * t).sin();
+                [s, s]
+            })
+            .collect();
+        let out = resampler.resample(&frames);
+        // Measure peak amplitude after startup
+        let max_amp = out[100..out.len() - 100]
+            .iter()
+            .copied()
+            .fold(0.0f32, |a, b| a.max(b.abs()));
+        // Linear interpolation droop would attenuate this significantly (~0.85); windowed sinc preserves > 0.98
+        assert!(
+            max_amp > 0.97,
+            "High frequency peak {max_amp} dropped below expected threshold"
+        );
+    }
+    #[test]
+    fn test_constants_and_config() {
+        assert_eq!(SINK_BUFFER_HEADROOM_CHUNKS, 24);
+        assert_eq!(SINC_TAPS, 16);
+        assert_eq!(SINC_RADIUS, 8);
+        assert_eq!(SINC_PHASES, 256);
+        let default_config = PlayerConfig::default();
+        assert!(default_config.gapless);
+    }
+    #[test]
+    fn test_resampler_stereo_slice_matches_pairs() {
+        let mut r1 = SincResampler::new(44_100, 48_000);
+        let mut r2 = SincResampler::new(44_100, 48_000);
+        let frames: Vec<[f32; 2]> = (0..500)
+            .map(|i| [i as f32 * 0.001, -(i as f32) * 0.0005])
+            .collect();
+        let flat_samples: Vec<f32> = frames.iter().flat_map(|f| [f[0], f[1]]).collect();
+
+        let out_pairs = r1.resample(&frames);
+        let out_stereo = r2.resample_stereo(&flat_samples);
+
+        assert_eq!(out_pairs, out_stereo);
+    }
+    #[test]
+    fn test_resampler_unusual_dac_sample_rates() {
+        for &rate in &[88_200, 96_000, 192_000, 32_000] {
+            let mut resampler = SincResampler::new(44_100, rate);
+            let input: Vec<[f32; 2]> = vec![[0.75, 0.75]; 1000];
+            let output = resampler.resample(&input);
+            assert!(!output.is_empty(), "Output empty for rate {rate}");
+            // Allow filter ramp-up (at 192 kHz, 16 input taps span ~70 output samples)
+            for &sample in &output[150..output.len() - 150] {
+                assert!(
+                    (sample - 0.75).abs() < 0.005,
+                    "Rate {rate} DC sample {sample} deviated from 0.75"
+                );
+            }
+        }
+    }
+    #[test]
+    fn test_resampler_zero_rate_safe() {
+        let mut r1 = SincResampler::new(44_100, 0);
+        let mut r2 = SincResampler::new(0, 48_000);
+        let input: Vec<[f32; 2]> = vec![[0.1, 0.2]; 10];
+        let _ = r1.resample(&input);
+        let _ = r2.resample(&input);
+    }
+    #[tokio::test]
+    async fn worker_handles_preload_command_without_error() {
+        let (commands, rx) = mpsc::unbounded_channel();
+        let (events, mut out) = mpsc::unbounded_channel();
+        let (started, mut ready) = mpsc::unbounded_channel();
+        let worker = tokio::spawn(worker_with_connector(40, rx, events, move |_| {
+            let started = started.clone();
+            Box::pin(async move {
+                started.send(()).unwrap();
+                std::future::pending::<Result<Connected>>().await
+            })
+        }));
+        // Send Load
+        commands
+            .send(Command::Load {
+                id: "0".repeat(22),
+                position_ms: 0,
+                generation: 1,
+            })
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(1), ready.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        // Send Preload command
+        commands
+            .send(Command::Preload { id: "1".repeat(22) })
+            .unwrap();
+        // Send volume command to verify worker event loop is healthy and responding
+        commands.send(Command::Volume(50)).unwrap();
+        assert!(matches!(
+            tokio::time::timeout(Duration::from_secs(1), out.recv())
+                .await
+                .unwrap(),
+            Some(Event::Volume(50))
+        ));
+        commands.send(Command::Stop).unwrap();
+        drop(commands);
+        worker.await.unwrap().unwrap();
     }
     #[tokio::test]
     #[ignore = "Requires both Spotify browser logins, Premium, Windows audio; plays audible sound"]

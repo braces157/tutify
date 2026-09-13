@@ -653,6 +653,8 @@ mod tests {
                 "https://image-cdn-ak.spotifycdn.com/image/ab67616d0000b273baf89eb11ec7c657805d2da0"
                     .into(),
             ),
+            album_id: None,
+            track_number: None,
         }
     }
 

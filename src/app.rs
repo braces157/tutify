@@ -11,7 +11,7 @@ mod runtime;
 mod smart_shuffle;
 pub(crate) mod ui_state;
 
-use actions::Action;
+pub(crate) use actions::Action;
 use browsing::BrowseState;
 use controls::{Control, Seek};
 pub use demo_runtime::run_demo;
@@ -58,15 +58,19 @@ pub enum View {
     Liked,
     Queue,
     Help,
+    Album,
+    Artist,
 }
 impl View {
-    pub const ALL: [View; 5] = [
+    pub const PRIMARY_TABS: [View; 5] = [
         Self::Search,
         Self::Playlists,
         Self::Liked,
         Self::Queue,
         Self::Help,
     ];
+    pub const ALL: [View; 5] = Self::PRIMARY_TABS;
+
     #[allow(dead_code)]
     pub fn name(self) -> &'static str {
         match self {
@@ -75,10 +79,15 @@ impl View {
             Self::Liked => "Liked Songs",
             Self::Queue => "Queue",
             Self::Help => "Help",
+            Self::Album => "Album",
+            Self::Artist => "Artist",
         }
     }
     pub fn index(self) -> usize {
-        Self::ALL.iter().position(|v| *v == self).unwrap()
+        Self::PRIMARY_TABS
+            .iter()
+            .position(|v| *v == self)
+            .unwrap_or(0)
     }
 }
 
@@ -164,6 +173,8 @@ pub struct App {
     pub mix: MixBuilder,
     pub mix_recipes: MixRecipes,
     pub demo: bool,
+    pub preload_requested: Option<u64>,
+    pub last_preloaded_id: Option<String>,
 }
 
 impl App {
@@ -200,6 +211,8 @@ impl App {
             mix: MixBuilder::default(),
             mix_recipes: MixRecipes::default(),
             demo: false,
+            preload_requested: None,
+            last_preloaded_id: None,
         }
     }
     pub fn can_undo(&self) -> bool {
@@ -669,7 +682,7 @@ impl App {
             "Tuitify".to_string()
         }
     }
-    fn selected_track(&self) -> Option<Track> {
+    pub fn selected_track(&self) -> Option<Track> {
         if self.catalog.view == View::Queue {
             self.queue
                 .order
@@ -698,7 +711,20 @@ impl App {
             self.status = "Playback worker stopped; restart Tuitify. Queue remains saved.".into();
         }
     }
+    pub fn check_preload(&mut self, tx: &mpsc::UnboundedSender<Command>) {
+        if self.preload_requested == Some(self.generation) {
+            let next_id = self.queue.peek_next(self.config.repeat).map(str::to_owned);
+            if next_id != self.last_preloaded_id {
+                self.last_preloaded_id = next_id.clone();
+                if let Some(id) = next_id {
+                    self.send(tx, Command::Preload { id });
+                }
+            }
+        }
+    }
     fn load(&mut self, tx: &mpsc::UnboundedSender<Command>) {
+        self.preload_requested = None;
+        self.last_preloaded_id = None;
         if let Some(id) = self.queue.current().map(str::to_owned) {
             self.finalize_playback_accounting();
             self.generation += 1;
@@ -719,6 +745,8 @@ impl App {
         }
     }
     fn stop(&mut self, tx: &mpsc::UnboundedSender<Command>) {
+        self.preload_requested = None;
+        self.last_preloaded_id = None;
         self.finalize_playback_accounting();
         self.generation += 1;
         self.state = State::Paused;
@@ -802,6 +830,10 @@ impl App {
                 self.account_playback_time(Instant::now());
                 self.queue.position_ms = position_ms;
                 self.anchor_position();
+            }
+            Event::TimeToPreload { generation } if generation == self.generation => {
+                self.preload_requested = Some(generation);
+                self.check_preload(tx);
             }
             Event::Completed(generation) if generation == self.generation => {
                 self.finalize_playback_accounting();
