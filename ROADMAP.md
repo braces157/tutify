@@ -27,6 +27,13 @@ and "View Artist"); instant Spotify search resolution for album and artist URLs/
 (including internationalized URLs and query parameters); and offline native demo
 catalog datasets for album and artist browsing.
 
+V0.2.9 upgrades Track Radio and Smart Shuffle to use related-artist discovery with
+Spotify-verified tracks, stable seed retention across refills, recording-level
+deduplication, per-artist caps, and artist-spacing heuristics. Recommendation
+failures preserve the existing queue and remain visible for retry. Playback also
+refreshes the Windows default output device while running, and the installer keeps
+the canonical Tuitify directory first on the user PATH.
+
 Deferred by user choice: persistent timestamped listening history, AI suggestions, and song
 tier lists. If an AI phase is pursued, the preferred integration is a cloud API
 using the user's own key. Do not add listening collection or send Spotify data to

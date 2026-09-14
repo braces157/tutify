@@ -45,13 +45,13 @@ workflow inside Windows Terminal—no Electron shell and no background service.
 
 ### Current release
 
-The latest published download is **v0.2.8**. It introduces native album
-tracklist browsing, artist top tracks discovery, multi-level breadcrumb
-navigation with seamless `Esc` back-navigation, track context menus ("View Album"
-and "View Artist"), instant search resolution for Spotify album/artist web links
-and URIs, and offline native demo catalogs for album and artist browsing. It
-builds upon the cohesive semantic TUI design system, Smart Shuffle, Mix Builder,
-synchronized lyrics, real-time FFT visualizer, and Windows media integration.
+The latest published download is **v0.2.9**. It upgrades Track Radio and Smart
+Shuffle with related-artist discovery, bounded multi-artist batches, recording
+deduplication, stable refill seeds, and clearer failure states. Smart Shuffle now
+balances upcoming artists while preserving the playing prefix, and Windows audio
+can follow a changed default output device during playback. The release also
+hardens the installer so the canonical Tuitify directory stays first on the user
+PATH.
 
 ## Requirements
 
@@ -71,8 +71,8 @@ The native demo needs no Spotify account or audio device.
 
 ## Install
 
-1. Download `Tuitify-0.2.8-windows-x86_64.zip` from
-   [release v0.2.8](https://github.com/braces157/tutify/releases/tag/v0.2.8).
+1. Download `Tuitify-0.2.9-windows-x86_64.zip` from
+   [release v0.2.9](https://github.com/braces157/tutify/releases/tag/v0.2.9).
 2. Extract the archive.
 3. Open Windows Terminal in the extracted folder and run:
 
@@ -268,11 +268,20 @@ retain partial results after a later-page failure and offer explicit retries.
 
 ## How playback and recommendations work
 
-Track Radio first requests Spotify recommendations and falls back to artist-based
-search when that endpoint is unavailable. The UI identifies which source was
-used; the fallback is not Spotify's personalized ranking algorithm. Smart
-Shuffle mixes marked suggestions after every three original tracks while
-preserving the playing and immediately upcoming entries.
+Track Radio and Smart Shuffle use Deezer's related-artist metadata to discover
+other artists, then find and verify their tracks in Spotify. Radio adds up to
+15 tracks per batch, with at most three per primary artist. Searches stay
+anchored to the original artist across refills. The queue identifies the source
+as "Similar artists • Deezer". This is artist similarity, not Spotify's private
+personalization or a guarantee of matching a song's mood and energy.
+
+Smart Shuffle mixes marked suggestions after every three original tracks while
+preserving playback. Related-artist and Spotify candidate results are cached to
+avoid repeating requests on mode changes. If similarity is unavailable, the app
+reports an error and preserves the queue instead of filling it with one artist.
+
+See [`docs/smart-shuffle-validation.md`](docs/smart-shuffle-validation.md) for the
+discovery rules, live acceptance seeds, privacy boundaries, and retry behavior.
 
 Spotify limits some Web API endpoints for newer or development-mode applications.
 Tuitify reports restricted playlist and recommendation responses instead of trying
@@ -302,6 +311,10 @@ disable it, close Tuitify, set `"discord_rpc": false` in `config.json`, and rest
 Opening lyrics sends the track title, artists, and duration to LRCLIB; Spotify
 tokens are not sent there. Artwork may use Spotify's public oEmbed service when
 catalog artwork is missing. These requests are separate from analytics.
+Radio and Smart Shuffle send the seed artist's name to Deezer's public metadata
+API; resolving ambiguous artist names can also send the seed song title. Spotify
+tokens, account identifiers, playlists and listening statistics are not sent to
+Deezer. Similarity results are cached in memory, not written as a listening profile.
 Settings and queue changes are checkpointed asynchronously and restored paused.
 
 Useful maintenance commands:

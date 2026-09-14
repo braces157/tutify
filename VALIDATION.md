@@ -447,3 +447,35 @@ Checks executed on Windows:
 
 Live Spotify streaming audio, physical media keys, and live account authentication
 remain environment-specific acceptance checks and were not exercised for this build.
+
+## Version 0.2.9 release milestone — 2026-09-15
+
+Reviewed and built the Track Radio and Smart Shuffle discovery upgrade. Radio and
+Smart Shuffle now resolve related artists through Deezer public metadata, verify
+candidate tracks against Spotify, retain the original seed across refills, reject
+alternate recordings already queued, and cap Radio at three tracks per primary
+artist with up to fifteen additions per batch. Smart Shuffle balances artists in
+the unplayed queue while preserving played history and the current track. Failed
+discovery preserves the existing queue and leaves a visible retryable Radio error.
+
+Playback now refreshes the Windows default output device while running, including
+resampler reconfiguration when the endpoint sample rate changes. The installer now
+puts the canonical `%LOCALAPPDATA%\Programs\Tuitify` directory first in user and
+process PATH and rejects a shadowing `tuitify` command after installation.
+
+Checks executed on Windows after the final source change:
+
+- `cargo fmt --check`: passed with zero formatting diffs.
+- `cargo test --locked`: **301 passed, 0 failed, 11 ignored**. The ignored cases
+  are explicit live/account/audio/manual acceptance or benchmark tests.
+- `cargo clippy --all-targets --locked -- -D warnings`: passed with zero warnings.
+- `cargo build --release --locked`: passed, producing optimized
+  `target\release\tuitify.exe` for version 0.2.9.
+- `npm test`: **11 Microsoft Edge Playwright tests passed** after rebuilding the
+  production Tailwind CSS.
+
+The discovery-specific live acceptance observations, provider behavior, privacy
+boundary, and rate-limit handling are recorded in
+`docs/smart-shuffle-validation.md`. Those live tests were not rerun as part of the
+final packaging gate; the release gate above uses deterministic local tests plus
+the previously recorded live acceptance evidence.

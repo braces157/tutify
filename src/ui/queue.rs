@@ -133,9 +133,13 @@ pub(super) fn queue(
     let source = if app.queue.smart_shuffle {
         " | Smart Shuffle • ✦ suggested".into()
     } else if app.radio_epoch == Some(app.queue.epoch) {
-        app.radio_source
-            .map(|source| format!(" | {}", source.label()))
-            .unwrap_or_else(|| " | Track Radio".into())
+        if let Some(error) = &app.radio_error {
+            format!(" | Radio unavailable (R retries): {error}")
+        } else {
+            app.radio_source
+                .map(|source| format!(" | {}", source.label()))
+                .unwrap_or_else(|| " | Track Radio".into())
+        }
     } else {
         String::new()
     };

@@ -35,6 +35,8 @@ pub(super) struct Tasks {
     pub(super) playlist_added: usize,
     pub(super) radio_active: bool,
     pub(super) radio_attempted: HashSet<String>,
+    pub(super) radio_seed: Option<Track>,
+    pub(super) radio_round: usize,
     pub(super) smart: super::smart_shuffle::SmartTask,
     pub(super) mix: Option<tokio::task::JoinHandle<()>>,
     pub(super) mix_recommendations: Option<tokio::task::JoinHandle<()>>,
@@ -69,8 +71,11 @@ impl Tasks {
         }
         self.radio_active = false;
         self.radio_attempted.clear();
+        self.radio_seed = None;
+        self.radio_round = 0;
         app.radio_epoch = None;
         app.radio_source = None;
+        app.radio_error = None;
         app.radio_suggestions.clear();
     }
 
@@ -92,6 +97,8 @@ impl Tasks {
             playlist_added: 0,
             radio_active: false,
             radio_attempted: HashSet::new(),
+            radio_seed: None,
+            radio_round: 0,
             smart: super::smart_shuffle::SmartTask::default(),
             mix: None,
             mix_recommendations: None,
@@ -463,10 +470,17 @@ impl Tasks {
             }
             self.radio_active = false;
             self.radio_attempted.clear();
+            self.radio_seed = None;
+            self.radio_round = 0;
             self.job_epoch = epoch;
         }
     }
-    pub(super) fn fetch_recommendations(&mut self, track: &Track, epoch: u64) {
+    pub(super) fn fetch_recommendations(
+        &mut self,
+        track: &Track,
+        epoch: u64,
+        excluded: Vec<Track>,
+    ) {
         self.sync_queue_epoch(epoch);
         if let Some(t) = self.recommendations.take() {
             t.abort();
@@ -483,10 +497,13 @@ impl Tasks {
             return;
         }
         let track = track.clone();
+        let seed = self.radio_seed.get_or_insert_with(|| track.clone()).clone();
+        let round = self.radio_round;
+        self.radio_round += 1;
         let catalog = self.catalog.clone();
         let tx = self.tx.clone();
         self.recommendations = Some(tokio::spawn(async move {
-            let res = catalog.recommendations(&track).await;
+            let res = catalog.radio_recommendations(&seed, &excluded, round).await;
             let _ = tx.send(Background::Recommendations(epoch, res));
         }));
     }
@@ -501,14 +518,12 @@ impl Tasks {
         app.cache.insert(track.id.clone(), track.clone());
         app.radio_epoch = Some(app.queue.epoch);
         app.radio_source = None;
+        app.radio_error = None;
         app.radio_suggestions.clear();
         app.load(tx);
-        self.fetch_recommendations(&track, app.queue.epoch);
+        self.fetch_recommendations(&track, app.queue.epoch, vec![]);
         self.radio_active = true;
-        app.status = format!(
-            "Track Radio: {} - fetching Spotify recommendations...",
-            track.name
-        );
+        app.status = format!("Track Radio: {} - finding related tracks...", track.name);
     }
 
     pub(super) fn refill_radio(&mut self, app: &App) {
@@ -529,7 +544,14 @@ impl Tasks {
         if let Some(track) = app.current_track().filter(|t| {
             t.playable && !t.artists.is_empty() && !self.radio_attempted.contains(&t.id)
         }) {
-            self.fetch_recommendations(&track, app.queue.epoch);
+            let excluded = app
+                .queue
+                .ids
+                .iter()
+                .filter_map(|id| app.cache.get(id))
+                .cloned()
+                .collect();
+            self.fetch_recommendations(&track, app.queue.epoch, excluded);
         }
     }
 
@@ -1145,11 +1167,20 @@ pub(super) fn background(app: &mut App, tasks: &mut Tasks, event: Background) ->
             match result {
                 Ok(batch) => {
                     app.radio_source = Some(batch.source);
+                    app.radio_error = None;
                     let mut seen: HashSet<String> = app.queue.ids.iter().cloned().collect();
+                    let mut recordings: HashSet<_> = app
+                        .queue
+                        .ids
+                        .iter()
+                        .filter_map(|id| app.cache.get(id))
+                        .map(crate::catalog::recording_key)
+                        .collect();
                     let mut added = 0;
                     for track in batch.tracks {
                         if track.playable
                             && seen.insert(track.id.clone())
+                            && recordings.insert(crate::catalog::recording_key(&track))
                             && app.queue.enqueue(track.id.clone())
                         {
                             added += 1;
@@ -1175,6 +1206,7 @@ pub(super) fn background(app: &mut App, tasks: &mut Tasks, event: Background) ->
                     tasks.radio_active = false;
                     app.status =
                         format!("Track Radio failed: {e:#}. Press R to start Radio again.");
+                    app.radio_error = Some(format!("{e:#}"));
                 }
             }
         }

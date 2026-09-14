@@ -2,12 +2,14 @@ use super::*;
 
 mod input_events;
 mod jobs;
+mod live_radio;
 mod mix_builder;
 mod mouse;
 mod navigation;
 mod overlays;
 mod persistence;
 mod queue;
+mod radio_discovery;
 mod refactor;
 mod smart_shuffle;
 mod state;

@@ -1,6 +1,32 @@
 use super::*;
 
 #[tokio::test]
+async fn radio_error_survives_playback_updates_and_is_cleared_on_restart() {
+    let mut app = App::new(Config::default(), Queue::default());
+    let (mut tasks, _) = tasks();
+    let (tx, _rx) = mpsc::unbounded_channel();
+    tasks.start_radio(&mut app, test_track(1), &tx);
+    let epoch = app.queue.epoch;
+    background(
+        &mut app,
+        &mut tasks,
+        Background::Recommendations(epoch, Err(anyhow::anyhow!("similarity unavailable"))),
+    );
+    app.playback_event(
+        Event::Playing {
+            generation: app.generation,
+            position_ms: 2000,
+        },
+        &tx,
+    );
+    assert_eq!(app.radio_error.as_deref(), Some("similarity unavailable"));
+    assert!(!tasks.radio_active);
+    tasks.start_radio(&mut app, test_track(1), &tx);
+    assert!(app.radio_error.is_none());
+    tasks.cancel_radio(&mut app);
+}
+
+#[tokio::test]
 async fn search_starts_radio_and_manual_additions_precede_suggestions() {
     let mut app = App::new(Config::default(), Queue::default());
     let (mut tasks, _) = tasks();

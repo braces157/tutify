@@ -9,6 +9,12 @@ use std::sync::atomic::{AtomicU8, Ordering};
 use std::{sync::Arc, time::Instant};
 use tokio::sync::Mutex;
 
+mod discovery;
+mod similarity;
+pub(crate) use discovery::recording as recording_key;
+#[cfg(test)]
+mod discovery_tests;
+
 #[derive(Debug)]
 pub struct MissingItem;
 impl std::fmt::Display for MissingItem {
@@ -45,13 +51,15 @@ pub struct Page {
 pub enum RecommendationSource {
     Spotify,
     ArtistSearch,
+    SimilarArtists,
 }
 
 impl RecommendationSource {
     pub fn label(self) -> &'static str {
         match self {
             Self::Spotify => "Spotify recommendations",
-            Self::ArtistSearch => "Artist-search suggestions",
+            Self::ArtistSearch => "Artist-connected suggestions",
+            Self::SimilarArtists => "Similar artists • Deezer",
         }
     }
 }
@@ -80,12 +88,15 @@ pub struct Catalog {
     cooldown: Arc<Mutex<Option<Instant>>>,
     health: Arc<AtomicU8>,
     offline: bool,
+    discovery: Arc<Mutex<std::collections::HashMap<String, discovery::Profile>>>,
+    similarity: Option<similarity::Similarity>,
 }
 
 impl Catalog {
     pub(crate) fn offline() -> Result<Self> {
         Ok(Self {
             offline: true,
+            similarity: None,
             ..Self::new(TokenManager::offline()?)?
         })
     }
@@ -93,6 +104,14 @@ impl Catalog {
     pub fn mock(base: &str) -> Self {
         let mut catalog = Self::new(TokenManager::mock(format!("{base}/token"), false)).unwrap();
         catalog.base = base.to_owned();
+        catalog.similarity = None;
+        catalog
+    }
+
+    #[cfg(test)]
+    pub(crate) fn mock_with_similarity(base: &str, similarity_base: &str) -> Self {
+        let mut catalog = Self::mock(base);
+        catalog.similarity = Some(similarity::Similarity::mock(similarity_base));
         catalog
     }
 
@@ -104,6 +123,8 @@ impl Catalog {
             cooldown: Arc::new(Mutex::new(None)),
             health: Arc::new(AtomicU8::new(0)),
             offline: false,
+            discovery: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            similarity: Some(similarity::Similarity::new()?),
         })
     }
     pub fn health(&self) -> Health {
@@ -247,80 +268,25 @@ impl Catalog {
             }
         }
 
-        // 2. Fallback: Query Spotify Search for related tracks & artist catalog
-        let artist_names: Vec<&str> = seed
-            .artists
-            .split(',')
-            .map(|s| s.trim())
-            .filter(|s| !s.is_empty())
-            .collect();
-        let primary_artist = artist_names.first().copied().unwrap_or(&seed.artists);
-
-        let mut queries = Vec::new();
-        queries.push(primary_artist.to_string());
-        if let Some(&second_artist) = artist_names.get(1) {
-            queries.push(second_artist.to_string());
-        }
-
-        let mut candidates = Vec::new();
-        let mut search_error = None;
-        for q in queries {
-            for offset in [0, 10] {
-                let search_query = [
-                    ("limit", "10".into()),
-                    ("offset", offset.to_string()),
-                    ("type", "track".into()),
-                    ("q", q.clone()),
-                ];
-                match self.get("/search", &search_query).await {
-                    Ok(val) => {
-                        if let Some(items) = val["tracks"]["items"].as_array() {
-                            for item in items {
-                                if let Some(t) = parse_track(item) {
-                                    candidates.push(t);
-                                }
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        search_error = Some(e);
-                        break;
-                    }
-                }
-            }
-            if search_error.is_some() {
-                break;
-            }
-        }
-        if candidates.is_empty() {
-            if let Some(e) = search_error {
-                return Err(e);
-            }
-        }
-
-        let mut final_tracks = Vec::new();
-        let mut seen_ids = std::collections::HashSet::new();
-        let mut seen_titles = std::collections::HashSet::new();
-        seen_ids.insert(seed.id.clone());
-        seen_titles.insert(normalized_seed);
-
-        for t in candidates {
-            let norm = normalize_title(&t.name);
-            if t.playable && !seen_ids.contains(&t.id) && !seen_titles.contains(&norm) {
-                seen_ids.insert(t.id.clone());
-                seen_titles.insert(norm);
-                final_tracks.push(t);
-                if final_tracks.len() >= 15 {
-                    break;
-                }
-            }
-        }
-
-        Ok(Recommendations {
-            tracks: final_tracks,
-            source: RecommendationSource::ArtistSearch,
-        })
+        self.collaboration_recommendations(seed).await
     }
+
+    /// Smart Shuffle uses supported catalog search rather than the deprecated
+    /// recommendations endpoint. Search suggestions are not Spotify personalization.
+    pub async fn smart_recommendations(
+        &self,
+        seed: &Track,
+        excluded: &[Track],
+        context: &[Track],
+    ) -> Result<Recommendations> {
+        self.queue_context_recommendations(seed, excluded, context)
+            .await
+    }
+
+    async fn collaboration_recommendations(&self, seed: &Track) -> Result<Recommendations> {
+        self.radio_recommendations(seed, &[], 0).await
+    }
+
     pub async fn page(&self, browse: &Browse, offset: usize) -> Result<Page> {
         if let Browse::Search(query) = browse {
             if let Some(id) = track_id(query) {
@@ -590,10 +556,71 @@ mod tests {
         let mut c =
             Catalog::new(TokenManager::mock(format!("{}/token", server.uri()), false)).unwrap();
         c.base = server.uri();
+        c.similarity = None;
         (server, c)
     }
     fn track() -> Value {
         serde_json::json!({"id":"0000000000000000000001","name":"Example","artists":[{"name":"Artist"}],"type":"track","duration_ms":200000})
+    }
+
+    #[tokio::test]
+    #[ignore = "Uses the saved Spotify login and live catalog; manual acceptance test"]
+    async fn live_radio_multiple_seeds() -> Result<()> {
+        let store = crate::storage::Storage::local()?;
+        let catalog = Catalog::new(TokenManager::load(&store.config()?)?)?;
+        for query in [
+            "track:good 4 u artist:Olivia Rodrigo",
+            "track:Blinding Lights artist:The Weeknd",
+            "track:Yellow artist:Coldplay",
+            "track:One More Time artist:Daft Punk",
+        ] {
+            let page = catalog.page(&Browse::Search(query.into()), 0).await?;
+            let Rows::Tracks(tracks) = page.rows else {
+                bail!("Expected tracks")
+            };
+            let seed = tracks
+                .into_iter()
+                .find(|track| track.playable)
+                .context("No playable seed")?;
+            println!("SEED {} - {} | id={}", seed.name, seed.artists, seed.id);
+            let batch = catalog.radio_recommendations(&seed, &[], 0).await?;
+            assert!(
+                batch.tracks.len() >= 12,
+                "{}: sparse recommendation pool",
+                seed.name
+            );
+            println!(
+                "LIVE count={} source={}",
+                batch.tracks.len(),
+                batch.source.label()
+            );
+            for track in &batch.tracks {
+                println!("  {} - {}", track.name, track.artists);
+            }
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[ignore = "Requires the locally saved Spotify catalog login; manual acceptance test"]
+    async fn live_recommendations_from_saved_account() -> Result<()> {
+        let store = crate::storage::Storage::local()?;
+        let config = store.config()?;
+        let catalog = Catalog::new(TokenManager::load(&config)?)?;
+        let seed = catalog.track("6PCUP3dWmTjcTtXY02oFdT").await?;
+        let recommendations = catalog.recommendations(&seed).await?;
+
+        println!(
+            "LIVE RADIO: {} - {} | source={} | count={}",
+            seed.name,
+            seed.artists,
+            recommendations.source.label(),
+            recommendations.tracks.len()
+        );
+        for (index, track) in recommendations.tracks.iter().enumerate() {
+            println!("{:>2}. {} - {}", index + 1, track.name, track.artists);
+        }
+        Ok(())
     }
     #[tokio::test]
     async fn health_tracks_authentication_and_recovery_across_clones() {
@@ -815,12 +842,12 @@ mod tests {
         );
     }
     #[tokio::test]
-    async fn recommendations_fallback_filters_same_song() {
+    async fn smart_recommendations_filter_same_song_without_deprecated_endpoint() {
         let (s, c) = catalog().await;
-        // Mock 403 on /recommendations to trigger search fallback
+        // Smart Shuffle must not probe the deprecated recommendations endpoint.
         Mock::given(path("/recommendations"))
             .respond_with(ResponseTemplate::new(403))
-            .expect(1)
+            .expect(0)
             .mount(&s)
             .await;
         // Mock search returning candidate tracks including seed, acoustic duplicate, and new related track
@@ -865,12 +892,134 @@ mod tests {
             playable: true,
             ..Default::default()
         };
-        let recs = c.recommendations(&seed).await.unwrap();
+        let recs = c.smart_recommendations(&seed, &[], &[]).await.unwrap();
         // The seed and the acoustic variant MUST be filtered out; only Shape of You remains!
         assert_eq!(recs.source, RecommendationSource::ArtistSearch);
         assert_eq!(recs.tracks.len(), 1);
         assert_eq!(recs.tracks[0].name, "Shape of You");
         assert_eq!(recs.tracks[0].id, "0000000000000000000003");
+    }
+
+    #[tokio::test]
+    async fn recommendations_fallback_uses_collaborators_without_genre_search() {
+        let (server, catalog) = catalog().await;
+        Mock::given(path("/recommendations"))
+            .respond_with(ResponseTemplate::new(403))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let track = |id: usize, name: &str, artists: Vec<(&str, usize)>| {
+            serde_json::json!({
+                "id": format!("{id:022}"),
+                "name": name,
+                "artists": artists
+                    .into_iter()
+                    .map(|(artist, artist_id)| serde_json::json!({
+                        "name": artist,
+                        "id": format!("{artist_id:022}")
+                    }))
+                    .collect::<Vec<_>>(),
+                "duration_ms": 200000,
+                "is_playable": true,
+                "type": "track"
+            })
+        };
+
+        Mock::given(path("/search"))
+            .and(query_param("q", "artist:\"Seed Artist\""))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "tracks": {"items": [
+                    track(2, "Seed with B", vec![("Seed Artist", 100), ("Artist B", 200)]),
+                    track(3, "Seed with C", vec![("Seed Artist", 100), ("Artist C", 300)]),
+                    track(4, "Seed Solo", vec![("Seed Artist", 100)]),
+                    track(13, "Second B duet", vec![("Seed Artist", 100), ("Artist B", 200)]),
+                    track(14, "Second C duet", vec![("Seed Artist", 100), ("Artist C", 300)])
+                ]}
+            })))
+            .expect(2)
+            .mount(&server)
+            .await;
+        Mock::given(path("/search"))
+            .and(query_param("q", "artist:\"Artist B\""))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "tracks": {"items": [
+                    track(5, "B with D", vec![("Artist B", 200), ("Artist D", 400)]),
+                    track(6, "B with E", vec![("Artist B", 200), ("Artist E", 500)])
+                ]}
+            })))
+            .expect(2)
+            .mount(&server)
+            .await;
+        Mock::given(path("/search"))
+            .and(query_param("q", "artist:\"Artist C\""))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "tracks": {"items": [
+                    track(7, "C with F", vec![("Artist C", 300), ("Artist F", 600)]),
+                    track(8, "C with G", vec![("Artist C", 300), ("Artist G", 700)])
+                ]}
+            })))
+            .expect(2)
+            .mount(&server)
+            .await;
+        for (artist, artist_id, track_id) in [
+            ("Artist D", 400, 9),
+            ("Artist E", 500, 10),
+            ("Artist F", 600, 11),
+            ("Artist G", 700, 12),
+        ] {
+            Mock::given(path("/search"))
+                .and(query_param("q", format!("artist:\"{artist}\"")))
+                .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "tracks": {"items": [track(
+                        track_id,
+                        &format!("{artist} Solo"),
+                        vec![(artist, artist_id)]
+                    )]}
+                })))
+                .expect(0)
+                .mount(&server)
+                .await;
+        }
+        Mock::given(path("/search"))
+            .and(query_param("q", "genre:\"pop\""))
+            .respond_with(ResponseTemplate::new(500))
+            .expect(0)
+            .mount(&server)
+            .await;
+
+        Mock::given(path(format!("/artists/{:022}/albums", 100)))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"items":[]})))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let recs = catalog
+            .recommendations(&Track {
+                id: "0000000000000000000001".into(),
+                name: "Seed Song".into(),
+                artists: "Seed Artist".into(),
+                artist_ids: vec!["0000000000000000000100".into()],
+                duration_ms: 200000,
+                playable: true,
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        assert_eq!(recs.source, RecommendationSource::ArtistSearch);
+        assert!(
+            recs.tracks
+                .iter()
+                .any(|track| track.artists == "Artist B, Artist D")
+        );
+        assert!(
+            recs.tracks
+                .iter()
+                .any(|track| track.artists == "Artist C, Artist F")
+        );
+        assert!(
+            recs.tracks.len() > 5,
+            "repeated direct collaborations should add candidates without a second hop"
+        );
     }
 
     #[tokio::test]

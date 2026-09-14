@@ -500,6 +500,8 @@ struct WindowsAudio {
     tx: mpsc::UnboundedSender<Event>,
     visualizer: Arc<crate::visualizer::AudioVisualizer>,
     resampler: SincResampler,
+    output_device: Option<rodio::cpal::Device>,
+    next_device_check: Instant,
 }
 
 impl WindowsAudio {
@@ -512,6 +514,8 @@ impl WindowsAudio {
             tx,
             visualizer,
             resampler: SincResampler::new(44_100, 44_100),
+            output_device: None,
+            next_device_check: Instant::now(),
         }
     }
 
@@ -523,12 +527,11 @@ impl WindowsAudio {
         SinkError::ConnectionRefused(message)
     }
 
-    fn open_output(&self) -> SinkResult<(rodio::Sink, rodio::OutputStream, u32)> {
-        use rodio::cpal::traits::{DeviceTrait, HostTrait};
-        let host = rodio::cpal::default_host();
-        let device = host
-            .default_output_device()
-            .ok_or_else(|| self.fail("no default audio output device available"))?;
+    fn open_output(
+        &self,
+        device: &rodio::cpal::Device,
+    ) -> SinkResult<(rodio::Sink, rodio::OutputStream, u32)> {
+        use rodio::cpal::traits::DeviceTrait;
 
         // 1. Try native stereo 44.1 kHz playback first to avoid any resampling if supported
         let preferred_config = device.supported_output_configs().ok().and_then(|configs| {
@@ -539,7 +542,7 @@ impl WindowsAudio {
 
         if let Some(config) = preferred_config {
             if let Ok((stream, handle)) =
-                rodio::OutputStream::try_from_device_config(&device, config)
+                rodio::OutputStream::try_from_device_config(device, config)
             {
                 if let Ok(sink) = rodio::Sink::try_new(&handle) {
                     return Ok((sink, stream, 44_100));
@@ -551,7 +554,7 @@ impl WindowsAudio {
         if let Ok(default_config) = device.default_output_config() {
             let rate = default_config.sample_rate().0;
             if let Ok((stream, handle)) =
-                rodio::OutputStream::try_from_device_config(&device, default_config)
+                rodio::OutputStream::try_from_device_config(device, default_config)
             {
                 if let Ok(sink) = rodio::Sink::try_new(&handle) {
                     return Ok((sink, stream, rate));
@@ -559,40 +562,53 @@ impl WindowsAudio {
             }
         }
 
-        // 3. Try any other available output devices with their respective default configs
-        if let Ok(devices) = host.output_devices() {
-            for other in devices {
-                if let Ok(config) = other.default_output_config() {
-                    let rate = config.sample_rate().0;
-                    if let Ok((stream, handle)) =
-                        rodio::OutputStream::try_from_device_config(&other, config)
-                    {
-                        if let Ok(sink) = rodio::Sink::try_new(&handle) {
-                            return Ok((sink, stream, rate));
-                        }
-                    }
-                }
-            }
-        }
+        Err(self.fail("could not open the Windows default output device"))
+    }
 
-        // 4. Last resort: try_default()
-        let (stream, handle) = rodio::OutputStream::try_default().map_err(|e| self.fail(e))?;
-        let sink = rodio::Sink::try_new(&handle).map_err(|e| self.fail(e))?;
-        let rate = device
-            .default_output_config()
-            .map(|c| c.sample_rate().0)
-            .unwrap_or(44_100);
-        Ok((sink, stream, rate))
+    fn refresh_output(&mut self, force: bool) -> SinkResult<()> {
+        use rodio::cpal::traits::HostTrait;
+        if !force && Instant::now() < self.next_device_check {
+            return Ok(());
+        }
+        self.next_device_check = Instant::now() + Duration::from_millis(250);
+        let device = rodio::cpal::default_host().default_output_device();
+        let unchanged = match (&self.output_device, &device) {
+            #[cfg(windows)]
+            (Some(old), Some(new)) => match (old.as_inner(), new.as_inner()) {
+                (
+                    rodio::cpal::platform::DeviceInner::Wasapi(old),
+                    rodio::cpal::platform::DeviceInner::Wasapi(new),
+                ) => old == new,
+                #[allow(unreachable_patterns)]
+                _ => false,
+            },
+            #[cfg(not(windows))]
+            (Some(old), Some(new)) => {
+                use rodio::cpal::traits::DeviceTrait;
+                matches!((old.name(), new.name()), (Ok(a), Ok(b)) if a == b)
+            }
+            _ => false,
+        };
+        if unchanged && self.output.is_some() {
+            return Ok(());
+        }
+        // Stop the old endpoint immediately, including queued speaker audio.
+        if let Some((sink, _, _)) = self.output.take() {
+            sink.stop();
+        }
+        self.output_device = None;
+        let device = device.ok_or_else(|| self.fail("no default audio output device available"))?;
+        let (sink, stream, sample_rate) = self.open_output(&device)?;
+        self.resampler = SincResampler::new(44_100, sample_rate);
+        self.output = Some((sink, stream, sample_rate));
+        self.output_device = Some(device);
+        Ok(())
     }
 }
 
 impl Sink for WindowsAudio {
     fn start(&mut self) -> SinkResult<()> {
-        if self.output.is_none() {
-            let (sink, stream, sample_rate) = self.open_output()?;
-            self.resampler = SincResampler::new(44_100, sample_rate);
-            self.output = Some((sink, stream, sample_rate));
-        }
+        self.refresh_output(true)?;
         self.output.as_ref().unwrap().0.play();
         Ok(())
     }
@@ -611,6 +627,7 @@ impl Sink for WindowsAudio {
     }
 
     fn write(&mut self, packet: AudioPacket, converter: &mut Converter) -> SinkResult<()> {
+        self.refresh_output(false)?;
         let samples = packet.samples().map_err(|e| self.fail(e))?;
         let samples_f32 = converter.f64_to_f32(samples);
         let (sink, _, sample_rate) = self
@@ -629,7 +646,15 @@ impl Sink for WindowsAudio {
         let source = crate::visualizer::VisualizerSource::new(buffer, self.visualizer.clone());
         sink.append(source);
         let until = Instant::now() + Duration::from_secs(3);
-        while sink.len() > SINK_BUFFER_HEADROOM_CHUNKS {
+        while self
+            .output
+            .as_ref()
+            .is_some_and(|(sink, _, _)| sink.len() > SINK_BUFFER_HEADROOM_CHUNKS)
+        {
+            self.refresh_output(false)?;
+            let Some((sink, _, _)) = &self.output else {
+                break;
+            };
             if sink.is_paused() {
                 break;
             }
@@ -997,6 +1022,45 @@ mod tests {
         drop(commands);
         worker.await.unwrap().unwrap();
     }
+    #[tokio::test]
+    #[ignore = "Real Windows audio for four observed seed IDs; saved streaming login, no Web API requests"]
+    async fn live_multiple_seed_audio_without_catalog() {
+        crate::diagnostics::init();
+        let store = Storage::local().unwrap();
+        let _lock = store.lock().unwrap();
+        let config = store.config().unwrap();
+        let mut player = Playback::spawn(
+            TokenManager::load_streaming().unwrap(),
+            config.client_id,
+            10,
+        );
+        for (i, (name, id)) in [
+            ("good 4 u", "4ZtFanR9U6ndgddUvNcjcG"),
+            ("Blinding Lights", "0VjIjW4GlUZAMYd2vXMi3b"),
+            ("Yellow", "3AJwUDP919kvQ9QcozQPxg"),
+            ("One More Time", "0DiWol3AO6WpXZgp0goxAV"),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let generation = i as u64 + 1;
+            player
+                .commands
+                .send(Command::Load {
+                    id: id.into(),
+                    position_ms: 0,
+                    generation,
+                })
+                .unwrap();
+            expect(&mut player, |event| matches!(event, Event::Playing { generation: actual, .. } if *actual == generation)).await;
+            expect(&mut player, |event| matches!(event, Event::Position { generation: actual, position_ms } if *actual == generation && *position_ms >= 2000)).await;
+            println!(
+                "LIVE AUDIO PASS: {name}, Windows streaming started and position advanced >=2 seconds"
+            );
+        }
+        player.commands.send(Command::Stop).unwrap();
+    }
+
     #[tokio::test]
     #[ignore = "Requires both Spotify browser logins, Premium, Windows audio; plays audible sound"]
     async fn live_streaming_acceptance() {

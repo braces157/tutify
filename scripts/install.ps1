@@ -50,30 +50,32 @@ $pathEntries = if ([string]::IsNullOrWhiteSpace($currentUserPath)) {
     $currentUserPath.Split(';', [System.StringSplitOptions]::RemoveEmptyEntries)
 }
 
-$alreadyPresent = $pathEntries | Where-Object {
-    [string]::Equals(
+$otherEntries = @($pathEntries | Where-Object {
+    -not [string]::Equals(
         [System.IO.Path]::GetFullPath($_.Trim()),
         $installRoot,
         [System.StringComparison]::OrdinalIgnoreCase
     )
-}
+})
 
-if (-not $alreadyPresent) {
-    $newUserPath = (($pathEntries + $installRoot) -join ';').Trim(';')
+$newUserPath = ((@($installRoot) + $otherEntries) -join ';').Trim(';')
+if ($newUserPath -ne $currentUserPath) {
     [Environment]::SetEnvironmentVariable('Path', $newUserPath, 'User')
 }
 
-if (-not (($env:Path -split ';') | Where-Object {
-    $_ -and [string]::Equals(
+$otherProcessEntries = @(($env:Path -split ';') | Where-Object {
+    $_ -and -not [string]::Equals(
         [System.IO.Path]::GetFullPath($_.Trim()),
         $installRoot,
         [System.StringComparison]::OrdinalIgnoreCase
     )
-})) {
-    $env:Path = "$installRoot;$env:Path"
-}
+})
+$env:Path = (@($installRoot) + $otherProcessEntries) -join ';'
 
 $installedCommand = Get-Command tuitify -ErrorAction Stop
+if ($installedCommand.Source -ne $destination) {
+    throw "Another command shadows the installation: $($installedCommand.Source)"
+}
 & $installedCommand.Source --version | Out-Host
 Write-Host "Installed Tuitify to $destination"
 Write-Host 'Open a new terminal and run: tuitify'
