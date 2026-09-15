@@ -27,16 +27,16 @@ workflow inside Windows Terminal—no Electron shell and no background service.
 ## Preview
 
 <p align="center">
-  <a href="https://github.com/braces157/tutify/releases/download/v0.3.0/tuitify-v0.3.0-glass-visualizer.jpg">
-    <img src="https://github.com/braces157/tutify/releases/download/v0.3.0/tuitify-v0.3.0-glass-visualizer.jpg" width="100%" alt="Tuitify Glass theme showing the real-time spectrum visualizer in Windows Terminal">
+  <a href="docs/assets/screenshots/v0.3.0/glass-visualizer.jpg">
+    <img src="docs/assets/screenshots/v0.3.0/glass-visualizer.jpg" width="100%" alt="Tuitify Glass theme showing the real-time spectrum visualizer in Windows Terminal">
   </a>
 </p>
 
 <p align="center"><strong>Glass theme with the real-time FFT visualizer</strong></p>
 
 <p align="center">
-  <a href="https://github.com/braces157/tutify/releases/download/v0.3.0/tuitify-v0.3.0-glass-lyrics.jpg">
-    <img src="https://github.com/braces157/tutify/releases/download/v0.3.0/tuitify-v0.3.0-glass-lyrics.jpg" width="100%" alt="Tuitify Glass theme showing synchronized lyrics in Windows Terminal">
+  <a href="docs/assets/screenshots/v0.3.0/glass-lyrics.jpg">
+    <img src="docs/assets/screenshots/v0.3.0/glass-lyrics.jpg" width="100%" alt="Tuitify Glass theme showing synchronized lyrics in Windows Terminal">
   </a>
 </p>
 
