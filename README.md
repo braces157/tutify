@@ -27,6 +27,14 @@ workflow inside Windows Terminal—no Electron shell and no background service.
 ## Preview
 
 <p align="center">
+  <a href="docs/assets/screenshots/v0.3.0/glass-queue-smart-shuffle.png">
+    <img src="docs/assets/screenshots/v0.3.0/glass-queue-smart-shuffle.png" width="100%" alt="Tuitify v0.3.0 Glass theme showing a multilingual queue with Smart Shuffle suggestions in Windows Terminal">
+  </a>
+</p>
+
+<p align="center"><strong>Glass queue with Smart Shuffle suggestions</strong></p>
+
+<p align="center">
   <a href="docs/assets/screenshots/v0.3.0/glass-visualizer.jpg">
     <img src="docs/assets/screenshots/v0.3.0/glass-visualizer.jpg" width="100%" alt="Tuitify Glass theme showing the real-time spectrum visualizer in Windows Terminal">
   </a>
@@ -42,9 +50,9 @@ workflow inside Windows Terminal—no Electron shell and no background service.
 
 <p align="center"><strong>Synchronized lyrics over a native-resolution wallpaper</strong></p>
 
-> The screenshots show the final pre-release Glass UI before its displayed version
-> label advanced from v0.2.9 to v0.3.0. The published binaries and package metadata
-> report v0.3.0.
+> The visualizer and lyrics screenshots show the final pre-release Glass UI before
+> its displayed version label advanced from v0.2.9 to v0.3.0. The published binaries
+> and package metadata report v0.3.0.
 
 ## Highlights
 
