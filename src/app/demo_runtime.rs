@@ -1,7 +1,10 @@
 use super::*;
 
-pub async fn run_demo() -> Result<()> {
+pub async fn run_demo(glass: bool) -> Result<()> {
     let mut app = crate::demo::app();
+    if glass {
+        app.config.theme = "glass".into();
+    }
     let (background_tx, mut background_rx) = mpsc::unbounded_channel();
     let mut tasks = Tasks::demo(background_tx)?;
     let (commands, mut command_rx) = mpsc::unbounded_channel();

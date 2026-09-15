@@ -1,5 +1,7 @@
 mod chrome;
 use chrome::{context_menu, footer, header};
+pub(crate) mod background;
+pub(crate) use background::BackgroundState;
 mod help;
 use help::help;
 mod terminal;
@@ -49,6 +51,16 @@ use ratatui::{
 };
 use std::io::{Stdout, stdout};
 
+/// Native wallpaper windows can retain reflowed text after a resize or view change.
+/// Repaint their complete screen so terminal-side contents cannot outlive our buffer.
+pub fn draw_terminal<B: Backend>(terminal: &mut Terminal<B>, app: &App) -> std::io::Result<()> {
+    if app.config.native_glass {
+        terminal.clear()?;
+    }
+    terminal.draw(|frame| draw(frame, app, &mut app.ui.render.borrow_mut()))?;
+    Ok(())
+}
+
 pub fn draw(frame: &mut Frame<'_>, app: &App, render: &mut RenderState) {
     let area = frame.area();
     render.mouse_hits.clear();
@@ -68,6 +80,7 @@ pub fn draw(frame: &mut Frame<'_>, app: &App, render: &mut RenderState) {
             .style(Style::default().fg(theme.primary())),
             area,
         );
+        background::apply(frame, app, render, theme);
         return;
     }
     let compact = area.height < 18;
@@ -81,6 +94,7 @@ pub fn draw(frame: &mut Frame<'_>, app: &App, render: &mut RenderState) {
         header(frame, app, vertical[0]);
         body(frame, app, render, vertical[1]);
         footer(frame, app, vertical[2]);
+        background::apply(frame, app, render, theme);
         return;
     }
     let vertical = Layout::vertical([
@@ -98,6 +112,7 @@ pub fn draw(frame: &mut Frame<'_>, app: &App, render: &mut RenderState) {
 
     footer(frame, app, vertical[3]);
     context_menu(frame, app, render, area);
+    background::apply(frame, app, render, theme);
 }
 
 fn center(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, area: Rect) {

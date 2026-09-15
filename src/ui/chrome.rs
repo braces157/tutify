@@ -47,7 +47,7 @@ pub(super) fn header(frame: &mut Frame<'_>, app: &App, area: Rect) {
                 Span::styled(" TUITIFY", Style::default().fg(palette.primary).bold()),
                 Span::styled(
                     format!("  {version}"),
-                    Style::default().fg(palette.text_subtle),
+                    Style::default().fg(palette.text_muted),
                 ),
                 Span::styled("   ? Help", Style::default().fg(palette.text_muted)),
             ])),
@@ -166,10 +166,15 @@ pub(super) fn context_menu(frame: &mut Frame<'_>, app: &App, render: &mut Render
         frame.render_widget(Clear, rect);
         let items = menu.labels().map(ListItem::new);
         let mut state = ListState::default().with_selected(Some(menu.selected));
+        let menu_bg = if theme == Theme::Glass {
+            Color::Rgb(15, 25, 28)
+        } else {
+            palette.surface_alt
+        };
         frame.render_stateful_widget(
             List::new(items)
                 .block(block_themed(" ACTIONS  ·  Esc close ", true, theme))
-                .style(Style::default().fg(palette.text).bg(palette.surface_alt))
+                .style(Style::default().fg(palette.text).bg(menu_bg))
                 .highlight_style(selected_row_style(theme))
                 .highlight_symbol("▌ "),
             rect,

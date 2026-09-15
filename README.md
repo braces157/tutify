@@ -31,9 +31,11 @@ workflow inside Windows Terminal—no Electron shell and no background service.
   tracklists, and artist top tracks, plus track/album/artist search and link navigation.
 - **Powerful queue tools** including play next, reorder, remove, undo, shuffle,
   repeat, and Track Radio.
-- **A responsive terminal UI** with keyboard and mouse support, five color themes,
+- **A responsive terminal UI** with keyboard and mouse support, six color themes,
   a semantic color system, restrained selection/focus states, a real-time FFT
-  audio visualizer, and layouts that adapt to narrow terminals.
+  audio visualizer, and a wallpaper-backed Glass theme. On Windows Terminal,
+  Glass uses a dedicated native profile so the wallpaper stays at full display
+  resolution; other terminals fall back to the Unicode cell renderer.
 - **Synchronized lyrics** from LRCLIB with automatic scrolling.
 - **Windows integration** for media keys, system media controls, metadata, and the
   playback timeline.
@@ -45,13 +47,11 @@ workflow inside Windows Terminal—no Electron shell and no background service.
 
 ### Current release
 
-The latest published download is **v0.2.9**. It upgrades Track Radio and Smart
-Shuffle with related-artist discovery, bounded multi-artist batches, recording
-deduplication, stable refill seeds, and clearer failure states. Smart Shuffle now
-balances upcoming artists while preserving the playing prefix, and Windows audio
-can follow a changed default output device during playback. The release also
-hardens the installer so the canonical Tuitify directory stays first on the user
-PATH.
+The latest published download is **v0.3.0**. It introduces the wallpaper-backed
+Glass theme with two rendering paths: a portable Unicode cell renderer and a
+full-resolution Windows Terminal profile. Glass keeps selected rows and controls
+readable over detailed artwork, supports custom JPEG, PNG, WebP, and BMP images,
+and includes dedicated queue, lyrics, and real-time visualizer presentation.
 
 ## Requirements
 
@@ -71,8 +71,8 @@ The native demo needs no Spotify account or audio device.
 
 ## Install
 
-1. Download `Tuitify-0.2.9-windows-x86_64.zip` from
-   [release v0.2.9](https://github.com/braces157/tutify/releases/tag/v0.2.9).
+1. Download `Tuitify-0.3.0-windows-x86_64.zip` from
+   [release v0.3.0](https://github.com/braces157/tutify/releases/tag/v0.3.0).
 2. Extract the archive.
 3. Open Windows Terminal in the extracted folder and run:
 
@@ -189,6 +189,35 @@ text; finish text entry before using playback commands.
 | `[` / `]` | Adjust volume by 1% outside Mix Builder |
 | `C` / `Delete` | Clear the queue / remove its selected entry |
 | `q` or `Ctrl+C` | Save and quit |
+
+### Wallpaper / Glass background
+
+On Windows Terminal, Tuitify creates a small `Tuitify Glass` profile fragment and lets
+Windows Terminal draw the image at native GPU resolution. The wallpaper runs across the
+full interface while selected rows and key hints retain opaque contrast surfaces. The image
+settings are also saved on the Tuitify Glass profile in `settings.json` to ensure Terminal
+loads the styled image. Other profiles are preserved, and the original settings are backed
+up as `settings.json.tuitify-backup`.
+
+Use your current Windows wallpaper:
+
+```powershell
+tuitify background
+```
+
+Or choose a JPEG, PNG, WebP, or BMP and adjust readability with `--dim` (`0` to `85`):
+
+```powershell
+tuitify background "C:\path\to\wallpaper.jpg" --dim 52
+```
+
+Running `tuitify` stays in the current terminal using the Unicode image renderer.
+Run `tuitify --glass` to start directly in the current terminal with the Glass background
+theme enabled. Run `tuitify --glass-window` to open a dedicated native GPU Glass tab in
+the current Windows Terminal window with a full-resolution tinted image and subtle scanlines.
+If Windows Terminal is unavailable, the current-terminal renderer is used. Press `t` in Tuitify to cycle away from or back to
+Glass. Selected rows and status badges stay opaque so controls remain legible over detailed
+artwork.
 
 Windows media keys can control Play/Pause, Next, and Previous while Tuitify is
 unfocused. Terminals that support mouse reporting can also select, scroll, seek,

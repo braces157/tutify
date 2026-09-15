@@ -131,6 +131,7 @@ pub struct RenderState {
     pub terminal_size: (u16, u16),
     pub help_length: usize,
     pub lyrics_length: usize,
+    pub background: crate::ui::BackgroundState,
 }
 impl Default for RenderState {
     fn default() -> Self {
@@ -143,6 +144,7 @@ impl Default for RenderState {
             terminal_size: (120, 35),
             help_length: 1,
             lyrics_length: 1,
+            background: crate::ui::BackgroundState::default(),
         }
     }
 }

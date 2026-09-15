@@ -16,6 +16,10 @@ pub struct Config {
     pub shuffle: bool,
     pub repeat: Repeat,
     pub theme: String,
+    pub background_image: Option<String>,
+    pub background_dim: u8,
+    #[serde(skip)]
+    pub native_glass: bool,
     pub discord_rpc: bool,
     pub discord_client_id: Option<String>,
 }
@@ -29,6 +33,9 @@ impl Default for Config {
             shuffle: false,
             repeat: Repeat::Off,
             theme: "spotify".into(),
+            background_image: None,
+            background_dim: 38,
+            native_glass: false,
             discord_rpc: true,
             discord_client_id: None,
         }
@@ -69,6 +76,7 @@ impl Storage {
         }
         Ok(Config {
             volume: c.volume.min(100),
+            background_dim: c.background_dim.min(85),
             ..c
         })
     }

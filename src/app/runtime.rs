@@ -1,7 +1,11 @@
 use super::*;
 
-pub async fn run(store: Storage) -> Result<()> {
-    let config = store.config()?;
+pub async fn run(store: Storage, native_glass: bool, glass: bool) -> Result<()> {
+    let mut config = store.config()?;
+    config.native_glass = native_glass;
+    if native_glass || glass {
+        config.theme = "glass".into();
+    }
     let queue = store.queue()?;
     let catalog = Catalog::new(TokenManager::load(&config)?)?;
     let mut app = App::new(config, queue);
@@ -103,7 +107,14 @@ pub async fn run(store: Storage) -> Result<()> {
                 app.account_playback_time(Instant::now());
                 let title = app.window_title();
                 if title != current_window_title { ui::set_title(&title); current_window_title = title; }
-                terminal.terminal.draw(|frame| ui::draw(frame, &app, &mut app.ui.render.borrow_mut()))?;
+                if app.config.native_glass {
+                    crossterm::execute!(std::io::stdout(), crossterm::terminal::BeginSynchronizedUpdate)?;
+                }
+                let draw_result = ui::draw_terminal(&mut terminal.terminal, &app);
+                if app.config.native_glass {
+                    crossterm::execute!(std::io::stdout(), crossterm::terminal::EndSynchronizedUpdate)?;
+                }
+                draw_result?;
                 dirty = false; last_draw = Instant::now();
                 let viewport = (app.queue.revision, app.queue.cursor, app.ui.render.borrow().queue_scroll, app.ui.render.borrow().queue_height, app.catalog.view);
                 if last_metadata_view != Some(viewport) { metadata_dirty = true; last_metadata_view = Some(viewport); }

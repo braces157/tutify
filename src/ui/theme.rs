@@ -7,6 +7,7 @@ pub enum Theme {
     Matrix,
     Cyberpunk,
     Monochrome,
+    Glass,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -36,6 +37,7 @@ impl Theme {
             "matrix" => Self::Matrix,
             "cyberpunk" => Self::Cyberpunk,
             "monochrome" => Self::Monochrome,
+            "glass" => Self::Glass,
             _ => Self::Spotify,
         }
     }
@@ -47,6 +49,7 @@ impl Theme {
             Self::Matrix => "Matrix",
             Self::Cyberpunk => "Cyberpunk",
             Self::Monochrome => "Monochrome",
+            Self::Glass => "Glass",
         }
     }
 
@@ -57,6 +60,7 @@ impl Theme {
             Self::Matrix => "matrix",
             Self::Cyberpunk => "cyberpunk",
             Self::Monochrome => "monochrome",
+            Self::Glass => "glass",
         }
     }
 
@@ -66,7 +70,8 @@ impl Theme {
             Self::Amber => Self::Matrix,
             Self::Matrix => Self::Cyberpunk,
             Self::Cyberpunk => Self::Monochrome,
-            Self::Monochrome => Self::Spotify,
+            Self::Monochrome => Self::Glass,
+            Self::Glass => Self::Spotify,
         }
     }
 
@@ -165,6 +170,24 @@ impl Theme {
                 status_warning_bg: Color::Rgb(47, 47, 47),
                 status_error: Color::Rgb(238, 238, 238),
                 status_error_bg: Color::Rgb(57, 57, 57),
+            },
+            Self::Glass => Palette {
+                background: Color::Rgb(8, 17, 21),
+                surface: Color::Rgb(12, 22, 26),
+                surface_alt: Color::Rgb(17, 29, 33),
+                surface_selected: Color::Rgb(31, 50, 52),
+                text: Color::Rgb(248, 252, 252),
+                text_muted: Color::Rgb(216, 234, 232),
+                text_subtle: Color::Rgb(172, 198, 196),
+                border: Color::Rgb(56, 76, 80),
+                border_focus: Color::Rgb(140, 212, 198),
+                primary: Color::Rgb(164, 238, 222),
+                primary_soft: Color::Rgb(152, 226, 212),
+                on_primary: Color::Rgb(8, 22, 22),
+                status_warning: Color::Rgb(231, 187, 93),
+                status_warning_bg: Color::Rgb(52, 42, 23),
+                status_error: Color::Rgb(239, 127, 132),
+                status_error_bg: Color::Rgb(54, 27, 31),
             },
         }
     }

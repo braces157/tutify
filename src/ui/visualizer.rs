@@ -51,7 +51,7 @@ pub(super) fn visualizer(frame: &mut Frame<'_>, app: &App, area: Rect) {
         Span::styled(display_track, Style::default().fg(palette.text).bold()),
         Span::styled(
             format!("   {badge}"),
-            Style::default().fg(palette.text_subtle).italic(),
+            Style::default().fg(palette.text_muted).italic(),
         ),
     ]);
     frame.render_widget(Paragraph::new(status_line), parts[0]);
@@ -114,7 +114,7 @@ pub(super) fn visualizer(frame: &mut Frame<'_>, app: &App, area: Rect) {
                     "  50Hz   120Hz   300Hz   800Hz   2kHz   4.5kHz   9kHz",
                     Style::default().fg(palette.primary_soft),
                 ),
-                Span::styled(" • Real-time FFT", Style::default().fg(palette.text_subtle)),
+                Span::styled(" • Real-time FFT", Style::default().fg(palette.text_muted)),
             ])
         } else {
             Line::from(vec![
@@ -122,7 +122,7 @@ pub(super) fn visualizer(frame: &mut Frame<'_>, app: &App, area: Rect) {
                     "  50Hz  200Hz  800Hz  2.5kHz  9kHz",
                     Style::default().fg(palette.primary_soft),
                 ),
-                Span::styled(" • Real-time FFT", Style::default().fg(palette.text_subtle)),
+                Span::styled(" • Real-time FFT", Style::default().fg(palette.text_muted)),
             ])
         }
     } else {

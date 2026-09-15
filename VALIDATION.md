@@ -479,3 +479,43 @@ boundary, and rate-limit handling are recorded in
 `docs/smart-shuffle-validation.md`. Those live tests were not rerun as part of the
 final packaging gate; the release gate above uses deterministic local tests plus
 the previously recorded live acceptance evidence.
+
+## Version 0.3.0 release milestone — 2026-09-15
+
+Reviewed and built the Glass theme release. Glass supports the current Windows
+wallpaper or a custom JPEG, PNG, WebP, or BMP image, with configurable dimming.
+The portable path reconstructs artwork with Unicode quadrant cells; the Windows
+Terminal path creates a dedicated `Tuitify Glass` profile and retains the source
+image resolution for native GPU rendering. The profile relaunches the exact
+executable that created it so an older Tuitify installation cannot shadow the
+requested build.
+
+The three supplied 2844 × 1701 Windows Terminal captures were reviewed across
+Queue, Lyrics, and Retro Visualizer views. They show continuous wallpaper
+coverage, readable playback and status controls, opaque selected rows, clear
+table headers and durations, visible FFT labels, and correct Chinese, Japanese,
+and Korean metadata. The captures show the still-running v0.2.9 process; the
+v0.3.0 executable was installed afterward and requires a normal quit/reopen to
+replace that already-loaded process image.
+
+Checks executed on Windows after the final application source changes:
+
+- `cargo fmt --check`: passed with zero formatting diffs.
+- `cargo test --locked`: **315 passed, 0 failed, 12 ignored**. The live Windows
+  Terminal profile writer is explicitly ignored in deterministic runs because it
+  changes the user's Terminal configuration; the remaining ignored cases are
+  live/account/audio/manual acceptance or benchmark tests.
+- `cargo clippy --all-targets --locked -- -D warnings`: passed with zero warnings.
+- `cargo build --release --locked`: passed and produced
+  `target\release\tuitify.exe`, which reports version 0.3.0.
+- `npm test`: **11 Microsoft Edge Playwright tests passed** after rebuilding the
+  production Tailwind CSS.
+- The optimized executable was installed to
+  `%LOCALAPPDATA%\Programs\Tuitify\tuitify.exe`; the canonical directory is first
+  in the saved user PATH, and its SHA-256 matched the release build.
+
+Live Spotify authentication/playback, audible output, physical media keys, and
+network lyrics retrieval were not rerun for this release. The user's supplied
+captures provide live playback visual evidence for the new Glass presentation;
+the automated release gate remains deterministic and does not interrupt the
+currently playing process.

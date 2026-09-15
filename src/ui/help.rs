@@ -40,7 +40,8 @@ pub(super) fn help(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, a
     s              Cycle shuffle: off / on / Smart (✦ suggestions)\n\
     r              Cycle repeat: Off -> Queue -> Track\n\n\
     Views & themes\n\
-    t              Cycle Retro Theme (Spotify, Amber CRT, Matrix, Cyberpunk, Monochrome)\n\
+    t              Cycle Theme (Spotify, Amber CRT, Matrix, Cyberpunk, Monochrome, Glass)\n\
+    Glass setup    `tuitify background [IMAGE] --dim 48` (no IMAGE uses Windows wallpaper)\n\
     v              Toggle Retro Visualizer (Real-time FFT)\n\
     l              Toggle Synced Real-Time Lyrics View (Lrclib)\n\
     S              Toggle local aggregate song statistics overlay\n\n\

@@ -215,89 +215,94 @@ pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
                     body,
                 );
             } else {
-                let rows: Vec<Row> = indices
-                    .iter()
-                    .enumerate()
-                    .skip(visible.start)
-                    .take(visible.len())
-                    .filter_map(|(display_idx, &track_idx)| {
-                        let t = tracks.get(track_idx)?;
-                        let current = app.queue.current() == Some(t.id.as_str());
-                        let indicator = if current {
-                            if app.state == State::Playing {
-                                "►"
+                let rows: Vec<Row> =
+                    indices
+                        .iter()
+                        .enumerate()
+                        .skip(visible.start)
+                        .take(visible.len())
+                        .filter_map(|(display_idx, &track_idx)| {
+                            let t = tracks.get(track_idx)?;
+                            let current = app.queue.current() == Some(t.id.as_str());
+                            let indicator = if current {
+                                if app.state == State::Playing {
+                                    "►"
+                                } else {
+                                    "||"
+                                }
                             } else {
-                                "||"
-                            }
-                        } else {
-                            "  "
-                        };
-                        let num_str = if is_album {
-                            if let Some(num) = t.track_number {
-                                format!("{num:>3}")
+                                "  "
+                            };
+                            let num_str = if is_album {
+                                if let Some(num) = t.track_number {
+                                    format!("{num:>3}")
+                                } else {
+                                    format!("{:>3}", display_idx + 1)
+                                }
                             } else {
                                 format!("{:>3}", display_idx + 1)
-                            }
-                        } else {
-                            format!("{:>3}", display_idx + 1)
-                        };
-                        let index_cell = Cell::from(format!(" {:>2} {} ", indicator, num_str))
-                            .style(
-                                Style::default()
-                                    .fg(if current {
-                                        palette.primary
-                                    } else {
-                                        palette.text_subtle
-                                    })
-                                    .bold(),
+                            };
+                            let index_cell = Cell::from(format!(" {:>2} {} ", indicator, num_str))
+                                .style(
+                                    Style::default()
+                                        .fg(if current {
+                                            palette.primary
+                                        } else {
+                                            palette.text_subtle
+                                        })
+                                        .bold(),
+                                );
+                            let title_text = format!(
+                                "{}{}",
+                                t.name,
+                                if t.playable { "" } else { " [unavailable]" }
                             );
-                        let title_text = format!(
-                            "{}{}",
-                            t.name,
-                            if t.playable { "" } else { " [unavailable]" }
-                        );
-                        let mut title_style = Style::default().fg(if current {
-                            palette.primary
-                        } else if t.playable {
-                            palette.text
-                        } else {
-                            palette.text_subtle
-                        });
-                        if t.playable {
-                            title_style = title_style.bold();
-                        } else {
-                            title_style = title_style.add_modifier(Modifier::DIM);
-                        }
-                        let title_cell = Cell::from(title_text).style(title_style);
-
-                        let third_cell = if is_artist {
-                            let album_name = t.album.as_deref().unwrap_or("-");
-                            Cell::from(album_name).style(Style::default().fg(if t.playable {
-                                palette.text_muted
+                            let mut title_style = Style::default().fg(if current {
+                                palette.primary
+                            } else if t.playable {
+                                palette.text
                             } else {
                                 palette.text_subtle
-                            }))
-                        } else {
-                            Cell::from(t.artists.as_str()).style(Style::default().fg(
-                                if t.playable {
+                            });
+                            if t.playable {
+                                title_style = title_style.bold();
+                            } else {
+                                title_style = title_style.add_modifier(Modifier::DIM);
+                            }
+                            let title_cell = Cell::from(title_text).style(title_style);
+
+                            let third_cell = if is_artist {
+                                let album_name = t.album.as_deref().unwrap_or("-");
+                                Cell::from(album_name).style(Style::default().fg(if t.playable {
                                     palette.text_muted
                                 } else {
                                     palette.text_subtle
-                                },
-                            ))
-                        };
-                        let time_cell = Cell::from(if t.duration_ms > 0 {
-                            time(t.duration_ms)
-                        } else {
-                            "--:--".to_string()
-                        })
-                        .style(Style::default().fg(palette.text_subtle));
+                                }))
+                            } else {
+                                Cell::from(t.artists.as_str()).style(Style::default().fg(
+                                    if t.playable {
+                                        palette.text_muted
+                                    } else {
+                                        palette.text_subtle
+                                    },
+                                ))
+                            };
+                            let time_cell = Cell::from(if t.duration_ms > 0 {
+                                time(t.duration_ms)
+                            } else {
+                                "--:--".to_string()
+                            })
+                            .style(Style::default().fg(if t.playable && t.duration_ms > 0 {
+                                palette.text_muted
+                            } else {
+                                palette.text_subtle
+                            }));
 
-                        Some(Row::new(vec![
-                            index_cell, title_cell, third_cell, time_cell,
-                        ]))
-                    })
-                    .collect();
+                            Some(Row::new(vec![
+                                index_cell, title_cell, third_cell, time_cell,
+                            ]))
+                        })
+                        .collect();
 
                 let widths = if body.width >= 60 {
                     vec![

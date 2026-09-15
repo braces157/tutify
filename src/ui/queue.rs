@@ -120,11 +120,19 @@ pub(super) fn queue(
                         palette.text_muted
                     }));
                 let time_cell =
-                    Cell::from(duration).style(Style::default().fg(palette.text_subtle));
+                    Cell::from(duration).style(Style::default().fg(if is_placeholder {
+                        palette.text_subtle
+                    } else {
+                        palette.text_muted
+                    }));
                 Row::new(vec![index_cell, name_cell, artist_cell, time_cell])
             } else {
                 let time_cell =
-                    Cell::from(duration).style(Style::default().fg(palette.text_subtle));
+                    Cell::from(duration).style(Style::default().fg(if is_placeholder {
+                        palette.text_subtle
+                    } else {
+                        palette.text_muted
+                    }));
                 Row::new(vec![index_cell, name_cell, time_cell])
             }
         })

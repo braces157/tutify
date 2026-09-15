@@ -122,11 +122,11 @@ test('paused demo suspends animation and all themes have distinct accents', asyn
   const accents = [];
   await expect.poll(() => page.locator('.bar-anim').last().evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThan(0);
   await screen.focus();
-  for (let index = 0; index < 5; index += 1) {
+  for (let index = 0; index < 6; index += 1) {
     accents.push(await screen.evaluate((element) => getComputedStyle(element).getPropertyValue('--term-accent').trim()));
     await page.keyboard.press('t');
   }
-  expect(new Set(accents).size).toBe(5);
+  expect(new Set(accents).size).toBe(6);
   await page.locator('#tui-btn-vis').click();
   await page.locator('#tui-play-btn').click();
   await expect.poll(() => page.locator('#tui-visualizer-view .bar-anim').first().evaluate((element) => getComputedStyle(element).animationPlayState)).toBe('paused');

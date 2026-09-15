@@ -56,7 +56,11 @@ pub(super) fn selected_marker(theme: Theme) -> Span<'static> {
 }
 
 pub(super) fn table_header_style(theme: Theme) -> Style {
-    Style::default().fg(theme.palette().text_subtle).bold()
+    if theme == Theme::Glass {
+        Style::default().fg(theme.palette().primary_soft).bold()
+    } else {
+        Style::default().fg(theme.palette().text_muted).bold()
+    }
 }
 
 pub(super) fn key_hint(key: &'static str, theme: Theme, primary: bool) -> Span<'static> {
@@ -69,10 +73,12 @@ pub(super) fn key_hint(key: &'static str, theme: Theme, primary: bool) -> Span<'
                 .bg(palette.primary)
                 .bold()
         } else {
-            Style::default()
-                .fg(palette.text_muted)
-                .bg(palette.surface_alt)
-                .bold()
+            let bg = if theme == Theme::Glass {
+                palette.surface_selected
+            } else {
+                palette.surface_alt
+            };
+            Style::default().fg(palette.text_muted).bg(bg).bold()
         },
     )
 }

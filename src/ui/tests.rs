@@ -81,6 +81,7 @@ fn semantic_palettes_are_cohesive_and_cyberpunk_has_one_accent_family() {
         Theme::Matrix,
         Theme::Cyberpunk,
         Theme::Monochrome,
+        Theme::Glass,
     ] {
         let palette = theme.palette();
         assert_ne!(palette.background, palette.surface);
@@ -95,6 +96,185 @@ fn semantic_palettes_are_cohesive_and_cyberpunk_has_one_accent_family() {
     assert!(matches!(cyberpunk.primary, Color::Rgb(_, g, b) if b >= g));
     assert!(matches!(cyberpunk.primary_soft, Color::Rgb(_, g, b) if b >= g));
     assert_ne!(cyberpunk.primary_soft, Color::Rgb(255, 0, 127));
+}
+
+#[test]
+fn glass_theme_table_header_and_durations_have_high_readability_contrast() {
+    let glass = Theme::Glass;
+    let palette = glass.palette();
+
+    // Verify Glass palette values have sufficient luminance for contrast against image backgrounds
+    let Color::Rgb(r_muted, g_muted, _b_muted) = palette.text_muted else {
+        panic!()
+    };
+    let Color::Rgb(r_subtle, g_subtle, _b_subtle) = palette.text_subtle else {
+        panic!()
+    };
+    assert!(
+        r_muted >= 180 && g_muted >= 200,
+        "text_muted must be bright for readability"
+    );
+    assert!(
+        r_subtle >= 140 && g_subtle >= 170,
+        "text_subtle must be legible over artwork"
+    );
+
+    // Verify header style
+    let glass_header = table_header_style(glass);
+    assert_eq!(glass_header.fg, Some(palette.primary_soft));
+    assert!(glass_header.add_modifier.contains(Modifier::BOLD));
+
+    let spotify_header = table_header_style(Theme::Spotify);
+    assert_eq!(spotify_header.fg, Some(Theme::Spotify.palette().text_muted));
+
+    // Verify Queue rendered row duration uses text_muted for loaded tracks
+    let mut app = App::new(Config::default(), Queue::default());
+    app.config.theme = "glass".into();
+    app.catalog.view = View::Queue;
+    let track = Track {
+        id: "track_1".into(),
+        name: "Test Track".into(),
+        artists: "Test Artist".into(),
+        duration_ms: 180_000,
+        ..Default::default()
+    };
+    app.cache.insert(track.id.clone(), track);
+    app.queue.replace(vec!["track_1".into()], 0, false);
+
+    let mut terminal = Terminal::new(TestBackend::new(100, 24)).unwrap();
+    terminal
+        .draw(|f| draw(f, &app, &mut app.ui.render.borrow_mut()))
+        .unwrap();
+    let buffer = terminal.backend().buffer();
+
+    // Check that ARTIST and TIME header cells use primary_soft
+    let artist_header_present = buffer.content.iter().any(|c| {
+        c.symbol() == "A" && c.fg == palette.primary_soft && c.modifier.contains(Modifier::BOLD)
+    });
+    assert!(
+        artist_header_present,
+        "ARTIST header must render in bold primary_soft"
+    );
+    let time_header_present = buffer.content.iter().any(|c| {
+        c.symbol() == "T" && c.fg == palette.primary_soft && c.modifier.contains(Modifier::BOLD)
+    });
+    assert!(
+        time_header_present,
+        "TIME header must render in bold primary_soft"
+    );
+
+    // Check that duration "3:00" renders with text_muted
+    let duration_muted_present = buffer
+        .content
+        .iter()
+        .any(|c| c.symbol() == "3" && c.fg == palette.text_muted);
+    assert!(
+        duration_muted_present,
+        "Duration digits must render with high-contrast text_muted"
+    );
+}
+
+#[test]
+fn glass_background_composites_image_and_preserves_selected_surface() {
+    let dir = tempfile::tempdir().unwrap();
+    let image_path = dir.path().join("glass-test.png");
+    let mut image = image::RgbImage::new(8, 8);
+    for (x, y, pixel) in image.enumerate_pixels_mut() {
+        *pixel = image::Rgb([(x * 24 + 40) as u8, (y * 20 + 30) as u8, 180]);
+    }
+    image.save(&image_path).unwrap();
+
+    let mut app = crate::demo::app();
+    app.config.theme = Theme::Glass.as_str().into();
+    app.config.background_image = Some(image_path.to_string_lossy().into_owned());
+    app.config.background_dim = 20;
+    app.catalog.view = View::Queue;
+    app.catalog.sidebar = false;
+
+    let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+    terminal
+        .draw(|frame| draw(frame, &app, &mut app.ui.render.borrow_mut()))
+        .unwrap();
+    let buffer = terminal.backend().buffer();
+    let palette = Theme::Glass.palette();
+
+    const QUADRANTS: [&str; 7] = ["▘", "▝", "▀", "▖", "▌", "▞", "▛"];
+    assert!(
+        buffer
+            .content
+            .iter()
+            .any(|cell| QUADRANTS.contains(&cell.symbol())),
+        "glass mode should use quadrant cells for high-resolution image detail"
+    );
+    assert!(
+        buffer
+            .content
+            .iter()
+            .any(|cell| cell.bg == palette.surface_selected),
+        "selected rows should remain opaque above the image"
+    );
+}
+
+#[test]
+fn native_glass_uses_terminal_background_for_main_surfaces() {
+    let mut app = crate::demo::app();
+    app.config.theme = Theme::Glass.as_str().into();
+    app.config.native_glass = true;
+    app.catalog.view = View::Queue;
+    app.catalog.sidebar = false;
+
+    let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
+    terminal
+        .draw(|frame| draw(frame, &app, &mut app.ui.render.borrow_mut()))
+        .unwrap();
+    let buffer = terminal.backend().buffer();
+    let palette = Theme::Glass.palette();
+
+    assert!(
+        buffer.content.iter().any(|cell| cell.bg == Color::Reset),
+        "native Glass should expose the terminal's GPU-rendered background"
+    );
+    assert_eq!(
+        buffer[(0, 0)].bg,
+        Color::Reset,
+        "header background must be transparent so wallpaper covers top"
+    );
+    assert_eq!(
+        buffer[(0, 22)].bg,
+        Color::Reset,
+        "playback border background must be transparent so wallpaper covers bottom"
+    );
+    assert_eq!(
+        buffer[(20, 23)].bg,
+        Color::Reset,
+        "playback interior background must be transparent so wallpaper covers bottom"
+    );
+    assert_eq!(
+        buffer[(0, 29)].bg,
+        Color::Reset,
+        "footer background must be transparent so wallpaper covers bottom"
+    );
+    assert!(
+        !buffer
+            .content
+            .iter()
+            .any(|cell| cell.bg == palette.surface_alt),
+        "header/playback/footer surfaces should be transparent for full background coverage"
+    );
+    assert!(
+        buffer
+            .content
+            .iter()
+            .any(|cell| cell.bg == palette.surface_selected),
+        "selected rows should remain opaque above the wallpaper"
+    );
+    assert!(
+        !buffer.content.iter().any(|cell| {
+            matches!(cell.symbol(), "▀" | "▌" | "▐" | "▚" | "▞")
+                && cell.bg != palette.surface_selected
+        }),
+        "native Glass should not reconstruct wallpaper from block glyphs"
+    );
 }
 
 #[test]
@@ -141,6 +321,7 @@ fn every_theme_renders_playback_states_at_required_sizes() {
         Theme::Matrix,
         Theme::Cyberpunk,
         Theme::Monochrome,
+        Theme::Glass,
     ] {
         for (width, height) in [(120, 35), (80, 24), (48, 18), (32, 10), (20, 6)] {
             for state in [State::Paused, State::Loading, State::Playing, State::Failed] {
@@ -1971,4 +2152,27 @@ fn test_breadcrumb_history_variations_ui_behavior() {
         .map(|c| c.symbol())
         .collect::<String>();
     assert!(text_multi.contains("Search › Radiohead › Current Album"));
+}
+
+#[test]
+fn native_glass_redraw_removes_terminal_side_stale_text() {
+    let config = Config {
+        theme: "glass".into(),
+        native_glass: true,
+        ..Config::default()
+    };
+    let app = App::new(config, Queue::default());
+    let mut terminal = Terminal::new(TestBackend::new(100, 35)).unwrap();
+    draw_terminal(&mut terminal, &app).unwrap();
+    let expected = terminal.backend().buffer().clone();
+    // Simulate text retained by terminal reflow outside Ratatui's previous buffer.
+    let mut stale = ratatui::buffer::Cell::default();
+    stale.set_symbol("X");
+    terminal
+        .backend_mut()
+        .draw([(50, 20, &stale)].into_iter())
+        .unwrap();
+    assert_ne!(terminal.backend().buffer(), &expected);
+    draw_terminal(&mut terminal, &app).unwrap();
+    assert_eq!(terminal.backend().buffer(), &expected);
 }

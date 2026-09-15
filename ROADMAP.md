@@ -34,6 +34,12 @@ failures preserve the existing queue and remain visible for retry. Playback also
 refreshes the Windows default output device while running, and the installer keeps
 the canonical Tuitify directory first on the user PATH.
 
+V0.3.0 adds the Glass theme with custom or desktop wallpaper backgrounds, a portable
+Unicode quadrant renderer, and a dedicated Windows Terminal profile for native-resolution
+GPU rendering. Opaque selection and shortcut surfaces preserve control contrast over
+artwork, while queue, lyrics, Unicode metadata, and real-time FFT views share the same
+continuous background treatment.
+
 Deferred by user choice: persistent timestamped listening history, AI suggestions, and song
 tier lists. If an AI phase is pursued, the preferred integration is a cloud API
 using the user's own key. Do not add listening collection or send Spotify data to

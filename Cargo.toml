@@ -1,6 +1,6 @@
 [package]
 name = "tuitify"
-version = "0.2.9"
+version = "0.3.0"
 edition = "2024"
 rust-version = "1.85"
 description = "Personal standalone Spotify terminal player for Windows"
@@ -14,6 +14,7 @@ crossterm = { version = "=0.28.1", features = ["event-stream"] }
 futures-util = "=0.3.31"
 fs2 = "=0.4.3"
 httpdate = "=1.0.3"
+image = { version = "=0.25.8", default-features = false, features = ["bmp", "jpeg", "png", "webp"] }
 log = "=0.4.34"
 keyring = { version = "=3.6.3", features = ["windows-native"] }
 librespot-core = { version = "=0.8.0", default-features = false, features = ["rustls-tls-native-roots"] }

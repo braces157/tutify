@@ -62,6 +62,7 @@
     { id: 'theme-phosphor', name: 'Matrix' },
     { id: 'theme-cyberpunk', name: 'Cyberpunk' },
     { id: 'theme-monochrome', name: 'Monochrome' },
+    { id: 'theme-glass', name: 'Glass' },
   ];
 
   const playlistTrackIds = ['1', '3', '6', '8'];
