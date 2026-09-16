@@ -66,8 +66,6 @@ pub(super) fn playback(frame: &mut Frame<'_>, app: &App, render: &mut RenderStat
         Rect::new(row[0].x, row[0].y, 10.min(row[0].width), row[0].height),
         MouseTarget::PlayPause,
     );
-    hit(render, parts[1], MouseTarget::Seek);
-
     if ctrl_width > 0 {
         let mut ctrl_spans = Vec::new();
         if app.state == State::Playing && bar_count > 0 {
@@ -188,6 +186,7 @@ pub(super) fn playback(frame: &mut Frame<'_>, app: &App, render: &mut RenderStat
                 ),
             progress[1],
         );
+        hit(render, progress[1], MouseTarget::Seek);
     } else {
         frame.render_widget(
             Paragraph::new(Span::styled(label, Style::default().fg(palette.text_muted))),

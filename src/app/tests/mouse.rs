@@ -168,6 +168,29 @@ async fn mouse_wheel_and_playback_badge_use_existing_controls() {
     ));
 }
 
+#[test]
+fn seek_hitbox_matches_visible_progress_bar_in_tall_layout() {
+    let app = App::new(Config::default(), Queue::default());
+
+    draw_mouse(&app, 105, 100);
+
+    let seek = app
+        .ui
+        .render
+        .borrow()
+        .mouse_hits
+        .iter()
+        .find(|(_, target)| *target == MouseTarget::Seek)
+        .map(|(area, _)| *area)
+        .expect("wide playback layout should render a seek bar");
+
+    assert!(
+        seek.x > 1,
+        "timestamp area to the left of the visible bar must not be seekable: {seek:?}"
+    );
+    assert_eq!(seek.height, 1);
+}
+
 #[tokio::test]
 async fn right_click_context_menu_catalog_track_displays_view_album_and_artist_and_navigates() {
     let mut app = App::new(Config::default(), Queue::default());
