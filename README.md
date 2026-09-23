@@ -241,10 +241,23 @@ Or choose a JPEG, PNG, WebP, or BMP and adjust readability with `--dim` (`0` to 
 tuitify background "C:\path\to\wallpaper.jpg" --dim 52
 ```
 
+A single image is used in both terminal orientations. For separate landscape and
+portrait artwork, pass both paths:
+
+```powershell
+tuitify background --horizontal "C:\path\to\wide.jpg" --vertical "C:\path\to\tall.jpg" --dim 48
+```
+
+You can set either orientation independently. `tuitify background --dim 52`
+changes dimming while keeping the configured images; running `tuitify background`
+with no options restores the Windows wallpaper and default dimming. In Glass,
+the interface text fades after 20 seconds without keyboard, mouse, or media-key
+input and returns when input resumes. The playback panel stays bright.
+
 Running `tuitify` stays in the current terminal using the Unicode image renderer.
 Run `tuitify --glass` to start directly in the current terminal with the Glass background
 theme enabled. Run `tuitify --glass-window` to open a dedicated native GPU Glass tab in
-the current Windows Terminal window with a full-resolution tinted image and subtle scanlines.
+the current Windows Terminal window with a clean, full-resolution smoothly dimmed background image.
 If Windows Terminal is unavailable, the current-terminal renderer is used. Press `t` in Tuitify to cycle away from or back to
 Glass. Selected rows and status badges stay opaque so controls remain legible over detailed
 artwork.

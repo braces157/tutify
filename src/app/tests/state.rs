@@ -113,6 +113,33 @@ fn animation_is_suspended_when_paused_or_too_small_and_slower_without_bars() {
     assert_eq!(app.animation_interval(), None);
 }
 #[test]
+fn idle_text_fade_waits_twenty_seconds_then_eases_and_resets() {
+    let mut app = App::new(Config::default(), Queue::default());
+    app.config.theme = "glass".into();
+    let start = Instant::now();
+    app.last_user_interaction = start;
+    assert_eq!(app.idle_text_fade_at(start + Duration::from_secs(20)), 0);
+    assert_eq!(app.idle_text_fade_at(start + Duration::from_secs(21)), 36);
+    assert_eq!(app.idle_text_fade_at(start + Duration::from_secs(22)), 72);
+    assert_eq!(app.idle_text_fade_at(start + Duration::from_secs(60)), 72);
+    app.note_user_interaction();
+    assert_eq!(app.idle_text_fade(), 0);
+}
+
+#[test]
+fn idle_fade_and_refresh_are_disabled_outside_glass() {
+    let mut app = App::new(Config::default(), Queue::default());
+    app.last_user_interaction = Instant::now() - Duration::from_secs(21);
+
+    assert_eq!(app.idle_text_fade(), 0);
+    assert_eq!(app.idle_refresh_interval(), None);
+
+    app.config.theme = "glass".into();
+    assert_eq!(app.idle_text_fade(), 36);
+    assert_eq!(app.idle_refresh_interval(), Some(Duration::from_millis(50)));
+}
+
+#[test]
 fn playback_position_uses_elapsed_time_and_paused_position_is_stable() {
     let mut app = App::new(Config::default(), Queue::default());
     app.position_anchor = Some((Instant::now() - Duration::from_millis(1200), 500));

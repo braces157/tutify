@@ -17,6 +17,7 @@ pub struct Config {
     pub repeat: Repeat,
     pub theme: String,
     pub background_image: Option<String>,
+    pub background_image_vertical: Option<String>,
     pub background_dim: u8,
     #[serde(skip)]
     pub native_glass: bool,
@@ -34,6 +35,7 @@ impl Default for Config {
             repeat: Repeat::Off,
             theme: "spotify".into(),
             background_image: None,
+            background_image_vertical: None,
             background_dim: 38,
             native_glass: false,
             discord_rpc: true,
@@ -364,5 +366,30 @@ mod tests {
         )
         .unwrap();
         assert!(store.mix_recipes().is_err());
+    }
+
+    #[test]
+    fn config_responsive_background_fields_roundtrip_and_defaults() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Storage {
+            root: dir.path().to_owned(),
+        };
+        // Older config without background_image_vertical should deserialize with None
+        let older_json = r#"{"version":1,"client_id":"test","theme":"glass","background_image":"landscape.jpg"}"#;
+        fs::write(dir.path().join("config.json"), older_json).unwrap();
+        let loaded = store.config().unwrap();
+        assert_eq!(loaded.background_image.as_deref(), Some("landscape.jpg"));
+        assert_eq!(loaded.background_image_vertical, None);
+
+        // Roundtrip with both fields
+        let mut custom = loaded;
+        custom.background_image_vertical = Some("portrait.jpg".into());
+        store.save_config(&custom).unwrap();
+        let reloaded = store.config().unwrap();
+        assert_eq!(reloaded.background_image.as_deref(), Some("landscape.jpg"));
+        assert_eq!(
+            reloaded.background_image_vertical.as_deref(),
+            Some("portrait.jpg")
+        );
     }
 }

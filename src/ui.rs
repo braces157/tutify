@@ -80,7 +80,7 @@ pub fn draw(frame: &mut Frame<'_>, app: &App, render: &mut RenderState) {
             .style(Style::default().fg(theme.primary())),
             area,
         );
-        background::apply(frame, app, render, theme);
+        background::apply(frame, app, render, theme, None);
         return;
     }
     let compact = area.height < 18;
@@ -94,7 +94,7 @@ pub fn draw(frame: &mut Frame<'_>, app: &App, render: &mut RenderState) {
         header(frame, app, vertical[0]);
         body(frame, app, render, vertical[1]);
         footer(frame, app, vertical[2]);
-        background::apply(frame, app, render, theme);
+        background::apply(frame, app, render, theme, None);
         return;
     }
     let vertical = Layout::vertical([
@@ -112,7 +112,7 @@ pub fn draw(frame: &mut Frame<'_>, app: &App, render: &mut RenderState) {
 
     footer(frame, app, vertical[3]);
     context_menu(frame, app, render, area);
-    background::apply(frame, app, render, theme);
+    background::apply(frame, app, render, theme, Some(vertical[2]));
 }
 
 fn center(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, area: Rect) {

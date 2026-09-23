@@ -216,6 +216,67 @@ fn glass_background_composites_image_and_preserves_selected_surface() {
 }
 
 #[test]
+fn responsive_glass_background_switches_between_horizontal_and_vertical() {
+    let dir = tempfile::tempdir().unwrap();
+    let horiz_path = dir.path().join("horiz.png");
+    let vert_path = dir.path().join("vert.png");
+    image::RgbImage::from_pixel(32, 32, image::Rgb([240, 20, 20]))
+        .save(&horiz_path)
+        .unwrap();
+    image::RgbImage::from_pixel(32, 32, image::Rgb([20, 20, 240]))
+        .save(&vert_path)
+        .unwrap();
+
+    let mut app = crate::demo::app();
+    app.config.theme = Theme::Glass.as_str().into();
+    app.config.background_image = Some(horiz_path.to_string_lossy().into_owned());
+    app.config.background_image_vertical = Some(vert_path.to_string_lossy().into_owned());
+    app.config.background_dim = 10;
+    app.catalog.view = View::Queue;
+    app.catalog.sidebar = false;
+
+    // Landscape test (80 cols x 24 rows) -> Horizontal
+    let mut terminal_h = Terminal::new(TestBackend::new(80, 24)).unwrap();
+    terminal_h
+        .draw(|frame| draw(frame, &app, &mut app.ui.render.borrow_mut()))
+        .unwrap();
+    let buf_h = terminal_h.backend().buffer();
+    let has_red_tint = buf_h.content.iter().any(|cell| {
+        if let Color::Rgb(r, _, b) = cell.fg {
+            r > b && r > 100
+        } else if let Color::Rgb(r, _, b) = cell.bg {
+            r > b && r > 100
+        } else {
+            false
+        }
+    });
+    assert!(
+        has_red_tint,
+        "Horizontal terminal should render the horizontal/landscape image"
+    );
+
+    // Portrait test (40 cols x 50 rows) -> Vertical
+    let mut terminal_v = Terminal::new(TestBackend::new(40, 50)).unwrap();
+    terminal_v
+        .draw(|frame| draw(frame, &app, &mut app.ui.render.borrow_mut()))
+        .unwrap();
+    let buf_v = terminal_v.backend().buffer();
+    let has_blue_tint = buf_v.content.iter().any(|cell| {
+        if let Color::Rgb(r, _, b) = cell.fg {
+            b > r && b > 100
+        } else if let Color::Rgb(r, _, b) = cell.bg {
+            b > r && b > 100
+        } else {
+            false
+        }
+    });
+    assert!(
+        has_blue_tint,
+        "Vertical terminal should render the vertical/portrait image"
+    );
+}
+
+#[test]
 fn native_glass_uses_terminal_background_for_main_surfaces() {
     let mut app = crate::demo::app();
     app.config.theme = Theme::Glass.as_str().into();

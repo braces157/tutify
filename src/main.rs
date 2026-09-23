@@ -61,13 +61,20 @@ enum Command {
     Logout,
     /// Delete cached track names and availability; keep credentials and queue.
     ClearCache,
-    /// Use a dimmed image behind the UI. Without IMAGE, use the current Windows wallpaper.
+    /// Configure the Glass background image and dimming for both terminal orientations.
     Background {
         /// JPEG, PNG, WebP, or BMP image to use behind the terminal UI.
+        #[arg(conflicts_with = "horizontal")]
         image: Option<PathBuf>,
+        /// Vertical / portrait image to use when terminal is in portrait orientation.
+        #[arg(long)]
+        vertical: Option<PathBuf>,
+        /// Horizontal / landscape image to use when terminal is in landscape orientation.
+        #[arg(long, conflicts_with = "image")]
+        horizontal: Option<PathBuf>,
         /// Darken the image for readable text (0 = bright, 85 = very dark).
-        #[arg(long, default_value_t = 38, value_parser = clap::value_parser!(u8).range(0..=85))]
-        dim: u8,
+        #[arg(long, value_parser = clap::value_parser!(u8).range(0..=85))]
+        dim: Option<u8>,
     },
     /// Stream one track with a minimal interface for first-stage audio validation.
     Probe { track: String },
@@ -118,25 +125,69 @@ async fn main() -> Result<()> {
             println!("Metadata cache cleared.");
             Ok(())
         }
-        Some(Command::Background { image, dim }) => {
+        Some(Command::Background {
+            image,
+            vertical,
+            horizontal,
+            dim,
+        }) => {
             let mut config = store.config()?;
             config.theme = "glass".into();
-            config.background_dim = dim;
-            config.background_image = match image {
-                Some(path) => Some(
-                    ui::background::validate_image(&path)?
-                        .to_string_lossy()
-                        .into_owned(),
-                ),
-                None => None,
-            };
+            if let Some(dim_val) = dim {
+                config.background_dim = dim_val;
+            }
+            let has_image_arg = horizontal.is_some() || image.is_some() || vertical.is_some();
+            if has_image_arg {
+                if let Some(path) = horizontal {
+                    config.background_image = Some(
+                        ui::background::validate_image(&path)?
+                            .to_string_lossy()
+                            .into_owned(),
+                    );
+                } else if let Some(path) = image {
+                    config.background_image = Some(
+                        ui::background::validate_image(&path)?
+                            .to_string_lossy()
+                            .into_owned(),
+                    );
+                    if vertical.is_none() {
+                        config.background_image_vertical = None;
+                    }
+                }
+                if let Some(path) = vertical {
+                    config.background_image_vertical = Some(
+                        ui::background::validate_image(&path)?
+                            .to_string_lossy()
+                            .into_owned(),
+                    );
+                }
+            } else if dim.is_none() {
+                config.background_image = None;
+                config.background_image_vertical = None;
+                config.background_dim = 38;
+            }
+            let dim_val = config.background_dim;
             store.save_config(&config)?;
-            if let Some(path) = &config.background_image {
-                println!("Glass background enabled: {path} (dim {dim}%).");
-            } else {
-                println!(
-                    "Glass background enabled with the current Windows wallpaper (dim {dim}%)."
-                );
+            if terminal_profile::available() {
+                terminal_profile::prepare(&config)?;
+            }
+            match (&config.background_image, &config.background_image_vertical) {
+                (Some(h), Some(v)) => {
+                    println!(
+                        "Glass background enabled: responsive horizontal ({h}) and vertical ({v}) (dim {dim_val}%)."
+                    );
+                }
+                (Some(h), None) => {
+                    println!("Glass background enabled: {h} (dim {dim_val}%).");
+                }
+                (None, Some(v)) => {
+                    println!("Glass background enabled: vertical {v} (dim {dim_val}%).");
+                }
+                (None, None) => {
+                    println!(
+                        "Glass background enabled with the current Windows wallpaper (dim {dim_val}%)."
+                    );
+                }
             }
             Ok(())
         }
@@ -184,5 +235,56 @@ mod tests {
     #[test]
     fn cli_glass_conflicts_with_native_glass() {
         assert!(Cli::try_parse_from(["tuitify", "--glass", "--native-glass"]).is_err());
+    }
+
+    #[test]
+    fn cli_background_dim_options() {
+        let cli = Cli::try_parse_from(["tuitify", "background", "--dim", "50"]).unwrap();
+        match cli.command {
+            Some(Command::Background { dim, .. }) => assert_eq!(dim, Some(50)),
+            _ => panic!("expected Command::Background"),
+        }
+        let cli = Cli::try_parse_from(["tuitify", "background"]).unwrap();
+        match cli.command {
+            Some(Command::Background { dim, .. }) => assert_eq!(dim, None),
+            _ => panic!("expected Command::Background"),
+        }
+    }
+
+    #[test]
+    fn cli_background_supports_two_orientations_and_rejects_ambiguous_images() {
+        let cli = Cli::try_parse_from([
+            "tuitify",
+            "background",
+            "--horizontal",
+            "landscape.png",
+            "--vertical",
+            "portrait.png",
+        ])
+        .unwrap();
+        match cli.command {
+            Some(Command::Background {
+                image,
+                horizontal,
+                vertical,
+                ..
+            }) => {
+                assert!(image.is_none());
+                assert_eq!(horizontal.unwrap(), PathBuf::from("landscape.png"));
+                assert_eq!(vertical.unwrap(), PathBuf::from("portrait.png"));
+            }
+            _ => panic!("expected Command::Background"),
+        }
+
+        assert!(
+            Cli::try_parse_from([
+                "tuitify",
+                "background",
+                "landscape.png",
+                "--horizontal",
+                "other.png",
+            ])
+            .is_err()
+        );
     }
 }

@@ -24,6 +24,7 @@ pub async fn run_demo(glass: bool) -> Result<()> {
         tokio::select! {
             input = keys.next() => match input {
                 Some(Ok(event)) => {
+                    app.note_user_interaction();
                     route_input(&mut app, event, &mut tasks, &commands);
                 }
                 Some(Err(error)) => return Err(error.into()),

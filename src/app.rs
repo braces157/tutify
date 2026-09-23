@@ -51,6 +51,10 @@ use std::{
 };
 use tokio::sync::{mpsc, watch};
 
+const IDLE_FADE_DELAY: Duration = Duration::from_secs(20);
+const IDLE_FADE_DURATION: Duration = Duration::from_secs(2);
+const IDLE_FADE_MAX: u8 = 72;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum View {
     Search,
@@ -162,6 +166,7 @@ pub struct App {
     pub metadata_error: Option<String>,
     pub catalog_health: crate::catalog::Health,
     position_anchor: Option<(Instant, u32)>,
+    last_user_interaction: Instant,
     pub animation_frame: u32,
     pub visualizer: Arc<crate::visualizer::AudioVisualizer>,
     pub stats: SongStats,
@@ -201,6 +206,7 @@ impl App {
             metadata_error: None,
             catalog_health: crate::catalog::Health::Unknown,
             position_anchor: None,
+            last_user_interaction: Instant::now(),
             animation_frame: 0,
             visualizer: crate::visualizer::AudioVisualizer::new(),
             stats: SongStats::default(),
@@ -561,6 +567,36 @@ impl App {
                 250
             },
         ))
+    }
+    fn note_user_interaction(&mut self) {
+        self.last_user_interaction = Instant::now();
+    }
+    pub(crate) fn idle_text_fade(&self) -> u8 {
+        self.idle_text_fade_at(Instant::now())
+    }
+    fn idle_text_fade_at(&self, now: Instant) -> u8 {
+        if !self.config.theme.eq_ignore_ascii_case("glass") {
+            return 0;
+        }
+        let idle = now.saturating_duration_since(self.last_user_interaction);
+        let Some(fading_for) = idle.checked_sub(IDLE_FADE_DELAY) else {
+            return 0;
+        };
+        ((fading_for.as_millis() * u128::from(IDLE_FADE_MAX) / IDLE_FADE_DURATION.as_millis())
+            .min(u128::from(IDLE_FADE_MAX))) as u8
+    }
+    fn idle_refresh_interval(&self) -> Option<Duration> {
+        if !self.config.theme.eq_ignore_ascii_case("glass") {
+            return None;
+        }
+        let idle = self.last_user_interaction.elapsed();
+        if idle < IDLE_FADE_DELAY {
+            Some(IDLE_FADE_DELAY - idle)
+        } else if idle < IDLE_FADE_DELAY + IDLE_FADE_DURATION {
+            Some(Duration::from_millis(50))
+        } else {
+            None
+        }
     }
     fn interpolate_position(&mut self) {
         if self.state == State::Playing {

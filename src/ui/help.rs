@@ -41,7 +41,9 @@ pub(super) fn help(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, a
     r              Cycle repeat: Off -> Queue -> Track\n\n\
     Views & themes\n\
     t              Cycle Theme (Spotify, Amber CRT, Matrix, Cyberpunk, Monochrome, Glass)\n\
-    Glass setup    `tuitify background [IMAGE] --dim 48` (no IMAGE uses Windows wallpaper)\n\
+    Glass setup    `tuitify background [IMAGE] --vertical PORTRAIT --dim 48`\n\
+                   `--horizontal LANDSCAPE` sets a separate landscape image; no image resets wallpaper\n\
+                   Glass text fades after 20 seconds idle; any input brings it back\n\
     v              Toggle Retro Visualizer (Real-time FFT)\n\
     l              Toggle Synced Real-Time Lyrics View (Lrclib)\n\
     S              Toggle local aggregate song statistics overlay\n\n\
