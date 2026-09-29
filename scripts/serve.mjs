@@ -18,6 +18,7 @@ const mimeTypes = {
   '.png': 'image/png',
   '.webp': 'image/webp',
   '.svg': 'image/svg+xml',
+  '.ttf': 'font/ttf',
 };
 
 function sendText(response, statusCode, body) {

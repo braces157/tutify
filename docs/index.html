@@ -1,126 +1,83 @@
 <!DOCTYPE html>
-<html lang="en" class="dark scroll-smooth">
+<html lang="en" class="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Tuitify — Spotify playback, built for the terminal</title>
-  <meta name="description" content="A native Spotify terminal player for Windows, built in Rust with direct audio playback, queue tools, synchronized lyrics, and system media controls.">
-  <meta name="theme-color" content="#090b0a">
+  <title>Tuitify — Your music. Your terminal.</title>
+  <meta name="description" content="Spotify, at home in your terminal. Tuitify is a native Windows player with direct playback, smart queues, live lyrics, and six themes. Built in Rust. Open source.">
+  <meta name="theme-color" content="#171916">
   <meta property="og:type" content="website">
-  <meta property="og:title" content="Tuitify — Spotify playback, built for the terminal">
-  <meta property="og:description" content="A native, keyboard-first Spotify player for Windows Terminal.">
-  <meta property="og:image" content="https://braces157.github.io/tutify/assets/hero_banner.jpg">
+  <meta property="og:title" content="Tuitify — Your music. Your terminal.">
+  <meta property="og:description" content="A little less desktop. A lot more music. A native Spotify terminal player for Windows.">
+  <meta property="og:image" content="https://braces157.github.io/tutify/assets/brand/tuitify-social-preview.png">
   <meta property="og:url" content="https://braces157.github.io/tutify/">
-  <link rel="canonical" href="https://braces157.github.io/tutify/">
   <meta name="twitter:card" content="summary_large_image">
+  <link rel="canonical" href="https://braces157.github.io/tutify/">
   <link rel="icon" type="image/png" sizes="64x64" href="assets/brand/tuitify-favicon-minimal-v2.png">
+  <link rel="preload" href="assets/fonts/SpaceGrotesk.ttf" as="font" type="font/ttf" crossorigin>
   <link rel="stylesheet" href="assets/tailwind.compiled.css">
+  <link rel="stylesheet" href="assets/site.css">
 </head>
-
-<body id="top" class="page-shell text-slate-200 font-sans antialiased selection:bg-spotify selection:text-black min-h-screen relative overflow-x-hidden">
+<body id="top" class="page-shell font-sans antialiased">
   <a class="skip-link" href="#main-content">Skip to content</a>
-
-  <div class="fixed inset-0 paper-grid pointer-events-none z-0" aria-hidden="true"></div>
-
-  <header class="site-header sticky top-0 z-50">
-    <div class="max-w-7xl mx-auto px-5 sm:px-8 lg:px-10 h-[4.5rem] flex items-center justify-between">
-
-      <!-- Brand Logo -->
-      <a href="#top" class="brand-lockup group" aria-label="Tuitify home">
-        <img src="assets/brand/tuitify-logo-minimal-v2.webp" alt="Tuitify" width="36" height="36" class="w-9 h-9 object-contain group-hover:scale-105 transition-transform" decoding="async">
-        <div class="flex items-center gap-2">
-          <span class="font-semibold text-lg tracking-[-0.03em] text-white group-hover:text-spotify transition-colors">Tuitify</span>
-          <span class="version-mark">0.3.1</span>
-        </div>
+  <header class="site-header">
+    <div class="container header-inner">
+      <a href="#top" class="brand-lockup" aria-label="Tuitify home">
+        <img src="assets/brand/tuitify-logo-minimal-v2.webp" alt="" width="34" height="34">
+        <span>tuitify<span class="brand-period">.</span></span>
       </a>
-
-      <!-- Desktop Links -->
-      <nav aria-label="Primary navigation" class="hidden lg:flex items-center gap-7 text-[0.8125rem] font-medium text-slate-400">
-        <a href="#interactive-demo" class="nav-link">Demo</a>
-        <a href="#features" class="nav-link">Capabilities</a>
-        <a href="#benchmarks" class="nav-link">Engineering</a>
-        <a href="#shortcuts" class="nav-link">Controls</a>
-        <a href="#install" class="nav-link">Install</a>
+      <nav class="desktop-nav" aria-label="Primary navigation">
+        <a href="#features">The player</a><a href="#interactive-demo">Try it</a><a href="#install">Get started</a>
       </nav>
-
-      <!-- Action Buttons -->
-      <div class="flex items-center gap-3">
-        <a href="https://github.com/braces157/tutify" target="_blank" rel="noreferrer"
-           class="hidden sm:flex quiet-action items-center gap-2">
-          <svg class="w-4 h-4 fill-current" viewBox="0 0 24 24"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
-          GitHub
-        </a>
-        <a href="https://github.com/braces157/tutify/releases/download/v0.3.1/tuitify.exe"
-           class="primary-action flex items-center gap-2">
-          Download <span class="hidden sm:inline">for Windows</span>
-          <span aria-hidden="true">↘</span>
-        </a>
+      <div class="header-actions">
+        <button class="motion-toggle" type="button" aria-label="Pause website animations" aria-pressed="true"><span class="motion-icon" aria-hidden="true">Ⅱ</span><span class="motion-label">Motion on</span></button>
+        <a class="source-link" href="https://github.com/braces157/tutify" target="_blank" rel="noreferrer">GitHub <span aria-hidden="true">↗</span></a>
+        <button class="menu-toggle" type="button" aria-controls="mobile-nav" aria-expanded="false" aria-label="Open navigation"><span></span><span></span></button>
       </div>
     </div>
+    <nav id="mobile-nav" class="mobile-nav container" aria-label="Mobile navigation" hidden><a href="#features">The player</a><a href="#interactive-demo">Try it</a><a href="#install">Get started</a><a href="https://github.com/braces157/tutify">GitHub ↗</a></nav>
   </header>
-
   <main id="main-content">
-  <section class="hero-section relative z-10 px-5 sm:px-8 lg:px-10 max-w-7xl mx-auto">
-    <div class="hero-copy max-w-5xl">
-
-      <p class="eyebrow"><span class="status-dot" aria-hidden="true"></span> Native Windows playback · release 0.3.1</p>
-
-      <h1 class="hero-title">Spotify playback,<br><span>built for the terminal.</span></h1>
-
-      <p class="hero-lede">A focused Rust player for people who would rather stay at the keyboard. Browse, queue, stream, and control Spotify without keeping the desktop client open.</p>
-
-      <!-- Primary Action Buttons -->
-      <div class="hero-actions">
-        <a href="https://github.com/braces157/tutify/releases/download/v0.3.1/tuitify.exe"
-           class="primary-action primary-action-large flex items-center justify-center gap-2.5">
-          <svg class="w-4 h-4 fill-current" viewBox="0 0 24 24"><path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.551H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801"/></svg>
-          Download the executable
-        </a>
-        <button type="button" onclick="copyCommand('cargo install --locked --git https://github.com/braces157/tutify.git --tag v0.3.1', this)" aria-label="Copy Cargo install command"
-                class="quiet-action flex items-center justify-center gap-3 group">
-          <span class="text-spotify font-bold">$</span>
-          <span>Copy Cargo install</span>
-          <svg class="w-4 h-4 text-slate-500 group-hover:text-spotify transition" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
-        </button>
+    <noscript><p class="container no-script-note">The interactive demo and preview tabs need JavaScript. You can still explore the player and download Tuitify below.</p></noscript>
+    <section class="hero container" aria-labelledby="hero-title">
+      <div class="hero-copy">
+        <p class="eyebrow hero-enter"><span class="status-dot" aria-hidden="true"></span> A different way to listen</p>
+        <h1 id="hero-title" class="hero-title hero-enter">Your music.<br><span>Your terminal.</span></h1>
+        <p class="hero-description hero-enter">Good music. Fewer windows.<br>Spotify comes home to your terminal, with a native player that keeps you in your flow.</p>
+        <div class="hero-actions hero-enter"><a href="https://github.com/braces157/tutify/releases/download/v0.3.1/tuitify.exe" class="button-primary"><svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="m1 3 8-1v7H1zm10-1 8-1v8h-8zM1 11h8v7l-8-1zm10 0h8v8l-8-1z"/></svg> Download for Windows <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6" stroke="currentColor" stroke-width="1.5"/></svg></a><a class="text-link" href="#interactive-demo">Take it for a spin <span aria-hidden="true">↘</span></a></div>
+        <p class="hero-requirements hero-enter">Windows x64 <span>·</span> Spotify Premium <span>·</span> Free &amp; open source</p>
       </div>
-
-      <p class="text-xs text-slate-400 mt-5 leading-relaxed">Windows x64 · Spotify Premium required for playback · <a href="https://github.com/braces157/tutify/releases/tag/v0.3.1" class="text-spotify hover:underline">Released v0.3.1</a> · Native demo requires no Spotify account or audio device.</p>
-
-      <div class="spec-strip" aria-label="Technical overview">
-        <div class="flex items-center gap-2">
-          <svg class="w-4 h-4 text-spotify" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg>
-          <span><strong>6</strong> terminal themes</span>
-        </div>
-        <div class="flex items-center gap-2">
-          <svg class="w-4 h-4 text-spotify" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg>
-          <span><strong>1</strong> native executable</span>
-        </div>
-        <div class="flex items-center gap-2">
-          <svg class="w-4 h-4 text-spotify" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg>
-          <span><strong>0</strong> client secrets</span>
-        </div>
-        <div class="flex items-center gap-2">
-          <svg class="w-4 h-4 text-spotify" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg>
-          <span><strong>100%</strong> keyboard operable</span>
-        </div>
+      <div class="record-scene hero-enter" aria-hidden="true">
+        <div class="record-backdrop"></div>
+        <div class="vinyl"><div class="vinyl-label"><span>TUITIFY</span><span class="vinyl-label-line">TERMINAL SESSIONS</span><i></i><span>SIDE A / 33⅓ RPM</span></div></div>
+        <div class="record-sleeve"><div class="sleeve-topline"><span>TUITIFY /</span><span>VOL. 001</span></div><div class="sleeve-type">LESS<br>WINDOW.<br>MORE<br><span>MUSIC.</span></div><div class="sleeve-wave"><i style="--bar:20%;--delay:0s"></i><i style="--bar:58%;--delay:-0.12s"></i><i style="--bar:77%;--delay:-0.24s"></i><i style="--bar:72%;--delay:-0.36s"></i><i style="--bar:46%;--delay:-0.48s"></i><i style="--bar:22%;--delay:-0.6s"></i><i style="--bar:39%;--delay:-0.72s"></i><i style="--bar:39%;--delay:-0.84s"></i><i style="--bar:28%;--delay:-0.96s"></i><i style="--bar:22%;--delay:-1.08s"></i><i style="--bar:22%;--delay:-1.2s"></i><i style="--bar:37%;--delay:-1.3199999999999998s"></i><i style="--bar:55%;--delay:-1.44s"></i><i style="--bar:60%;--delay:-1.56s"></i><i style="--bar:43%;--delay:-1.68s"></i><i style="--bar:30%;--delay:-1.7999999999999998s"></i><i style="--bar:65%;--delay:-1.92s"></i><i style="--bar:83%;--delay:-2.04s"></i><i style="--bar:75%;--delay:-2.16s"></i><i style="--bar:44%;--delay:-2.28s"></i><i style="--bar:33%;--delay:-2.4s"></i><i style="--bar:59%;--delay:-2.52s"></i><i style="--bar:64%;--delay:-2.6399999999999997s"></i><i style="--bar:49%;--delay:-2.76s"></i><i style="--bar:28%;--delay:-2.88s"></i><i style="--bar:24%;--delay:-3s"></i><i style="--bar:22%;--delay:-3.12s"></i><i style="--bar:29%;--delay:-3.2399999999999998s"></i><i style="--bar:37%;--delay:-3.36s"></i><i style="--bar:29%;--delay:-3.48s"></i><i style="--bar:34%;--delay:-3.5999999999999996s"></i></div><div class="sleeve-bottom"><span>ORIGINAL TERMINAL SESSIONS</span><span>STEREO ↗</span></div></div>
+        <div class="record-caption"><span class="record-caption-rule"></span><span>For the love of listening.</span></div>
+        <span class="record-side-label">NATIVE SOUND / NO DESKTOP CLIENT</span>
       </div>
+      <div class="hero-bottom"><span>Built in Rust. Made for Windows.</span><a href="#features">Meet your new player <span aria-hidden="true">↓</span></a><a href="https://github.com/braces157/tutify/releases/tag/v0.3.1" class="release-tag">Release <span class="version-mark">0.3.1</span> <span aria-hidden="true">↗</span></a></div>
+    </section>
 
-    </div>
-  </section>
+    <section id="features" class="product-section container section-space" aria-labelledby="product-title">
+      <div class="section-intro reveal"><p class="eyebrow section-label">01 / In your element</p><div><h2 id="product-title">A little less desktop.<br><span>A lot more music.</span></h2><p>Your playlists, your late-night discoveries, that one song on repeat. All in the place where you already feel at home.</p></div></div>
+      <div class="product-showcase reveal">
+        <div class="showcase-toolbar"><span class="showcase-name"><span aria-hidden="true">&gt;_</span> tuitify / glass</span><div class="screenshot-tabs" role="tablist" aria-label="Player screenshots"><button id="screenshot-tab-queue" type="button" role="tab" aria-selected="true" aria-controls="screenshot-panel" data-shot="queue">The queue</button><button id="screenshot-tab-lyrics" type="button" role="tab" aria-selected="false" aria-controls="screenshot-panel" tabindex="-1" data-shot="lyrics">Live lyrics</button><button id="screenshot-tab-spectrum" type="button" role="tab" aria-selected="false" aria-controls="screenshot-panel" tabindex="-1" data-shot="spectrum">The spectrum</button></div></div>
+        <div id="screenshot-panel" class="screenshot-panel" role="tabpanel" aria-labelledby="screenshot-tab-queue"><img id="product-screenshot" src="assets/screenshots/v0.3.0/glass-queue-smart-shuffle.png" alt="Tuitify's Glass theme showing a queue with Smart Shuffle suggestions over a wallpaper" width="2843" height="1701" loading="lazy" decoding="async"><div class="screenshot-error" role="status" hidden>Preview unavailable. <a href="https://github.com/braces157/tutify#preview">View the screenshots on GitHub ↗</a></div></div>
+        <div class="showcase-caption"><p id="screenshot-caption">Your queue, with room for a few good discoveries.</p><span>Real app capture / v0.3.0</span></div>
+      </div>
+      <div class="feature-list">
+        <article class="feature-row reveal"><span class="feature-number">01</span><h3>The music plays here.</h3><p>Direct Spotify playback through your Windows audio output. Close the desktop client. Keep your media keys.</p><span class="feature-detail">Native playback <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6" stroke="currentColor" stroke-width="1.5"/></svg></span></article>
+        <article class="feature-row reveal"><span class="feature-number">02</span><h3>Follow the next good song.</h3><p>Explore albums and artists. Start Track Radio, try Smart Shuffle, or build a mix for the time you have.</p><span class="feature-detail">Discovery &amp; mixes <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6" stroke="currentColor" stroke-width="1.5"/></svg></span></article>
+        <article class="feature-row reveal"><span class="feature-number">03</span><h3>A queue you can make yours.</h3><p>Add, reorder, filter, and undo. Your queue and position come back when you do, with playback paused.</p><span class="feature-detail">You’re in control <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6" stroke="currentColor" stroke-width="1.5"/></svg></span></article>
+        <article class="feature-row reveal"><span class="feature-number">04</span><h3>Give your terminal a mood.</h3><p>Six themes, lyrics that follow the song, and a spectrum that moves with the actual audio. Pick your atmosphere.</p><span class="feature-detail">Sound, with character <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6" stroke="currentColor" stroke-width="1.5"/></svg></span></article>
+      </div>
+      <p class="feature-footnote">Track Radio uses Deezer artist similarity and verified Spotify tracks. Lyrics come from LRCLIB when available. <a href="https://github.com/braces157/tutify#how-playback-and-recommendations-work">How it works ↗</a></p>
+    </section>
 
-  <!-- INTERACTIVE TERMINAL SIMULATOR -->
-  <section id="interactive-demo" class="content-section relative z-10 px-5 sm:px-8 lg:px-10 max-w-6xl mx-auto">
-    <div class="section-heading">
-      <p class="section-index">01 / Interactive demo</p>
-      <h2>Use it before you install it.</h2>
-      <p>Switch views, filter the sample library, and test playback controls in a silent browser simulation.</p>
-      <p class="demo-disclaimer" id="tui-demo-note">Sample state only · no Spotify connection · no audio</p>
-    </div>
+    <section id="interactive-demo" class="demo-section container section-space" aria-labelledby="demo-title">
+      <div class="section-intro reveal"><p class="eyebrow section-label">02 / Hands on</p><div><h2 id="demo-title">Go on.<br><span>Press something.</span></h2><p>Switch the theme. Find a track. Mess with the queue.<br>This little browser demo is yours to explore.</p><p class="demo-disclaimer" id="tui-demo-note"><span class="status-dot" aria-hidden="true"></span> Silent simulation / sample tracks / no Spotify connection</p></div></div>
 
-    <!-- Terminal Window Container -->
-    <div class="terminal-frame overflow-hidden">
+    <div class="terminal-frame overflow-hidden reveal">
 
-      <!-- Terminal Header / Titlebar -->
       <div class="px-4 py-3 bg-[#080d0a] border-b border-white/5 flex items-center justify-between font-mono text-xs">
         <div class="flex items-center gap-2">
           <span class="text-spotify" aria-hidden="true">&gt;_</span>
@@ -132,10 +89,8 @@
         </div>
       </div>
 
-      <!-- TUI Screen Body -->
       <div id="tui-terminal-screen" class="demo-focus p-4 sm:p-6 font-mono text-xs sm:text-sm select-none transition-colors theme-spotify" tabindex="0" role="region" aria-label="Interactive Tuitify demo" aria-describedby="tui-demo-note tui-shortcuts-status">
 
-        <!-- Header: App Title & Now Playing Status -->
         <div class="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-white/10 gap-2">
           <div class="flex flex-wrap sm:flex-nowrap min-w-0 items-center gap-3">
             <span id="tui-logo" class="font-extrabold text-base text-[var(--term-accent)] tracking-wider">TUITIFY</span>
@@ -150,41 +105,37 @@
           </div>
         </div>
 
-        <!-- V0.2.2 Interactive Feature Toolbar -->
         <div class="flex flex-wrap items-center justify-between gap-2 py-2 border-b border-white/5 text-xs">
           <div class="flex flex-wrap items-center gap-2">
-            <!-- Theme Cycler -->
+
             <button type="button" onclick="cycleDemoTheme()" title="Press 't' to cycle theme" aria-label="Cycle demo theme"
                     class="px-2.5 py-1 rounded bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 text-slate-300 hover:text-white transition flex items-center gap-1.5 shrink-0">
-              <span>🎨 Theme:</span>
+              <span>Theme:</span>
               <span id="tui-theme-label" class="text-[var(--term-accent)] font-bold">Spotify</span>
               <kbd class="text-[10px] text-slate-500 bg-black/40 px-1 rounded">t</kbd>
             </button>
 
-            <!-- Visualizer Mode Toggle -->
             <button type="button" onclick="toggleDemoVisualizer()" id="tui-btn-vis" title="Press 'v' to toggle the decorative visualizer" aria-pressed="false"
                     class="px-2.5 py-1 rounded bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 text-slate-300 hover:text-white transition flex items-center gap-1.5 shrink-0">
-              <span>📊 Visualizer</span>
+              <span>Spectrum</span>
               <kbd class="text-[10px] text-slate-500 bg-black/40 px-1 rounded">v</kbd>
             </button>
 
-            <!-- Synced Lyrics Toggle -->
             <button type="button" onclick="toggleDemoLyrics()" id="tui-btn-lyrics" title="Press 'l' to toggle sample lyrics" aria-pressed="false"
                     class="px-2.5 py-1 rounded bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 text-slate-300 hover:text-white transition flex items-center gap-1.5 shrink-0">
-              <span>🎤 Lyrics</span>
+              <span>Lyrics</span>
               <kbd class="text-[10px] text-slate-500 bg-black/40 px-1 rounded">l</kbd>
             </button>
 
-            <!-- Track Radio -->
             <button type="button" id="tui-radio-btn" onclick="triggerDemoRadio()" title="Press 'R' for Track Radio"
                     class="px-2.5 py-1 rounded bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 text-slate-300 hover:text-white transition flex items-center gap-1.5 shrink-0">
-              <span>📻 Track Radio</span>
+              <span>Track radio</span>
               <kbd class="text-[10px] text-slate-500 bg-black/40 px-1 rounded">R</kbd>
             </button>
           </div>
 
           <div id="tui-toast" class="hidden text-xs text-[var(--term-accent)] font-semibold animate-pulse" role="status">
-            ✨ Radio generated 6 tracks!
+            Radio generated 6 tracks
           </div>
         </div>
 
@@ -194,7 +145,6 @@
           <span id="tui-shortcuts-status" aria-live="polite">Shortcuts on</span>
         </div>
 
-        <!-- Navigation Tabs Bar (1:Search, 2:Playlists, 3:Liked, 4:Queue, 5:Help) -->
         <div class="flex flex-wrap items-center gap-2 sm:gap-4 my-2 text-xs pb-1 border-b border-white/5" role="tablist" aria-label="Demo views">
           <button type="button" onclick="switchView(1)" id="tui-tab-1" class="tui-tab px-2 py-1 rounded text-slate-400 hover:text-white transition" role="tab" aria-selected="false" aria-controls="tui-main-panel">1:Search</button>
           <button type="button" onclick="switchView(2)" id="tui-tab-2" class="tui-tab px-2 py-1 rounded text-slate-400 hover:text-white transition" role="tab" aria-selected="false" aria-controls="tui-main-panel">2:Playlists</button>
@@ -203,10 +153,9 @@
           <button type="button" onclick="switchView(5)" id="tui-tab-5" class="tui-tab px-2 py-1 rounded text-slate-400 hover:text-white transition" role="tab" aria-selected="false" aria-controls="tui-main-panel">5:Help</button>
         </div>
 
-        <!-- Real-Time Filter Box -->
         <div id="tui-filter-box" class="mb-3 rounded-lg border border-[var(--term-accent)]/40 bg-black/40 p-2.5 flex items-center justify-between gap-2 shadow-inner">
           <div class="flex items-center gap-2.5 flex-1">
-            <label for="tui-filter-input" class="text-[var(--term-accent)] font-bold shrink-0">🔍 FILTER ❯</label>
+            <label for="tui-filter-input" class="text-[var(--term-accent)] font-bold shrink-0">FILTER /</label>
             <input type="search" id="tui-filter-input" placeholder="Type artist or track name (e.g. 'queen', 'yellow', 'bowie')..." aria-label="Filter demo tracks by title or artist"
                    class="bg-transparent border-none outline-none text-white w-full placeholder:text-slate-600 font-mono text-xs sm:text-sm"
                    oninput="handleFilterInput(this.value)" onkeydown="handleFilterKeydown(event)">
@@ -217,26 +166,22 @@
           </div>
         </div>
 
-        <!-- Main TUI Grid / Table Area OR Overlay (Lyrics / Visualizer) -->
         <div id="tui-main-panel" class="rounded-lg border border-white/10 bg-[#090e0b] overflow-hidden relative min-h-[224px]">
 
-          <!-- Default Catalog Table View -->
           <div id="tui-catalog-view" role="tabpanel" aria-labelledby="tui-tab-3">
-            <!-- Table Header -->
+
             <div class="px-3 py-2 bg-white/[0.02] border-b border-white/10 text-slate-500 text-[11px] font-semibold flex justify-between items-center">
               <div id="tui-table-title" class="text-slate-300">LIKED SONGS • <span id="tui-match-count">5 of 5 matches</span></div>
               <div id="tui-view-description" class="text-[10px] text-[var(--term-accent)]/80">Saved sample tracks</div>
             </div>
 
-            <!-- Table Content (Simulated Rows) -->
             <div id="tui-rows-container" class="divide-y divide-white/[0.03] max-h-56 overflow-y-auto">
-              <!-- Rows injected by JavaScript -->
+
             </div>
           </div>
 
-          <!-- Synced Lyrics Overlay View (Toggled by 'l') -->
           <div id="tui-lyrics-view" class="hidden p-4 h-56 overflow-y-auto flex flex-col items-center justify-center text-center" role="tabpanel" aria-label="Sample lyrics" aria-live="polite">
-            <div id="tui-lyrics-heading" class="text-[11px] text-[var(--term-accent)] uppercase tracking-wider mb-2">🎤 Sample Lyrics</div>
+            <div id="tui-lyrics-heading" class="text-[11px] text-[var(--term-accent)] uppercase tracking-wider mb-2">Sample lyrics</div>
             <div id="tui-lyrics-content" class="space-y-2 text-xs sm:text-sm" aria-live="polite">
               <div class="text-slate-600">Is this the real life? Is this just fantasy?</div>
               <div class="text-slate-500">Caught in a landslide, no escape from reality</div>
@@ -249,9 +194,8 @@
             </div>
           </div>
 
-          <!-- Decorative Visualizer Overlay View (Toggled by 'v') -->
           <div id="tui-visualizer-view" class="hidden p-4 h-56 flex flex-col items-center justify-center" role="tabpanel" aria-label="Decorative retro visualizer">
-            <div class="text-[11px] text-[var(--term-accent)] uppercase tracking-wider mb-4">📊 Decorative Retro Visualizer (synthetic)</div>
+            <div class="text-[11px] text-[var(--term-accent)] uppercase tracking-wider mb-4">Sample spectrum / synthetic</div>
             <div class="flex items-end justify-center gap-2 h-32 w-full max-w-md px-4">
               <span class="w-3 bg-[var(--term-accent)] bar-anim rounded-t" style="animation-delay: 0.05s; height: 35px;"></span>
               <span class="w-3 bg-[var(--term-accent)] bar-anim rounded-t" style="animation-delay: 0.15s; height: 75px;"></span>
@@ -269,9 +213,8 @@
             <div class="mt-3 text-[10px] text-slate-500 font-mono">CSS animation only; it does not analyze audio. Press 'v' or Esc to return.</div>
           </div>
 
-          <!-- Help View -->
           <div id="tui-help-view" class="hidden p-5 h-56 overflow-y-auto" role="tabpanel" aria-label="Demo help">
-            <div class="text-[11px] text-[var(--term-accent)] uppercase tracking-wider mb-3">⌨ Demo Help</div>
+            <div class="text-[11px] text-[var(--term-accent)] uppercase tracking-wider mb-3">Demo controls</div>
             <p class="text-xs text-slate-400 mb-3">Focus the terminal panel to use shortcuts. Buttons and form controls keep their normal keyboard behavior.</p>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-xs text-slate-300">
               <span><kbd class="px-1.5 py-0.5 rounded bg-white/5 text-white">Space</kbd> Play or pause</span>
@@ -287,12 +230,10 @@
 
         </div>
 
-        <!-- Live Audio Controls & Visualizer Footer -->
         <div class="mt-4 pt-3 border-t border-white/5 flex flex-col sm:flex-row items-center justify-between gap-4">
 
-          <!-- Left: Playback Controls & Progress -->
           <div class="flex items-center gap-4 w-full sm:w-auto">
-            <!-- Play/Pause Button -->
+
             <button type="button" onclick="togglePlay()" id="tui-play-btn" class="w-9 h-9 rounded-lg bg-[var(--term-accent)] text-black flex items-center justify-center font-bold hover:opacity-90 transition shadow" aria-label="Pause demo playback" aria-pressed="true">
               ⏸
             </button>
@@ -306,7 +247,6 @@
             </div>
           </div>
 
-          <!-- Center: Right-Docked Mini Visualizer -->
           <div class="flex items-end gap-1 h-6">
             <span class="w-1 bg-[var(--term-accent)] bar-anim rounded-t" style="animation-delay: 0.1s"></span>
             <span class="w-1 bg-[var(--term-accent)] bar-anim rounded-t" style="animation-delay: 0.3s"></span>
@@ -318,17 +258,15 @@
             <span class="w-1 bg-[var(--term-accent)] bar-anim rounded-t" style="animation-delay: 0.2s"></span>
           </div>
 
-          <!-- Right: Volume Slider & Status -->
           <div class="flex items-center gap-2 w-full sm:w-auto justify-end text-xs text-slate-400">
             <label for="tui-volume" class="sr-only">Demo volume</label>
-            <span aria-hidden="true">🔊</span>
+            <span aria-hidden="true">VOL</span>
             <input type="range" id="tui-volume" min="0" max="100" value="80" aria-label="Demo volume" aria-valuetext="80 percent"
                    oninput="handleVolumeChange(this.value)"
                    class="w-20 accent-emerald-400 cursor-pointer">
           </div>
         </div>
 
-        <!-- Bottom Shortcuts Legend -->
         <div class="mt-3 pt-2 text-[10px] text-slate-500 flex flex-wrap items-center gap-x-3.5 gap-y-1">
           <span><kbd class="px-1.5 py-0.5 rounded bg-white/5 text-slate-300 font-bold">Space</kbd> Play</span>
           <span><kbd class="px-1.5 py-0.5 rounded bg-white/5 text-slate-300 font-bold">t</kbd> Theme</span>
@@ -343,302 +281,33 @@
 
       </div>
     </div>
-  </section>
 
-  <section id="features" class="content-section relative z-10 px-5 sm:px-8 lg:px-10 max-w-7xl mx-auto">
-    <div class="section-heading section-heading-wide">
-      <p class="section-index">02 / Capabilities</p>
-      <h2>Everything needed to stay in flow.</h2>
-      <p>Tuitify keeps discovery, playback, queue decisions, lyrics, and system controls inside one responsive terminal interface.</p>
-    </div>
+      <p class="demo-bottom-note">The real player has more to explore. Run <code>tuitify demo</code> for a native demo with fictional data, no account needed.</p>
+    </section>
 
-    <div class="feature-ledger grid grid-cols-1 md:grid-cols-2 gap-px">
+    <section id="shortcuts" class="keyboard-section container section-space" aria-labelledby="keyboard-title">
+      <div class="keyboard-copy reveal"><p class="eyebrow">03 / Muscle memory</p><h2 id="keyboard-title">Stay in<br><span>your rhythm.</span></h2><p>One key for the things you do all the time.<br>Click a key to try it in the demo.</p><a class="text-link" href="https://github.com/braces157/tutify#controls">All player controls <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6" stroke="currentColor" stroke-width="1.5"/></svg></a></div>
+      <div class="key-grid reveal"><button class="key-demo key-space" type="button" data-demo-action="play"><kbd>space<span aria-hidden="true">⎵</span></kbd><span>Play / pause</span></button><button class="key-demo" type="button" data-demo-action="theme"><kbd>t</kbd><span>Change the mood</span></button><button class="key-demo" type="button" data-demo-action="lyrics"><kbd>l</kbd><span>Follow the lyrics</span></button><button class="key-demo" type="button" data-demo-action="spectrum"><kbd>v</kbd><span>See the sound</span></button><button class="key-demo" type="button" data-demo-action="radio"><kbd>R</kbd><span>Find what’s next</span></button><button class="key-demo" type="button" data-demo-action="search"><kbd>/</kbd><span>Find your track</span></button><button class="key-demo" type="button" data-demo-action="next"><kbd>n</kbd><span>Next track</span></button><button class="key-demo" type="button" data-demo-action="previous"><kbd>p</kbd><span>Previous track</span></button></div>
+    </section>
 
-      <!-- Feature 1: Terminal Themes -->
-      <div class="p-6 rounded-2xl bg-[#0c120e]/80 border border-white/5 hover:border-spotify/30 transition group hover:shadow-xl hover:shadow-spotify/5">
-        <div class="w-12 h-12 rounded-xl bg-emerald-950/60 border border-spotify/20 flex items-center justify-center text-spotify mb-5 text-xl font-mono group-hover:scale-110 transition-transform">
-          🎨
-        </div>
-        <h3 class="text-lg font-bold text-white mb-2 group-hover:text-spotify transition-colors">Six terminal themes</h3>
-        <p class="text-slate-400 text-sm leading-relaxed mb-4">
-          Press <kbd class="px-1.5 py-0.5 rounded bg-white/10 text-white font-mono text-xs">t</kbd> to move between Spotify, Amber, Matrix, Cyberpunk, Monochrome, and Glass. Glass can layer the interface over your wallpaper using a portable Unicode renderer or a dedicated native-resolution Windows Terminal profile.
-        </p>
-        <div class="pt-3 border-t border-white/5 flex items-center justify-between text-xs font-mono text-slate-500">
-          <span>Themes</span>
-          <span class="text-spotify font-semibold">6 semantic palettes</span>
-        </div>
-      </div>
+    <section id="benchmarks" class="engineering-section container reveal" aria-label="Built with care"><p class="eyebrow">Small player. Considered engineering.</p><div class="engineering-links"><a href="https://github.com/braces157/tutify/blob/master/ARCHITECTURE.md"><strong>Rust at the core.</strong><span>Native playback architecture ↗</span></a><a href="https://github.com/braces157/tutify/blob/master/BENCHMARKS.md"><strong>Performance in the open.</strong><span>Read the benchmark procedure ↗</span></a><a href="https://github.com/braces157/tutify/blob/master/VALIDATION.md"><strong>Open all the way down.</strong><span>Code, checks, and release notes ↗</span></a></div></section>
 
-      <!-- Feature 2: FFT Visualizer -->
-      <div class="p-6 rounded-2xl bg-[#0c120e]/80 border border-white/5 hover:border-spotify/30 transition group hover:shadow-xl hover:shadow-spotify/5">
-        <div class="w-12 h-12 rounded-xl bg-emerald-950/60 border border-spotify/20 flex items-center justify-center text-spotify mb-5 text-xl font-mono group-hover:scale-110 transition-transform">
-          📊
-        </div>
-        <h3 class="text-lg font-bold text-white mb-2 group-hover:text-spotify transition-colors">Real-time FFT spectrum</h3>
-        <p class="text-slate-400 text-sm leading-relaxed mb-4">
-          Toggle the terminal spectrum with <kbd class="px-1.5 py-0.5 rounded bg-white/10 text-white font-mono text-xs">v</kbd>. The Rust app transforms PCM samples from the playback worker into real frequency bands; the silent browser mock remains synthetic.
-        </p>
-        <div class="pt-3 border-t border-white/5 flex items-center justify-between text-xs font-mono text-slate-500">
-          <span>Behavior</span>
-          <span class="text-spotify font-semibold">Pauses when idle</span>
-        </div>
-      </div>
-
-      <!-- Feature 3: Synchronized Karaoke Lyrics -->
-      <div class="p-6 rounded-2xl bg-[#0c120e]/80 border border-white/5 hover:border-spotify/30 transition group hover:shadow-xl hover:shadow-spotify/5">
-        <div class="w-12 h-12 rounded-xl bg-emerald-950/60 border border-spotify/20 flex items-center justify-center text-spotify mb-5 text-xl font-mono group-hover:scale-110 transition-transform">
-          🎤
-        </div>
-        <h3 class="text-lg font-bold text-white mb-2 group-hover:text-spotify transition-colors">Synchronized lyrics</h3>
-        <p class="text-slate-400 text-sm leading-relaxed mb-4">
-          Press <kbd class="px-1.5 py-0.5 rounded bg-white/10 text-white font-mono text-xs">l</kbd> for LRCLIB lyrics. Timed lyrics follow playback; plain lyrics can be scrolled. Duets can retry a verified primary-artist match while preserving Unicode accents. Press <strong>F5</strong> to retry a missing result or service error. The browser demo uses bundled samples.
-        </p>
-        <div class="pt-3 border-t border-white/5 flex items-center justify-between text-xs font-mono text-slate-500">
-          <span>Source</span>
-          <span class="text-spotify font-semibold">LRCLIB · no extra key</span>
-        </div>
-      </div>
-
-      <!-- Feature 4: Track Radio & Autoplay -->
-      <div class="p-6 rounded-2xl bg-[#0c120e]/80 border border-white/5 hover:border-spotify/30 transition group hover:shadow-xl hover:shadow-spotify/5">
-        <div class="w-12 h-12 rounded-xl bg-emerald-950/60 border border-spotify/20 flex items-center justify-center text-spotify mb-5 text-xl font-mono group-hover:scale-110 transition-transform">
-          📻
-        </div>
-        <h3 class="text-lg font-bold text-white mb-2 group-hover:text-spotify transition-colors">Track-seeded radio</h3>
-        <p class="text-slate-400 text-sm leading-relaxed mb-4">
-          Press <kbd class="px-1.5 py-0.5 rounded bg-white/10 text-white font-mono text-xs">R</kbd> for related artists from Deezer and verified tracks from Spotify. Batches add up to 15 suggestions, capped at three per primary artist. Verified Latin accent aliases improve Vietnamese matching; counts and relevance still depend on provider coverage.
-        </p>
-        <div class="pt-3 border-t border-white/5 flex items-center justify-between text-xs font-mono text-slate-500">
-          <span>Autoplay</span>
-          <span class="text-spotify font-semibold">Smart Deduplication</span>
-        </div>
-      </div>
-
-      <!-- Feature 5: Pure Rust Native Audio -->
-      <div class="p-6 rounded-2xl bg-[#0c120e]/80 border border-white/5 hover:border-spotify/30 transition group hover:shadow-xl hover:shadow-spotify/5">
-        <div class="w-12 h-12 rounded-xl bg-emerald-950/60 border border-spotify/20 flex items-center justify-center text-spotify mb-5 text-xl font-mono group-hover:scale-110 transition-transform">
-          ⚡
-        </div>
-        <h3 class="text-lg font-bold text-white mb-2 group-hover:text-spotify transition-colors">Native Rust audio path</h3>
-        <p class="text-slate-400 text-sm leading-relaxed mb-4">
-          A focused Rust executable streams Vorbis audio through Librespot directly to the Windows audio endpoint, without bundling a web runtime.
-        </p>
-        <div class="pt-3 border-t border-white/5 flex items-center justify-between text-xs font-mono text-slate-500">
-          <span>Architecture</span>
-          <span class="text-spotify font-semibold">Native Windows audio</span>
-        </div>
-      </div>
-
-      <!-- Feature 6: Library Browsing & Instant Filter -->
-      <div class="p-6 rounded-2xl bg-[#0c120e]/80 border border-white/5 hover:border-spotify/30 transition group hover:shadow-xl hover:shadow-spotify/5">
-        <div class="w-12 h-12 rounded-xl bg-emerald-950/60 border border-spotify/20 flex items-center justify-center text-spotify mb-5 text-xl font-mono group-hover:scale-110 transition-transform">
-          🔍
-        </div>
-        <h3 class="text-lg font-bold text-white mb-2 group-hover:text-spotify transition-colors">Catalog and library search</h3>
-        <p class="text-slate-400 text-sm leading-relaxed mb-4">
-          Hit <kbd class="px-1.5 py-0.5 rounded bg-white/10 text-white font-mono text-xs">/</kbd> or <strong>f</strong> to filter only loaded rows. In the terminal app, <strong>F2</strong> searches Spotify and <strong>F3</strong> scans saved Liked Songs and accessible saved playlists for matching titles and artists. Results arrive as the scan progresses; the browser demo uses a small sample catalog.
-        </p>
-        <div class="pt-3 border-t border-white/5 flex items-center justify-between text-xs font-mono text-slate-500">
-          <span>Evidence</span>
-          <span class="text-spotify font-semibold">Covered by repository checks</span>
-        </div>
-      </div>
-
-      <!-- Feature 7: Mix Builder -->
-      <div class="p-6 rounded-2xl bg-[#0c120e]/80 border border-white/5 hover:border-spotify/30 transition group hover:shadow-xl hover:shadow-spotify/5">
-        <div class="w-12 h-12 rounded-xl bg-emerald-950/60 border border-spotify/20 flex items-center justify-center text-spotify mb-5 text-xl font-mono group-hover:scale-110 transition-transform">🎛️</div>
-        <h3 class="text-lg font-bold text-white mb-2 group-hover:text-spotify transition-colors">Inspectable mix builder</h3>
-        <p class="text-slate-400 text-sm leading-relaxed mb-4">Press <strong>Shift+M</strong> to preview a mix from the queue or a playlist. Click rows, pins, preferences, details, and recipe controls, including when controls wrap in narrow terminals. Inspect with <strong>?</strong>; use <strong>Enter</strong> to replace or <strong>Shift+A</strong> to append, with undo.</p>
-        <div class="pt-3 border-t border-white/5 flex items-center justify-between text-xs font-mono text-slate-500"><span>Included in v0.2.6</span><a href="https://github.com/braces157/tutify#using-mix-builder" class="text-spotify font-semibold hover:underline">Usage guide</a></div>
-      </div>
-
-      <div class="p-6 rounded-2xl bg-[#0c120e]/80 border border-white/5 hover:border-spotify/30 transition group">
-        <div class="w-12 h-12 rounded-xl bg-emerald-950/60 border border-spotify/20 flex items-center justify-center text-spotify mb-5 text-xl font-mono" aria-hidden="true">↔</div>
-        <h3 class="text-lg font-bold text-white mb-2">Smart Shuffle</h3>
-        <p class="text-slate-400 text-sm leading-relaxed mb-4">The third shuffle mode marks suggestions and mixes them after every three original tracks. Related-artist discovery supplies Spotify-verified tracks, while artist spacing and recording deduplication keep the upcoming queue varied without moving the playing prefix.</p>
-        <div class="pt-3 border-t border-white/5 flex items-center justify-between text-xs font-mono text-slate-500"><span>Included in v0.2.6 · discovery upgraded v0.2.9</span><a href="https://github.com/braces157/tutify#how-playback-and-recommendations-work" class="text-spotify font-semibold hover:underline">How it works</a></div>
-      </div>
-
-      <!-- Feature 9: Native Album & Artist Browsing -->
-      <div class="p-6 rounded-2xl bg-[#0c120e]/80 border border-white/5 hover:border-spotify/30 transition group hover:shadow-xl hover:shadow-spotify/5">
-        <div class="w-12 h-12 rounded-xl bg-emerald-950/60 border border-spotify/20 flex items-center justify-center text-spotify mb-5 text-xl font-mono group-hover:scale-110 transition-transform">💿</div>
-        <h3 class="text-lg font-bold text-white mb-2 group-hover:text-spotify transition-colors">Native album &amp; artist browsing</h3>
-        <p class="text-slate-400 text-sm leading-relaxed mb-4">Press <kbd class="px-1.5 py-0.5 rounded bg-white/10 text-white font-mono text-xs">a</kbd> to inspect complete album tracklists with track numbers, durations, and playability. Press <kbd class="px-1.5 py-0.5 rounded bg-white/10 text-white font-mono text-xs">A</kbd> to discover top 10 artist tracks, or use track context menus.</p>
-        <div class="pt-3 border-t border-white/5 flex items-center justify-between text-xs font-mono text-slate-500"><span>Catalog</span><span class="text-spotify font-semibold">Native v0.2.8 feature</span></div>
-      </div>
-
-      <!-- Feature 10: Breadcrumb Navigation Stack -->
-      <div class="p-6 rounded-2xl bg-[#0c120e]/80 border border-white/5 hover:border-spotify/30 transition group hover:shadow-xl hover:shadow-spotify/5">
-        <div class="w-12 h-12 rounded-xl bg-emerald-950/60 border border-spotify/20 flex items-center justify-center text-spotify mb-5 text-xl font-mono group-hover:scale-110 transition-transform">🧭</div>
-        <h3 class="text-lg font-bold text-white mb-2 group-hover:text-spotify transition-colors">Breadcrumb navigation stack</h3>
-        <p class="text-slate-400 text-sm leading-relaxed mb-4">Navigate deep into albums and artists with dynamic breadcrumb trails (<code class="text-xs text-emerald-400">Search › Album › Artist</code>). Press <kbd class="px-1.5 py-0.5 rounded bg-white/10 text-white font-mono text-xs">Esc</kbd> to pop history, instantly restoring selection cursor and scroll position.</p>
-        <div class="pt-3 border-t border-white/5 flex items-center justify-between text-xs font-mono text-slate-500"><span>History</span><span class="text-spotify font-semibold">Zero network on pop</span></div>
-      </div>
-    </div>
-  </section>
-
-  <!-- QUEUE RECOVERY AND SEARCH -->
-  <section id="queue-search" class="content-section relative z-10 px-5 sm:px-8 lg:px-10 max-w-6xl mx-auto">
-    <div class="section-heading">
-      <p class="section-index">03 / Queue integrity</p>
-      <h2 class="text-3xl font-bold text-white mt-1">Your queue, with a way back</h2>
-      <p class="text-slate-400 text-sm mt-2">Recover queue edits and search beyond the songs already on screen.</p>
-    </div>
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-      <article class="p-5 rounded-xl bg-[#0c120e] border border-white/5">
-        <h3 class="text-sm font-bold text-white mb-2">Keep your queue after re-login</h3>
-        <p class="text-xs leading-relaxed text-slate-400">Signing back into the same verified Spotify account keeps your queue, order, saved position, and metadata cache. Switching accounts, an unknown prior account, or explicit logout clears the old queue and cache. Streaming reauthorization uses the same catalog account.</p>
-      </article>
-      <article class="p-5 rounded-xl bg-[#0c120e] border border-white/5">
-        <h3 class="text-sm font-bold text-white mb-2">Undo queue edits</h3>
-        <p class="text-xs leading-relaxed text-slate-400">Press <strong>u</strong> or <strong>Ctrl+Z</strong>, or right-click the queue and choose Undo, to recover from removal, clearing, replacement, additions, reordering, shuffle, or radio. Restored queues are paused; press Space to resume. History lasts for this session, up to 10 snapshots and 100,000 track IDs combined.</p>
-      </article>
-      <article class="p-5 rounded-xl bg-[#0c120e] border border-white/5">
-        <h3 class="text-sm font-bold text-white mb-2">Scan your saved library</h3>
-        <p class="text-xs leading-relaxed text-slate-400"><strong>F3</strong> searches titles and artists across saved Liked Songs and accessible saved playlist tracks, removing duplicate track IDs. It needs a network connection and can take time for large libraries. <strong>F5</strong> restarts the scan. <strong>Esc</strong> cancels while browsing; while editing, first press Esc to leave the input.</p>
-      </article>
-    </div>
-    <p class="text-xs leading-relaxed text-slate-400 mt-3">Library scans retain partial matches and label incomplete results after cancellation, errors, rate limits, inaccessible playlists, or scan limits. Each scan allows up to 100,000 unique tracks, 100,000 playlists, and 100,000 page requests. These features run in the terminal app; the silent browser demo remains a sample simulation. <a href="https://github.com/braces157/tutify#search-scopes-and-queue-behavior" class="text-spotify hover:underline">Read the controls and limits</a>.</p>
-  </section>
-
-  <section id="release-update" class="content-section relative z-10 px-5 sm:px-8 lg:px-10 max-w-6xl mx-auto">
-    <div class="section-heading">
-      <p class="section-index">New in v0.3.1</p>
-      <h2>Better matching. Smoother sessions.</h2>
-      <p>Vietnamese Radio matching and duet lyrics are repaired. Statistics and Mix Builder gain complete mouse controls, while large queue saves and statistics refreshes do less work.</p>
-    </div>
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-      <article class="p-5 rounded-xl bg-[#0c120e] border border-white/5">
-        <h3 class="text-sm font-bold text-white mb-2">Click through your statistics</h3>
-        <p class="text-xs leading-relaxed text-slate-400">Open <strong>Shift+S</strong>, select or scroll songs, and click to search, sort, or clear filters. Long searches keep the actions visible.</p>
-      </article>
-      <article class="p-5 rounded-xl bg-[#0c120e] border border-white/5">
-        <h3 class="text-sm font-bold text-white mb-2">Preserve saved data</h3>
-        <p class="text-xs leading-relaxed text-slate-400">Unreadable or unsupported statistics and recipe files stop startup with a named error. Atomic, buffered saves preserve the existing file if serialization fails.</p>
-      </article>
-      <article class="p-5 rounded-xl bg-[#0c120e] border border-white/5">
-        <h3 class="text-sm font-bold text-white mb-2">Refresh with less work</h3>
-        <p class="text-xs leading-relaxed text-slate-400">Large state snapshots avoid duplicate collection clones. Statistics normalize and sort once, Glass uses corrected refresh deadlines, and spectrum bands follow the audio device's sample rate.</p>
-      </article>
-    </div>
-    <p class="text-xs leading-relaxed text-slate-400 mt-4"><a href="https://github.com/braces157/tutify/releases/tag/v0.3.1" class="text-spotify hover:underline">Read the v0.3.1 release notes</a> · After upgrading, reopen Tuitify and start a fresh search or Radio session. Saved queues keep their existing tracks.</p>
-  </section>
-
-  <!-- PERFORMANCE EVIDENCE -->
-  <section id="benchmarks" class="content-section relative z-10 px-5 sm:px-8 lg:px-10 max-w-6xl mx-auto">
-    <div class="section-heading">
-      <p class="section-index">04 / Engineering record</p>
-      <h2 class="text-3xl font-bold text-white mt-1">Built for focused playback</h2>
-      <p class="text-slate-400 text-sm mt-2">The architecture and validation record explain what Tuitify does without promising hardware-independent performance figures.</p>
-    </div>
-
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-      <article class="p-5 rounded-xl bg-[#0c120e] border border-white/5">
-        <h3 class="text-sm font-bold text-white mb-2">Native playback path</h3>
-        <p class="text-xs leading-relaxed text-slate-400">Rust, Librespot, Rodio, and the Windows audio endpoint keep playback focused in a terminal workflow.</p>
-      </article>
-      <article class="p-5 rounded-xl bg-[#0c120e] border border-white/5">
-        <h3 class="text-sm font-bold text-white mb-2">Validation in the repository</h3>
-        <p class="text-xs leading-relaxed text-slate-400">See <a href="https://github.com/braces157/tutify/blob/master/VALIDATION.md" class="text-spotify hover:underline">VALIDATION.md</a> for recorded functional checks and <a href="https://github.com/braces157/tutify/blob/master/BENCHMARKS.md" class="text-spotify hover:underline">BENCHMARKS.md</a> for the measurement procedure. Each record identifies the build and environment checked.</p>
-      </article>
-      <article class="p-5 rounded-xl bg-[#0c120e] border border-white/5">
-        <h3 class="text-sm font-bold text-white mb-2">Measure your workload</h3>
-        <p class="text-xs leading-relaxed text-slate-400">Startup, memory, and CPU depend on hardware, queue size, account state, and workload. Compare equivalent runs with the documented procedure.</p>
-      </article>
-    </div>
-  </section>
-
-  <!-- KEYBOARD SHORTCUTS CHEATSHEET -->
-  <section id="shortcuts" class="content-section relative z-10 px-5 sm:px-8 lg:px-10 max-w-6xl mx-auto">
-    <div class="section-heading">
-      <p class="section-index">05 / Controls</p>
-      <h2 class="text-3xl font-bold text-white mt-1">Fast by muscle memory.</h2>
-      <p class="text-slate-400 text-sm mt-2">Navigate, queue, and control audio without leaving the keyboard.</p>
-    </div>
-
-    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-
-      <!-- Card: Navigation -->
-      <div class="p-4 rounded-xl bg-[#0c120e] border border-white/5">
-        <h4 class="text-xs font-mono font-bold text-spotify uppercase tracking-wider mb-3">Navigation</h4>
-        <ul class="space-y-2 text-xs font-mono">
-          <li class="flex justify-between"><span class="text-slate-300">1 - 5</span> <span class="text-slate-500">Switch Views</span></li>
-          <li class="flex justify-between"><span class="text-slate-300">j / k, Up/Dn</span> <span class="text-slate-500">Cursor move</span></li>
-          <li class="flex justify-between"><span class="text-slate-300">PgDn / PgUp</span> <span class="text-slate-500">Fast scroll</span></li>
-          <li class="flex justify-between"><span class="text-slate-300">Tab</span> <span class="text-slate-500">Sidebar focus</span></li>
-          <li class="flex justify-between"><span class="text-slate-300">Esc</span> <span class="text-slate-500">Back to previous view / quit</span></li>
-        </ul>
-      </div>
-
-      <!-- Card: Playback & Audio -->
-      <div class="p-4 rounded-xl bg-[#0c120e] border border-white/5">
-        <h4 class="text-xs font-mono font-bold text-spotify uppercase tracking-wider mb-3">Playback & Audio</h4>
-        <ul class="space-y-2 text-xs font-mono">
-          <li class="flex justify-between"><span class="text-slate-300">Space</span> <span class="text-slate-500">Play / Pause</span></li>
-          <li class="flex justify-between"><span class="text-slate-300">n</span> <span class="text-slate-500">Next track</span></li>
-          <li class="flex justify-between"><span class="text-slate-300">p</span> <span class="text-slate-500">Play next (Album/Artist) / Prev</span></li>
-          <li class="flex justify-between"><span class="text-slate-300">Left / Right</span> <span class="text-slate-500">Seek 10s</span></li>
-          <li class="flex justify-between"><span class="text-slate-300">+ / -</span> <span class="text-slate-500">Volume 5%</span></li>
-          <li class="flex justify-between"><span class="text-slate-300">m</span> <span class="text-slate-500">Mute / Restore</span></li>
-          <li class="flex justify-between"><span class="text-slate-300">s / r</span> <span class="text-slate-500">Shuffle / Repeat</span></li>
-        </ul>
-      </div>
-
-      <!-- Card: Retro Visuals & Lyrics -->
-      <div class="p-4 rounded-xl bg-[#0c120e] border border-white/5">
-        <h4 class="text-xs font-mono font-bold text-spotify uppercase tracking-wider mb-3">Themes & Lyrics</h4>
-        <ul class="space-y-2 text-xs font-mono">
-          <li class="flex justify-between"><span class="text-slate-300">t</span> <span class="text-slate-500">Cycle 6 Themes</span></li>
-          <li class="flex justify-between"><span class="text-slate-300">v</span> <span class="text-slate-500">Real FFT spectrum</span></li>
-          <li class="flex justify-between"><span class="text-slate-300">l</span> <span class="text-slate-500">Synced Lyrics</span></li>
-          <li class="flex justify-between"><span class="text-slate-300">/ or f</span> <span class="text-slate-500">Filter loaded rows</span></li>
-          <li class="flex justify-between"><span class="text-slate-300">F2 / F3</span> <span class="text-slate-500">Spotify / Library</span></li>
-          <li class="flex justify-between"><span class="text-slate-300">Esc</span> <span class="text-slate-500">Close overlay</span></li>
-        </ul>
-      </div>
-
-      <!-- Card: Queue & Catalog -->
-      <div class="p-4 rounded-xl bg-[#0c120e] border border-white/5">
-        <h4 class="text-xs font-mono font-bold text-spotify uppercase tracking-wider mb-3">Queue & Catalog</h4>
-        <ul class="space-y-2 text-xs font-mono">
-          <li class="flex justify-between"><span class="text-slate-300">a</span> <span class="text-slate-500">View album tracklist</span></li>
-          <li class="flex justify-between"><span class="text-slate-300">A</span> <span class="text-slate-500">View artist top tracks</span></li>
-          <li class="flex justify-between"><span class="text-slate-300">e</span> <span class="text-slate-500">Add to queue</span></li>
-          <li class="flex justify-between"><span class="text-slate-300">R</span> <span class="text-slate-500">Track Radio</span></li>
-          <li class="flex justify-between"><span class="text-slate-300">M</span> <span class="text-slate-500">Mix Builder</span></li>
-          <li class="flex justify-between"><span class="text-slate-300">K / J</span> <span class="text-slate-500">Move up / down</span></li>
-          <li class="flex justify-between"><span class="text-slate-300">Delete</span> <span class="text-slate-500">Remove item</span></li>
-          <li class="flex justify-between"><span class="text-slate-300">u / Ctrl+Z</span> <span class="text-slate-500">Undo queue edit</span></li>
-        </ul>
-      </div>
-
-    </div>
-  </section>
-
-  <!-- INSTALLATION & GETTING STARTED -->
-  <section id="install" class="content-section relative z-10 px-5 sm:px-8 lg:px-10 max-w-5xl mx-auto">
-    <div class="section-heading">
-      <p class="section-index">06 / Install</p>
-      <h2 class="text-3xl font-bold text-white mt-1">Start with one executable.</h2>
-      <p class="text-slate-400 text-sm mt-2">Download the release, build from source, or use PowerShell.</p>
-    </div>
-
-    <!-- Tabs Container -->
-    <div class="rounded-2xl border border-white/10 bg-[#0c120e] overflow-hidden shadow-2xl">
+    <section id="install" class="install-section container section-space" aria-labelledby="install-title"><div class="install-copy reveal"><p class="eyebrow">04 / Make yourself at home</p><h2 id="install-title">Your next session<br><span>starts here.</span></h2><p>One executable. No Rust installation needed.<br>Download Tuitify and let the music in.</p><a class="button-primary" href="https://github.com/braces157/tutify/releases/download/v0.3.1/tuitify.exe">Download Tuitify <span aria-hidden="true">↗</span></a><div class="install-requirements"><span><svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="m1 3 8-1v7H1zm10-1 8-1v8h-8zM1 11h8v7l-8-1zm10 0h8v8l-8-1z"/></svg> Windows x64</span><span>Spotify Premium for playback</span><a href="https://github.com/braces157/tutify/releases/tag/v0.3.1">What’s new in v0.3.1 ↗</a></div></div><div class="install-details reveal">
+    <div class="install-panel">
       <div class="flex border-b border-white/5 bg-[#080d0a] text-xs font-mono" role="tablist" aria-label="Installation methods">
         <button type="button" onclick="switchInstallTab(0)" id="install-tab-0" class="px-5 py-3 text-spotify font-semibold border-b-2 border-spotify bg-white/[0.02]" role="tab" aria-selected="true" aria-controls="install-content-0">Standalone .exe</button>
         <button type="button" onclick="switchInstallTab(1)" id="install-tab-1" class="px-5 py-3 text-slate-400 hover:text-white transition" role="tab" aria-selected="false" aria-controls="install-content-1">Cargo (release)</button>
         <button type="button" onclick="switchInstallTab(2)" id="install-tab-2" class="px-5 py-3 text-slate-400 hover:text-white transition" role="tab" aria-selected="false" aria-controls="install-content-2">PowerShell</button>
       </div>
 
-      <!-- Tab Content 0: Standalone Exe -->
+
         <div id="install-content-0" class="p-6" role="tabpanel" aria-labelledby="install-tab-0">
         <p class="text-sm text-slate-300 mb-4 font-sans">
           Download the v0.3.1 Windows x64 executable. No Rust toolchain is needed. Spotify playback requires Premium and a working audio output; the native demo does not.
         </p>
         <div class="flex flex-col sm:flex-row items-center gap-4 mb-4">
           <a href="https://github.com/braces157/tutify/releases/download/v0.3.1/tuitify.exe"
-             class="w-full sm:w-auto px-6 py-3 rounded-xl bg-spotify hover:bg-emerald-400 text-black font-semibold text-xs font-mono transition flex items-center justify-center gap-2 glow-spotify-subtle">
+             class="w-full sm:w-auto px-6 py-3 rounded-xl bg-spotify hover:bg-emerald-400 text-black font-semibold text-xs font-mono transition flex items-center justify-center gap-2 ">
             <svg class="w-4 h-4 fill-current" viewBox="0 0 24 24"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM17 13l-5 5-5-5h3V9h4v4h3z"/></svg>
             Download tuitify.exe (v0.3.1)
           </a>
@@ -652,97 +321,40 @@
         </p>
       </div>
 
-      <!-- Tab Content 1: Cargo -->
+
         <div id="install-content-1" class="p-6 hidden" role="tabpanel" aria-labelledby="install-tab-1">
         <p class="text-sm text-slate-300 mb-3 font-sans">
           Build the same v0.3.1 release with current stable Rust, the MSVC C++ build tools, and the Windows SDK:
         </p>
-        <div class="relative bg-black/60 rounded-xl p-4 font-mono text-xs border border-white/10 mb-3 flex items-center justify-between">
+        <div class="command-box">
             <code class="text-emerald-400 select-text">cargo install --locked --git https://github.com/braces157/tutify.git --tag v0.3.1</code>
           <button type="button" onclick="copyCommand('cargo install --locked --git https://github.com/braces157/tutify.git --tag v0.3.1', this)" aria-label="Copy Cargo install command" class="p-1.5 rounded bg-white/10 hover:bg-white/20 text-slate-300 transition">
-            📋
+            Copy
           </button>
         </div>
         <p class="text-xs text-slate-500 font-mono">Uses the v0.3.1 tag and its locked dependencies.</p>
       </div>
 
-      <!-- Tab Content 2: PowerShell -->
+
         <div id="install-content-2" class="p-6 hidden" role="tabpanel" aria-labelledby="install-tab-2">
         <p class="text-sm text-slate-300 mb-3 font-sans">
           In Windows Terminal, open the folder where you want to keep the player. This downloads v0.3.1 into that current folder and starts guided Spotify sign-in:
         </p>
-        <div class="relative bg-black/60 rounded-xl p-4 font-mono text-xs border border-white/10 mb-3 flex items-center justify-between overflow-x-auto">
+        <div class="command-box">
             <code class="text-emerald-400 select-text">iwr -useb https://github.com/braces157/tutify/releases/download/v0.3.1/tuitify.exe -OutFile tuitify.exe -ErrorAction Stop; .\tuitify.exe</code>
           <button type="button" onclick="copyCommand('iwr -useb https://github.com/braces157/tutify/releases/download/v0.3.1/tuitify.exe -OutFile tuitify.exe -ErrorAction Stop; .\\tuitify.exe', this)" aria-label="Copy PowerShell install command" class="p-1.5 rounded bg-white/10 hover:bg-white/20 text-slate-300 transition shrink-0 ml-2">
-            📋
+            Copy
           </button>
         </div>
       </div>
       <p class="px-6 py-4 text-xs text-slate-400 border-t border-white/5">Run <strong class="text-slate-300">tuitify demo</strong> for the native TUI with isolated fictional data and simulated playback. A normal first run opens two Spotify authorizations; use the <strong class="text-slate-300">same account</strong> in both. Later launches restore the queue paused. The browser demo above is a separate, silent simulation.</p>
     </div>
-    <article id="native-demo" class="mt-6 p-6 rounded-xl border border-spotify/20 bg-white/[0.02]">
-      <p class="section-index">Included in v0.3.1</p>
-      <h3 class="text-lg font-bold text-white mt-3 mb-3">Mix Builder, Album/Artist Browsing, and the native demo</h3>
-      <p class="text-sm text-slate-400 leading-relaxed">The native demo uses fictional data and simulated playback with no Spotify credentials, network, Discord, or audio device. It bundles fictional album and artist catalog datasets for testing tracklists, artist top tracks, and breadcrumb navigation. Download v0.3.1 and run:</p>
-      <pre class="mt-4 p-4 bg-black/60 border border-white/10 rounded-lg overflow-x-auto text-xs text-spotify"><code>.\tuitify.exe demo</code></pre>
-      <p class="text-sm text-slate-400 leading-relaxed mt-4">Press <strong>a</strong> to browse album tracklists, <strong>Shift+A</strong> for artist top tracks, or <strong>Shift+M</strong> for Mix Builder. Its first suggestion request intentionally fails; press <strong>g</strong> to retry and demonstrate graceful recovery. Demo state lasts for the session.</p>
-      <a href="https://github.com/braces157/tutify#album-and-artist-browsing" class="inline-block mt-4 text-sm text-spotify hover:underline">Read the browsing walkthrough →</a>
-    </article>
-  </section>
+<div class="setup-steps" aria-label="First run"><div><span>01</span><p>Download the executable or ZIP.</p></div><div><span>02</span><p>Open Tuitify and authorize the same Spotify account in both browser steps.</p></div><div><span>03</span><p>Find a song. Press Enter. You’re home.</p></div></div></div></section>
 
-  <section class="content-section relative z-10 px-5 sm:px-8 lg:px-10 max-w-6xl mx-auto">
-    <div class="section-heading">
-      <p class="section-index">07 / Before you install</p>
-      <h2>Clear answers, up front.</h2>
-    </div>
-
-    <div class="answer-grid">
-      <article>
-        <p class="answer-number">01</p>
-        <h3>Spotify Premium is required</h3>
-        <p>A Spotify Premium account is required for streaming playback. The silent browser simulation and native development demo require no Spotify account.</p>
-      </article>
-      <article>
-        <p class="answer-number">02</p>
-        <h3>Spotify Desktop is not required</h3>
-        <p>Tuitify decodes the stream and sends audio to the default Windows endpoint itself. It does not remote-control or depend on the official desktop client.</p>
-      </article>
-      <article>
-        <p class="answer-number">03</p>
-        <h3>Your password never enters Tuitify</h3>
-        <p>Authentication uses browser-based OAuth 2.0 PKCE. Tokens are stored through Windows Credential Manager; use the same Spotify account for both authorization steps.</p>
-      </article>
-      <article>
-        <p class="answer-number">04</p>
-        <h3>Lyrics need no extra key</h3>
-        <p>Synchronized lyrics come from LRCLIB. Vietnamese and other Unicode text is preserved. Temporary server errors retry once with a short wait; longer outages show a clear error. Press F5 in the lyrics view to retry.</p>
-      </article>
-    </div>
-  </section>
-
+    <section class="questions-section container section-space" aria-labelledby="questions-title"><div class="questions-heading reveal"><p class="eyebrow">Before the first play</p><h2 id="questions-title">A few things<br><span>to know.</span></h2></div><div class="questions-list"><article class="reveal"><h3>Do I need Spotify Premium?</h3><p>Yes, for streaming. You can try the browser simulation or run the native demo without a Spotify account or audio device.</p></article><article class="reveal"><h3>Does Spotify Desktop need to be open?</h3><p>No. Tuitify streams and plays audio directly. Windows media keys work while you’re doing something else.</p></article><article class="reveal"><h3>How does sign-in work?</h3><p>You sign in through Spotify in your browser, using the same account for both authorization steps. Tuitify never sees your password. Tokens stay in Windows Credential Manager.</p></article><article class="reveal"><h3>Where does my data go?</h3><p>Preferences, queues, and listening totals stay on your PC. There’s no analytics collection. Discord presence is enabled by default and shares song details with your local Discord client. <a href="https://github.com/braces157/tutify#data-and-privacy">Read about data and privacy ↗</a></p></article></div></section>
   </main>
-
-  <footer class="site-footer relative z-10 py-12 px-5 sm:px-8 lg:px-10 max-w-7xl mx-auto text-xs font-mono text-slate-500">
-    <div class="flex flex-col sm:flex-row items-center justify-between gap-6">
-      <div class="flex items-center gap-3">
-        <span class="text-spotify font-bold text-base">Tuitify</span>
-        <span>/</span>
-        <span>Built in Rust by <a href="https://github.com/braces157" target="_blank" rel="noreferrer" class="text-slate-300 hover:text-spotify transition">Lê Phan Phú Quốc</a></span>
-      </div>
-      <div class="flex items-center gap-6">
-        <a href="https://github.com/braces157/tutify" class="hover:text-spotify transition">GitHub</a>
-        <a href="https://github.com/braces157/tutify/releases" class="hover:text-spotify transition">Releases</a>
-        <a href="https://github.com/braces157/tutify#data-and-privacy" class="hover:text-spotify transition">Privacy</a>
-        <a href="https://github.com/braces157/tutify/blob/master/LICENSE" class="hover:text-spotify transition">MIT License</a>
-      </div>
-    </div>
-    <div class="mt-6 pt-6 border-t border-white/[0.02] text-[10px] text-slate-600 text-center sm:text-left">
-      Disclaimer: Tuitify is an independent open-source project and is not affiliated with or endorsed by Spotify AB.
-    </div>
-  </footer>
-
-  <!-- Interactive simulator behavior is served as a local, testable module. -->
+  <footer class="site-footer container"><div class="footer-top"><a href="#top" class="footer-wordmark" aria-label="Tuitify, back to top">tuitify<span>.</span></a><p>For the love<br>of listening.</p><a class="back-top" href="#top" aria-label="Back to top">↑</a></div><div class="footer-bottom"><p>Built by <a href="https://github.com/braces157">Lê Phan Phú Quốc</a></p><nav aria-label="Footer navigation"><a href="https://github.com/braces157/tutify">GitHub ↗</a><a href="https://github.com/braces157/tutify/releases">Releases</a><a href="https://github.com/braces157/tutify#data-and-privacy">Privacy</a><a href="https://github.com/braces157/tutify/blob/master/LICENSE">MIT License</a></nav><span>Independent. Open source.</span></div><p class="footer-disclaimer">Tuitify is an independent project, not affiliated with or endorsed by Spotify AB. Personal-use software; Spotify service changes may affect playback.</p></footer>
   <script src="assets/demo.js" defer></script>
-
+  <script src="assets/site.js" defer></script>
 </body>
 </html>

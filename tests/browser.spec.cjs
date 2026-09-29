@@ -174,3 +174,111 @@ test('copy controls explain clipboard failures and leave command text selectable
   await expect(copyButton).toContainText('Select command');
   await expect(page.locator('#install-content-1 code')).toHaveClass(/select-text/);
 });
+
+test('website motion can be paused and the preference persists', async ({ page }) => {
+  await page.goto('/docs/index.html');
+  const toggle = page.locator('.motion-toggle');
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  await expect.poll(() => page.locator('.vinyl-label').evaluate(element => getComputedStyle(element).animationPlayState)).toBe('paused');
+  await page.reload();
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  await expect.poll(() => page.locator('.install-copy').evaluate(element => getComputedStyle(element).opacity)).toBe('1');
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  await page.locator('footer').scrollIntoViewIfNeeded();
+  await expect(page.locator('.record-scene')).toHaveClass(/motion-offscreen/);
+  await expect.poll(() => page.locator('.vinyl-label').evaluate(element => getComputedStyle(element).animationPlayState)).toBe('paused');
+});
+
+test('operating system reduced motion keeps content visible and animations still', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto('/docs/index.html');
+  await expect(page.locator('.motion-toggle')).toBeDisabled();
+  await expect(page.locator('.motion-toggle')).toHaveAttribute('aria-pressed', 'false');
+  await expect.poll(() => page.locator('.vinyl-label').evaluate(element => parseFloat(getComputedStyle(element).animationDuration))).toBeLessThan(.01);
+  await expect.poll(() => page.locator('.questions-heading').evaluate(element => getComputedStyle(element).opacity)).toBe('1');
+});
+
+test('screenshot tabs load the selected real capture and support keyboard navigation', async ({ page }) => {
+  await page.goto('/docs/index.html');
+  await page.locator('#screenshot-tab-queue').focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(page.locator('#screenshot-tab-lyrics')).toBeFocused();
+  await expect(page.locator('#screenshot-tab-lyrics')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('#product-screenshot')).toHaveAttribute('src', /glass-lyrics.jpg$/);
+  await expect.poll(() => page.locator('#product-screenshot').evaluate(image => image.complete && image.naturalWidth > 0)).toBe(true);
+  await expect(page.locator('#screenshot-caption')).toContainText('Every word');
+  await page.keyboard.press('End');
+  await expect(page.locator('#screenshot-tab-spectrum')).toBeFocused();
+  await expect(page.locator('#product-screenshot')).toHaveAttribute('alt', /real-time audio spectrum/);
+  await expect(page.locator('#screenshot-panel')).toHaveAttribute('aria-labelledby', 'screenshot-tab-spectrum');
+});
+
+test('screenshot failure has a useful recovery state', async ({ page }) => {
+  await page.route('**/glass-lyrics.jpg', route => route.abort());
+  await page.goto('/docs/index.html');
+  await page.locator('#screenshot-tab-lyrics').click();
+  await expect(page.locator('.screenshot-error')).toBeVisible();
+  await expect(page.locator('.screenshot-error a')).toHaveAttribute('href', /#preview$/);
+  await page.locator('#screenshot-tab-queue').click();
+  await expect.poll(() => page.locator('#product-screenshot').evaluate(image => image.complete && image.naturalWidth > 0)).toBe(true);
+  await expect(page.locator('.screenshot-error')).toBeHidden();
+});
+
+test('mobile navigation supports opening, escape, and section links', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/docs/index.html');
+  const menu = page.locator('.menu-toggle');
+  await expect(page.locator('#mobile-nav')).toBeHidden();
+  await menu.click();
+  await expect(menu).toHaveAttribute('aria-expanded', 'true');
+  await page.locator('#mobile-nav a').first().focus();
+  await page.keyboard.press('Escape');
+  await expect(menu).toBeFocused();
+  await expect(page.locator('#mobile-nav')).toBeHidden();
+  await menu.click();
+  await page.locator('#mobile-nav a[href="#install"]').click();
+  await expect(page).toHaveURL(/#install$/);
+  await expect(menu).toHaveAttribute('aria-expanded', 'false');
+});
+
+test('keycap controls operate the actual browser demo', async ({ page }) => {
+  await page.goto('/docs/index.html');
+  await page.locator('[data-demo-action="next"]').click();
+  await expect(page.locator('#tui-header-track')).toHaveText('Yellow — Coldplay');
+  await expect(page.locator('#tui-terminal-screen')).toBeFocused();
+  await page.locator('[data-demo-action="theme"]').click();
+  await expect(page.locator('#tui-theme-label')).toHaveText('Amber');
+  await page.locator('[data-demo-action="lyrics"]').click();
+  await expect(page.locator('#tui-lyrics-heading')).toContainText('Yellow');
+  await page.locator('[data-demo-action="search"]').click();
+  await expect(page.locator('#tui-filter-input')).toBeFocused();
+  await page.locator('#tui-filter-input').fill('bowie');
+  await expect(page.locator('#tui-rows-container .tui-track-row')).toHaveCount(1);
+});
+
+test('animated layout fits phones, tablets, and desktop screens', async ({ page }) => {
+  await page.goto('/docs/index.html');
+  await page.evaluate(() => document.fonts.ready);
+  for (const width of [320, 390, 768, 1024, 1440, 1920]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.waitForTimeout(250);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), `overflow at ${width}px`).toBe(true);
+    for (const id of ['features', 'interactive-demo', 'install']) {
+      expect(await page.locator(`#${id}`).evaluate(element => element.scrollWidth <= element.clientWidth + 1), `${id} overflow at ${width}px`).toBe(true);
+    }
+  }
+});
+
+test('essential content and downloads work without JavaScript', async ({ browser }) => {
+  const context = await browser.newContext({ javaScriptEnabled: false });
+  const page = await context.newPage();
+  await page.goto('http://127.0.0.1:4173/docs/index.html');
+  await expect(page.locator('h1')).toBeVisible();
+  await expect(page.locator('.button-primary').first()).toHaveAttribute('href', /v0.3.1\/tuitify.exe$/);
+  await expect(page.locator('.install-copy')).toBeVisible();
+  await expect(page.locator('.questions-heading')).toHaveCSS('opacity', '1');
+  await context.close();
+});

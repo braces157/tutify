@@ -201,8 +201,8 @@
 
     const toast = get('tui-toast');
     toast.innerText = additions.length
-      ? `✨ Track Radio: queued ${additions.length} related tracks.`
-      : '✨ Track Radio: no new tracks to add.';
+      ? `Track Radio: queued ${additions.length} related tracks.`
+      : 'Track Radio: no new tracks to add.';
     toast.classList.remove('hidden');
     if (toastTimerId !== null) window.clearTimeout(toastTimerId);
     toastTimerId = window.setTimeout(() => toast.classList.add('hidden'), 3500);
@@ -231,7 +231,7 @@
     const renderKey = `${currentTrack.id}:${currentIndex}:${lyrics.length}`;
     if (!force && renderKey === lastLyricsRenderKey) return;
     lastLyricsRenderKey = renderKey;
-    heading.innerText = `🎤 Sample Lyrics — ${currentTrack.title}`;
+    heading.innerText = `Sample Lyrics — ${currentTrack.title}`;
 
     if (!lyrics.length) {
       container.innerHTML = `<p class="text-slate-500 text-xs sm:text-sm">No sample lyrics are available for ${escapeHtml(currentTrack.title)}.</p>`;
@@ -626,6 +626,7 @@
     handleVolumeChange,
     seekAudio,
     selectAndPlay,
+    setCurrentTrackByDirection,
     switchInstallTab,
     switchView,
     toggleDemoLyrics,
