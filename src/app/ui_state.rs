@@ -1,4 +1,4 @@
-use crate::stats::{SongStats, TrackStat};
+use crate::stats::{SongStats, TrackStat, compare_plays};
 use std::cell::RefCell;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -87,33 +87,42 @@ impl StatsView {
         self.total_plays = 0;
         self.total_ms = 0;
         self.unique_tracks = stats.len();
-        let mut rows = stats.sorted_tracks();
-        self.top_song = rows.first().map(|s| s.name.clone()).unwrap_or_default();
-        for row in &rows {
+        let query = self.query.trim().to_lowercase();
+        let mut rows = Vec::new();
+        let mut top: Option<(&TrackStat, String)> = None;
+        for row in stats.tracks.values() {
             self.total_plays = self.total_plays.saturating_add(row.play_count);
             self.total_ms = self.total_ms.saturating_add(row.listened_ms);
+            let title = row.name.to_lowercase();
+            if top.as_ref().is_none_or(|(best, best_title)| {
+                compare_plays(row, &title, best, best_title).is_lt()
+            }) {
+                top = Some((row, title.clone()));
+            }
+            if query.is_empty()
+                || title.contains(&query)
+                || row.artists.to_lowercase().contains(&query)
+            {
+                rows.push((title, row));
+            }
         }
-        let query = self.query.trim().to_lowercase();
-        rows.retain(|s| {
-            s.name.to_lowercase().contains(&query) || s.artists.to_lowercase().contains(&query)
-        });
+        self.top_song = top.map(|(row, _)| row.name.clone()).unwrap_or_default();
         match self.sort {
-            StatsSort::Plays => {}
-            StatsSort::Time => rows.sort_by(|a, b| {
+            StatsSort::Plays => rows.sort_unstable_by(|(a_title, a), (b_title, b)| {
+                compare_plays(a, a_title, b, b_title)
+            }),
+            StatsSort::Time => rows.sort_unstable_by(|(a_title, a), (b_title, b)| {
                 b.listened_ms
                     .cmp(&a.listened_ms)
                     .then_with(|| b.play_count.cmp(&a.play_count))
-                    .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+                    .then_with(|| a_title.cmp(b_title))
                     .then_with(|| a.id.cmp(&b.id))
             }),
-            StatsSort::Title => rows.sort_by(|a, b| {
-                a.name
-                    .to_lowercase()
-                    .cmp(&b.name.to_lowercase())
-                    .then_with(|| a.id.cmp(&b.id))
+            StatsSort::Title => rows.sort_unstable_by(|(a_title, a), (b_title, b)| {
+                a_title.cmp(b_title).then_with(|| a.id.cmp(&b.id))
             }),
         }
-        self.rows = rows;
+        self.rows = rows.into_iter().map(|(_, row)| row.clone()).collect();
         self.revision = Some(stats.revision);
         self.cached_query.clone_from(&self.query);
         self.cached_sort = self.sort;
@@ -152,6 +161,75 @@ impl Default for RenderState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn stats_order_is_deterministic_for_unicode_and_case_ties() {
+        let mut stats = SongStats::default();
+        for (i, name) in ["Zulu", "alpha", "ALPHA", "日本語", "éclair", "ÉCLAIR"]
+            .into_iter()
+            .enumerate()
+        {
+            stats.add_play(&format!("{i:022}"), name, "Artist");
+        }
+        let expected: Vec<_> = [1, 2, 0, 4, 5, 3]
+            .into_iter()
+            .map(|i| format!("{i:022}"))
+            .collect();
+        let mut view = StatsView::default();
+        for sort in [StatsSort::Plays, StatsSort::Time, StatsSort::Title] {
+            view.sort = sort;
+            view.refresh(&stats);
+            assert_eq!(
+                view.rows
+                    .iter()
+                    .map(|row| row.id.clone())
+                    .collect::<Vec<_>>(),
+                expected
+            );
+            assert_eq!(view.top_song, "alpha");
+        }
+        view.query = "éCLAir".into();
+        view.refresh(&stats);
+        assert_eq!(view.rows.len(), 2);
+        assert_eq!(view.total_plays, 6);
+        assert_eq!(view.top_song, "alpha");
+        stats.tracks.clear();
+        stats.revision += 1;
+        view.refresh(&stats);
+        assert!(view.rows.is_empty());
+        assert!(view.top_song.is_empty());
+        assert_eq!(view.total_plays, 0);
+    }
+    #[test]
+    #[ignore = "Release microbenchmark; run with --release --ignored --nocapture"]
+    fn benchmark_stats_refresh() {
+        for count in [5_000, 50_000] {
+            let mut stats = SongStats::default();
+            for i in 0..count {
+                stats.add_play(
+                    &format!("{i:022}"),
+                    &format!("Song {:05} 日本語", count - i),
+                    "Artist",
+                );
+            }
+            for sort in [StatsSort::Plays, StatsSort::Time, StatsSort::Title] {
+                let mut view = StatsView {
+                    sort,
+                    ..Default::default()
+                };
+                let start = std::time::Instant::now();
+                for _ in 0..5 {
+                    stats.revision += 1;
+                    view.refresh(&stats);
+                    std::hint::black_box(&view.rows);
+                }
+                println!(
+                    "stats_rows={count} sort={sort:?} mean_refresh_ms={:.3}",
+                    start.elapsed().as_secs_f64() * 200.0
+                );
+                assert_eq!(view.rows.len(), count);
+            }
+        }
+    }
     #[test]
     fn stats_view_filters_sorts_and_keeps_all_time_totals() {
         let mut stats = SongStats::default();

@@ -1,5 +1,9 @@
 # Website and TUI review — 2026-09-06
 
+For the current v0.3.1 performance changes and measurements, see
+[BENCHMARKS.md](BENCHMARKS.md) and [VALIDATION.md](VALIDATION.md). The review
+snapshot below is retained as historical evidence.
+
 The largest performance issue is repeated work in the TUI render loop. The largest reliability issues are silent metadata failures and background responses that outlive the queue they were requested for. The website needs compiled CSS, accessible demo controls, and evidence for its performance claims.
 
 The findings below describe the original review snapshot; their line numbers and baseline results are historical. The subsequent local implementation addresses all 18 findings and the additional improvements. P1 means fix first because the effect is substantial; P2 means a concrete defect or meaningful improvement; P3 means polish.

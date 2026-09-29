@@ -28,6 +28,7 @@ is a separate demonstration, not the player's frontend.
 | `src/ui/terminal.rs`, `theme.rs`, `widgets.rs` | Terminal lifecycle, colors and shared drawing helpers |
 | `src/auth.rs` | PKCE, credentials and serialized token refresh |
 | `src/catalog.rs`, `library.rs`, `lyrics.rs` | Remote catalog, saved-library traversal and lyrics parsing/fetching |
+| `src/catalog/similarity.rs`, `discovery.rs` | Related-artist identity checks, bounded candidate pages, original-seed discovery |
 | `src/playback.rs`, `visualizer.rs` | Streaming engine, audio output and spectrum analysis |
 | `src/queue.rs`, `stats.rs`, `cache.rs`, `storage.rs` | Domain data and persistence |
 | `src/model.rs` | Shared track/repeat/playback-state types |
@@ -72,7 +73,22 @@ is a separate demonstration, not the player's frontend.
   infer service state by searching human-readable status text.
 - Keep disk writes off the event loop. Writers coalesce snapshots, report failure,
   retry on later checkpoints, and flush their final value on shutdown. Preserve
-  atomic JSON replacement and existing persisted formats.
+  atomic JSON replacement and existing persisted formats. Checkpoints share
+  immutable snapshots through `Arc`; buffered JSON is flushed before file sync.
+  Unreadable or unsupported statistics/recipes stop startup before workers begin.
+- Statistics cache normalized titles once, filter borrowed rows, and sort once.
+  All-time totals remain independent of the filter. Metadata hydration updates
+  only the corresponding saved statistics entry.
+- Discovery prefers exact artist names. Latin accent aliases require a matching
+  seed recording; artist IDs reject ambiguous and unrelated candidate pools.
+  Lyrics retain Unicode accents and canonicalize equivalent Unicode sequences;
+  a missing full credit can retry a verified lead artist with title/duration checks.
+  Lyrics service retries are bounded, and failure remains distinct from missing data.
+- Mouse regions follow the renderer's actual wrapping and clipping. Statistics
+  searches and recipe names reserve room for real footer actions. Applying a mix
+  remains an explicit keyboard operation.
+- FFT bins use the sample rate published by the Windows output device. Runtime
+  frame deadlines use the last draw time; remaining debounce/fade delays use now.
 - The terminal guard, Windows media session, Discord task, playback worker and
   background jobs have explicit cleanup. Preserve cleanup ordering when changing
   startup or exit paths. Shared playback state lives in `model`, so integrations
@@ -85,10 +101,10 @@ Run `cargo fmt --check`, `cargo test --locked`, and
 `cargo build --release --locked` before release. Tests live beside their modules;
 `src/app/tests/` retains interaction tests across input, state, jobs and persistence.
 
-The five opt-in checks require specific environments or optimized builds: live
-streaming, a silent Windows media session, a real terminal for cleanup, an
-optimized rendering benchmark, and the optimized Mix Builder generation
-benchmark. Run the relevant checks when touching those paths. Run `npm test` for
+The sixteen opt-in checks cover live catalogs/lyrics/streaming, a silent Windows
+media session, real-terminal cleanup, and optimized rendering, persistence,
+statistics, and Mix Builder benchmarks. List them with `cargo test -- --list` and
+run the relevant checks when touching those paths. Run `npm test` for
 website changes. See `VALIDATION.md` for what was actually executed.
 
 Prefer cohesive modules of a few hundred lines, but do not split working domain

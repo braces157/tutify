@@ -24,6 +24,15 @@ impl std::fmt::Display for MissingItem {
 }
 impl std::error::Error for MissingItem {}
 
+#[derive(Debug)]
+struct AccessDenied;
+impl std::fmt::Display for AccessDenied {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Spotify denied access. Playlist items require ownership or collaboration in development mode. Also check app user access, scopes, and the app owner's Premium subscription.")
+    }
+}
+impl std::error::Error for AccessDenied {}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Browse {
     Search(String),
@@ -185,9 +194,7 @@ impl Catalog {
                     token = self.tokens.refresh_rejected(&token).await?;
                 }
                 401 => return Err(crate::auth::AuthenticationRequired.into()),
-                403 => bail!(
-                    "Spotify denied access. Playlist items require ownership or collaboration in development mode. Also check app user access, scopes, and the app owner's Premium subscription."
-                ),
+                403 => return Err(AccessDenied.into()),
                 404 => return Err(MissingItem.into()),
                 429 => {
                     let wait = retry_delay(
@@ -327,7 +334,7 @@ impl Catalog {
                 && value.get("next").is_some()
                 && value["next"].as_str() != Some("")
             {
-                Some(offset + 50)
+                offset.checked_add(50)
             } else {
                 None
             };
@@ -356,7 +363,7 @@ impl Catalog {
                         next: None,
                     });
                 }
-                Err(err) if !err.is::<MissingItem>() => {
+                Err(err) if err.is::<AccessDenied>() => {
                     // In Development Mode, Spotify rejects /artists/{id}/top-tracks with 403 Forbidden.
                     // Fall back to resolving the artist's name and searching their popular tracks.
                     if let Ok(info) = self.get(&format!("/artists/{id}"), &[]).await {
@@ -369,13 +376,19 @@ impl Catalog {
                             ];
                             if let Ok(search_val) = self.get("/search", &search_query).await {
                                 if let Some(items) = search_val["tracks"]["items"].as_array() {
-                                    let tracks: Vec<Track> =
-                                        items.iter().filter_map(parse_track).collect();
+                                    // Search is fuzzy and artist names are not
+                                    // unique. Retain only verified Spotify IDs,
+                                    // including collaborations with this artist.
+                                    let tracks: Vec<Track> = items
+                                        .iter()
+                                        .filter_map(parse_track)
+                                        .filter(|track| track.artist_ids.contains(id))
+                                        .collect();
                                     let next = if !search_val["tracks"]["next"].is_null()
                                         && search_val["tracks"].get("next").is_some()
                                         && search_val["tracks"]["next"].as_str() != Some("")
                                     {
-                                        Some(offset + 10)
+                                        offset.checked_add(10)
                                     } else {
                                         None
                                     };
@@ -1340,6 +1353,17 @@ mod tests {
                         },
                         "duration_ms": 238640,
                         "track_number": 2
+                    }, {
+                        "id": "4444444444444444444444",
+                        "name": "Wrong artist with the same name",
+                        "artists": [{"id": "9999999999999999999999", "name": "Radiohead"}]
+                    }, {
+                        "id": "5555555555555555555555",
+                        "name": "Collaboration",
+                        "artists": [
+                            {"id": "9999999999999999999999", "name": "Other artist"},
+                            {"id": artist_id, "name": "Radiohead"}
+                        ]
                     }],
                     "next": null
                 }
@@ -1356,11 +1380,53 @@ mod tests {
         assert_eq!(page.next, None);
         match page.rows {
             Rows::Tracks(tracks) => {
-                assert_eq!(tracks.len(), 1);
+                assert_eq!(tracks.len(), 2);
                 assert_eq!(tracks[0].name, "Creep");
                 assert_eq!(tracks[0].artists, "Radiohead");
+                assert_eq!(tracks[1].name, "Collaboration");
             }
             Rows::Playlists(_) => panic!("expected tracks"),
+        }
+    }
+    #[tokio::test]
+    async fn artist_outage_and_authentication_errors_do_not_trigger_fallback_requests() {
+        for status in [401, 429, 500] {
+            let (server, catalog) = catalog().await;
+            let artist_id = "0000000000000000000003";
+            if status == 401 {
+                Mock::given(method("POST"))
+                    .and(path("/token"))
+                    .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                        "access_token": "new", "expires_in": 3600
+                    })))
+                    .expect(1)
+                    .mount(&server)
+                    .await;
+            }
+            Mock::given(method("GET"))
+                .and(path(format!("/artists/{artist_id}/top-tracks")))
+                .respond_with(ResponseTemplate::new(status))
+                .expect(if status == 401 { 2 } else { 1 })
+                .mount(&server)
+                .await;
+            Mock::given(method("GET"))
+                .and(path(format!("/artists/{artist_id}")))
+                .respond_with(ResponseTemplate::new(200))
+                .expect(0)
+                .mount(&server)
+                .await;
+            Mock::given(method("GET"))
+                .and(path("/search"))
+                .respond_with(ResponseTemplate::new(200))
+                .expect(0)
+                .mount(&server)
+                .await;
+            assert!(
+                catalog
+                    .page(&Browse::Artist(artist_id.into()), 0)
+                    .await
+                    .is_err()
+            );
         }
     }
 }

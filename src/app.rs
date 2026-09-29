@@ -119,6 +119,14 @@ pub enum MouseTarget {
     Prompt,
     CatalogScroll,
     QueueScroll,
+    StatsRow(usize),
+    StatsSearch,
+    StatsSort,
+    StatsSearchDone,
+    StatsClear,
+    StatsClose,
+    MixRow(usize),
+    MixKey(KeyCode),
     PlayPause,
     Seek,
     Menu(usize),
@@ -626,27 +634,20 @@ impl App {
             self.accounting.last_accounted_at = None;
             return;
         };
-        if let Some(track) = self.cache.get(&track_id) {
+        let track = self.cache.get(&track_id);
+        if let Some(track) = track {
             if track.duration_ms > 0 {
                 self.accounting.duration_ms = track.duration_ms;
             }
         }
-        let fallback_name = self
-            .cache
-            .get(&track_id)
-            .map(|t| t.name.clone())
-            .unwrap_or_else(|| format!("Track {track_id}"));
-        let fallback_artists = self
-            .cache
-            .get(&track_id)
-            .map(|t| t.artists.clone())
-            .unwrap_or_default();
+        let fallback_name = track.map_or("", |t| t.name.as_str());
+        let fallback_artists = track.map_or("", |t| t.artists.as_str());
 
         self.accounting.account_time(
             now,
             &track_id,
-            &fallback_name,
-            &fallback_artists,
+            fallback_name,
+            fallback_artists,
             &mut self.stats,
         );
     }

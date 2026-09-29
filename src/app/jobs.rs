@@ -601,8 +601,7 @@ impl Tasks {
         let client = self.http.clone();
         let tx = self.tx.clone();
         self.lyrics = Some(tokio::spawn(async move {
-            let lyr =
-                crate::lyrics::fetch(&client, &track.name, &track.artists, track.duration_ms).await;
+            let lyr = crate::lyrics::fetch(&client, &track).await;
             let _ = tx.send(Background::Lyrics(request, lyr));
         }));
     }
@@ -1078,9 +1077,9 @@ pub(super) fn background(app: &mut App, tasks: &mut Tasks, event: Background) ->
             tasks.requested.remove(&id);
             match result {
                 Ok(track) => {
+                    app.stats.refresh_track_metadata(&track);
                     app.cache.insert(track.id.clone(), track.clone());
                     app.update_queue_mix_track(track);
-                    app.stats.refresh_metadata(&app.cache);
                 }
                 Err(e) if e.is::<crate::catalog::MissingItem>() => {
                     app.cache.insert(

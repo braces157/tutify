@@ -14,6 +14,7 @@ pub struct AudioVisualizer {
     buffer: Box<[AtomicU32; BUFFER_SIZE]>,
     write_head: AtomicUsize,
     total_samples: AtomicU64,
+    sample_rate: AtomicU32,
     state: std::sync::Mutex<VisualizerState>,
 }
 
@@ -61,6 +62,7 @@ impl AudioVisualizer {
             buffer,
             write_head: AtomicUsize::new(0),
             total_samples: AtomicU64::new(0),
+            sample_rate: AtomicU32::new(SAMPLE_RATE as u32),
             state: std::sync::Mutex::new(VisualizerState {
                 smoothed_bars: Vec::new(),
                 peak_caps: Vec::new(),
@@ -90,6 +92,11 @@ impl AudioVisualizer {
         for &s in samples {
             self.push_sample(s);
         }
+    }
+
+    pub(crate) fn set_sample_rate(&self, sample_rate: u32) {
+        self.sample_rate
+            .store(sample_rate.max(1), Ordering::Relaxed);
     }
 
     /// Check whether any real audio samples have been received by the tap.
@@ -154,7 +161,11 @@ impl AudioVisualizer {
             }
 
             let magnitudes = compute_fft_magnitudes(&samples, &state.twiddles);
-            let raw_bands = calculate_frequency_bands(&magnitudes, bar_count);
+            let raw_bands = calculate_frequency_bands(
+                &magnitudes,
+                bar_count,
+                self.sample_rate.load(Ordering::Relaxed),
+            );
 
             // Dynamic Auto-Sensitivity (AGC)
             let frame_max = raw_bands.iter().copied().fold(0.0f32, f32::max);
@@ -265,7 +276,11 @@ impl AudioVisualizer {
             }
 
             let magnitudes = compute_fft_magnitudes(&samples, &state.twiddles);
-            let raw_bands = calculate_frequency_bands(&magnitudes, bar_count);
+            let raw_bands = calculate_frequency_bands(
+                &magnitudes,
+                bar_count,
+                self.sample_rate.load(Ordering::Relaxed),
+            );
 
             // Dynamic Auto-Sensitivity (AGC) tracking peak energy
             let frame_max = raw_bands.iter().copied().fold(0.0f32, f32::max);
@@ -349,6 +364,7 @@ impl Default for AudioVisualizer {
             buffer,
             write_head: AtomicUsize::new(0),
             total_samples: AtomicU64::new(0),
+            sample_rate: AtomicU32::new(SAMPLE_RATE as u32),
             state: std::sync::Mutex::new(VisualizerState {
                 smoothed_bars: Vec::new(),
                 peak_caps: Vec::new(),
@@ -366,7 +382,7 @@ impl Default for AudioVisualizer {
 }
 
 /// Compute magnitudes of frequency bins using Radix-2 Cooley-Tukey FFT.
-/// Returns 512 magnitude bins from 0 Hz to Nyquist (22,050 Hz).
+/// Returns 512 magnitude bins from 0 Hz to the tapped audio's Nyquist frequency.
 fn compute_fft_magnitudes(
     samples: &[f32; FFT_SIZE],
     twiddles: &[(f32, f32)],
@@ -426,7 +442,11 @@ fn mel_to_hz(mel: f32) -> f32 {
 }
 
 /// Group 512 FFT bins into `bar_count` Mel-spaced frequency bands (45 Hz - 9,500 Hz).
-fn calculate_frequency_bands(magnitudes: &[f32; FFT_SIZE / 2], bar_count: usize) -> Vec<f32> {
+fn calculate_frequency_bands(
+    magnitudes: &[f32; FFT_SIZE / 2],
+    bar_count: usize,
+    sample_rate: u32,
+) -> Vec<f32> {
     if bar_count == 0 {
         return vec![];
     }
@@ -435,7 +455,7 @@ fn calculate_frequency_bands(magnitudes: &[f32; FFT_SIZE / 2], bar_count: usize)
     let max_freq = 9_500.0f32;
     let min_mel = hz_to_mel(min_freq);
     let max_mel = hz_to_mel(max_freq);
-    let bin_width = SAMPLE_RATE / (FFT_SIZE as f32); // ~43.07 Hz per bin
+    let bin_width = sample_rate.max(1) as f32 / FFT_SIZE as f32;
 
     let mut raw_bands = Vec::with_capacity(bar_count);
 
@@ -571,6 +591,35 @@ mod tests {
     use super::*;
 
     #[test]
+    fn resampled_audio_keeps_the_correct_frequency_band() {
+        let frequency = 6_000.0;
+        let bar_count = 32;
+        let expected = ((hz_to_mel(frequency) - hz_to_mel(45.0))
+            / (hz_to_mel(9_500.0) - hz_to_mel(45.0))
+            * bar_count as f32) as usize;
+        for sample_rate in [44_100, 48_000, 96_000] {
+            let vis = AudioVisualizer::new();
+            vis.set_sample_rate(sample_rate);
+            for i in 0..FFT_SIZE * 2 {
+                vis.push_sample(
+                    (2.0 * std::f32::consts::PI * frequency * i as f32 / sample_rate as f32).sin(),
+                );
+            }
+            let (bars, _) = vis.get_bars_and_peaks(bar_count, 10_000, true);
+            let peak = bars
+                .iter()
+                .enumerate()
+                .max_by_key(|(_, height)| *height)
+                .unwrap()
+                .0;
+            assert!(
+                peak.abs_diff(expected) <= 1,
+                "{sample_rate} Hz: expected band {expected}, got {peak}"
+            );
+        }
+    }
+
+    #[test]
     fn test_fft_frequency_detection() {
         let vis = AudioVisualizer::new();
 
@@ -609,7 +658,7 @@ mod tests {
             *s = (2.0 * std::f32::consts::PI * 60.0 * t).sin();
         }
         let bass_mags = compute_fft_magnitudes(&bass_samples, twiddles);
-        let bass_bars = calculate_frequency_bands(&bass_mags, 16);
+        let bass_bars = calculate_frequency_bands(&bass_mags, 16, SAMPLE_RATE as u32);
 
         // High treble signal (8 kHz)
         let mut treble_samples = [0.0f32; FFT_SIZE];
@@ -618,7 +667,7 @@ mod tests {
             *s = (2.0 * std::f32::consts::PI * 8_000.0 * t).sin();
         }
         let treble_mags = compute_fft_magnitudes(&treble_samples, twiddles);
-        let treble_bars = calculate_frequency_bands(&treble_mags, 16);
+        let treble_bars = calculate_frequency_bands(&treble_mags, 16, SAMPLE_RATE as u32);
 
         // Bass signal should have its maximum in the first few bars
         let bass_peak_bar = bass_bars

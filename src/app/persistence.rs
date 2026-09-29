@@ -58,10 +58,12 @@ pub(super) struct Checkpoints {
     pub(super) recipes: u64,
     pub(super) retry: bool,
     pub(super) config_tx: watch::Sender<Option<Config>>,
-    pub(super) queue_tx: watch::Sender<Option<Queue>>,
-    pub(super) cache_tx: watch::Sender<Option<crate::cache::MetadataCache>>,
-    pub(super) stats_tx: watch::Sender<Option<crate::stats::SongStats>>,
-    pub(super) recipes_tx: watch::Sender<Option<crate::mix::MixRecipes>>,
+    // Writers retain immutable snapshots without deep-cloning large collections
+    // again on the UI executor before dispatching filesystem work.
+    pub(super) queue_tx: watch::Sender<Option<Arc<Queue>>>,
+    pub(super) cache_tx: watch::Sender<Option<Arc<crate::cache::MetadataCache>>>,
+    pub(super) stats_tx: watch::Sender<Option<Arc<crate::stats::SongStats>>>,
+    pub(super) recipes_tx: watch::Sender<Option<Arc<crate::mix::MixRecipes>>>,
 }
 impl Checkpoints {
     pub(super) fn send(&mut self, app: &App) {
@@ -71,19 +73,23 @@ impl Checkpoints {
         }
         let stamp = queue_stamp(&app.queue);
         if self.retry || self.queue != stamp {
-            self.queue_tx.send_replace(Some(app.queue.clone()));
+            self.queue_tx
+                .send_replace(Some(Arc::new(app.queue.clone())));
             self.queue = stamp;
         }
         if self.retry || self.cache != app.cache.revision {
-            self.cache_tx.send_replace(Some(app.cache.clone()));
+            self.cache_tx
+                .send_replace(Some(Arc::new(app.cache.clone())));
             self.cache = app.cache.revision;
         }
         if self.retry || self.stats != app.stats.revision {
-            self.stats_tx.send_replace(Some(app.stats.clone()));
+            self.stats_tx
+                .send_replace(Some(Arc::new(app.stats.clone())));
             self.stats = app.stats.revision;
         }
         if self.retry || self.recipes != app.mix_recipes.revision {
-            self.recipes_tx.send_replace(Some(app.mix_recipes.clone()));
+            self.recipes_tx
+                .send_replace(Some(Arc::new(app.mix_recipes.clone())));
             self.recipes = app.mix_recipes.revision;
         }
         self.retry = false;

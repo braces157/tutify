@@ -1,6 +1,7 @@
 use super::*;
+use crossterm::event::KeyCode;
 
-pub(super) fn mix_builder(frame: &mut Frame<'_>, app: &App, _render: &mut RenderState, area: Rect) {
+pub(super) fn mix_builder(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, area: Rect) {
     let theme = Theme::from_str(&app.config.theme);
     let palette = theme.palette();
     let source = app
@@ -26,15 +27,38 @@ pub(super) fn mix_builder(frame: &mut Frame<'_>, app: &App, _render: &mut Render
         return;
     }
     if app.mix.naming {
-        frame.render_widget(
-            Paragraph::new(format!(
-                "Recipe name: {}_ • Enter save • Esc keep name",
-                app.mix.recipe_name
-            ))
-            .style(Style::default().fg(palette.text).bold())
+        let actions = "Enter save • Esc keep name";
+        let prompt = format!("Recipe name: {}_", app.mix.recipe_name);
+        let action_height = Paragraph::new(actions)
             .wrap(Wrap { trim: true })
-            .scroll((0, 0)),
-            inner,
+            .line_count(inner.width) as u16;
+        let layout =
+            Layout::vertical([Constraint::Min(1), Constraint::Length(action_height)]).split(inner);
+        let scroll = Paragraph::new(prompt.as_str())
+            .wrap(Wrap { trim: true })
+            .line_count(inner.width)
+            .saturating_sub(layout[0].height as usize)
+            .min(u16::MAX as usize) as u16;
+        frame.render_widget(
+            Paragraph::new(prompt)
+                .style(Style::default().fg(palette.text).bold())
+                .wrap(Wrap { trim: true })
+                .scroll((scroll, 0)),
+            layout[0],
+        );
+        mix_control_hits(
+            render,
+            layout[1],
+            actions,
+            0,
+            std::slice::from_ref(&(0..actions.len())),
+            true,
+        );
+        frame.render_widget(
+            Paragraph::new(actions)
+                .style(Style::default().fg(palette.text).bold())
+                .wrap(Wrap { trim: true }),
+            layout[1],
         );
         return;
     }
@@ -42,18 +66,28 @@ pub(super) fn mix_builder(frame: &mut Frame<'_>, app: &App, _render: &mut Render
     let achieved_minutes = (app.mix.preview.duration_ms + 30_000) / 60_000;
     let detail = selected_detail(app);
     if app.mix.detail {
+        let heading = "MIX BUILDER DETAILS • ? back";
+        let actions = "3/4/6 target • [/] suggestions • a artist gap\nUp/Down select or scroll • p pin • g regenerate/retry\nEnter replace • A append • w save • o reopen\n? close details • Esc close details, then cancel";
         let source_note = app
             .mix
             .source_error
             .as_deref()
             .unwrap_or("Source loaded without a reported error");
         let text = format!(
-            "MIX BUILDER DETAILS\nSource: {source}{source_state}\nSource note: {source_note}\nTarget: {} min; achieved: {achieved_minutes} min\nSuggestions: desired {}%; achieved {}%\nArtist gap preference: {} tracks\n\nSelected: {detail}\n{}\n\nCONTROLS\n3/4/6 target • [/] suggestions • a artist gap\nUp/Down select or scroll • p pin • g regenerate/retry\nEnter replace • A append • w save • o reopen\n? close details • Esc close details, then cancel",
+            "{heading}\nSource: {source}{source_state}\nSource note: {source_note}\nTarget: {} min; achieved: {achieved_minutes} min\nSuggestions: desired {}%; achieved {}%\nArtist gap preference: {} tracks\n\nSelected: {detail}\n{}\n\nCONTROLS\n{actions}",
             app.mix.settings.target_minutes,
             app.mix.settings.recommendation_percent,
             app.mix.preview.recommendation_percent,
             app.mix.settings.artist_gap,
             app.mix.preview.note,
+        );
+        mix_control_hits(
+            render,
+            inner,
+            &text,
+            app.mix.detail_scroll,
+            &[0..heading.len(), text.len() - actions.len()..text.len()],
+            true,
         );
         frame.render_widget(
             Paragraph::new(text)
@@ -75,6 +109,19 @@ pub(super) fn mix_builder(frame: &mut Frame<'_>, app: &App, _render: &mut Render
             ))
             .style(Style::default().fg(palette.text).bold()),
             inner,
+        );
+        mix_control_hits(
+            render,
+            Rect::new(
+                inner.x,
+                inner.y.saturating_add(1),
+                inner.width,
+                inner.height.saturating_sub(1),
+            ),
+            "Enter/A apply • p pin\n? details • Esc cancel",
+            0,
+            std::slice::from_ref(&(0.."Enter/A apply • p pin\n? details • Esc cancel".len())),
+            false,
         );
         return;
     }
@@ -118,6 +165,14 @@ pub(super) fn mix_builder(frame: &mut Frame<'_>, app: &App, _render: &mut Render
         Constraint::Length(detail_height),
     ])
     .split(inner);
+    mix_control_hits(
+        render,
+        layout[0],
+        &controls,
+        0,
+        std::slice::from_ref(&(0..controls.len())),
+        true,
+    );
     frame.render_widget(
         Paragraph::new(controls)
             .style(Style::default().fg(palette.text_muted))
@@ -127,6 +182,19 @@ pub(super) fn mix_builder(frame: &mut Frame<'_>, app: &App, _render: &mut Render
 
     let height = layout[1].height.saturating_sub(1) as usize;
     let start = app.mix.selected.saturating_sub(height.saturating_sub(1));
+    for (line, index) in (start..app.mix.preview.entries.len())
+        .take(height)
+        .enumerate()
+    {
+        let y = layout[1].y.saturating_add(1).saturating_add(line as u16);
+        if y < layout[1].bottom() {
+            hit(
+                render,
+                Rect::new(layout[1].x, y, layout[1].width, 1),
+                MouseTarget::MixRow(index),
+            );
+        }
+    }
     let rows = app
         .mix
         .preview
@@ -226,6 +294,120 @@ pub(super) fn mix_builder(frame: &mut Frame<'_>, app: &App, _render: &mut Render
             .wrap(Wrap { trim: true }),
         layout[2],
     );
+}
+
+fn mix_control_hits(
+    render: &mut RenderState,
+    area: Rect,
+    controls: &str,
+    scroll: u16,
+    sections: &[std::ops::Range<usize>],
+    wrap: bool,
+) {
+    if area.is_empty() {
+        return;
+    }
+    let mut ranges = Vec::new();
+    for section in sections {
+        let text = &controls[section.clone()];
+        for (label, code) in [
+            ("Enter save", KeyCode::Enter),
+            ("Esc keep name", KeyCode::Esc),
+            ("? close details", KeyCode::Char('?')),
+            ("? back", KeyCode::Char('?')),
+            ("Esc close details", KeyCode::Esc),
+            ("p pin", KeyCode::Char('p')),
+            ("g regenerate", KeyCode::Char('g')),
+            ("g regen", KeyCode::Char('g')),
+            ("w save", KeyCode::Char('w')),
+            ("o reopen", KeyCode::Char('o')),
+            ("a artist gap", KeyCode::Char('a')),
+            ("a gap", KeyCode::Char('a')),
+            ("? details", KeyCode::Char('?')),
+            ("Esc cancel", KeyCode::Esc),
+        ] {
+            for (start, _) in text.match_indices(label) {
+                ranges.push((
+                    section.start + start..section.start + start + label.len(),
+                    code,
+                ));
+            }
+        }
+        for (start, _) in text.match_indices("3/4/6") {
+            for (offset, code) in [(0, '3'), (2, '4'), (4, '6')] {
+                let start = section.start + start + offset;
+                ranges.push((start..start + 1, KeyCode::Char(code)));
+            }
+        }
+        for (start, _) in text.match_indices("[/]") {
+            for (offset, code) in [(0, '['), (2, ']')] {
+                let start = section.start + start + offset;
+                ranges.push((start..start + 1, KeyCode::Char(code)));
+            }
+        }
+    }
+    ranges.sort_by_key(|(range, _)| (range.start, std::cmp::Reverse(range.len())));
+    let mut targets = Vec::new();
+    let mut lines = Vec::new();
+    let mut offset = 0;
+    for line in controls.split('\n') {
+        let mut spans = Vec::new();
+        let mut cursor = 0;
+        for (range, code) in &ranges {
+            if range.start < offset || range.end > offset + line.len() {
+                continue;
+            }
+            let start = range.start - offset;
+            let end = range.end - offset;
+            if start < cursor {
+                continue;
+            } // Keep the longest overlapping label.
+            spans.push(Span::raw(&line[cursor..start]));
+            let marker = targets
+                .iter()
+                .position(|target| target == code)
+                .unwrap_or_else(|| {
+                    targets.push(*code);
+                    targets.len() - 1
+                });
+            spans.push(Span::styled(
+                &line[start..end],
+                Style::default().bg(Color::Indexed(marker as u8)),
+            ));
+            cursor = end;
+        }
+        spans.push(Span::raw(&line[cursor..]));
+        lines.push(Line::from(spans));
+        offset += line.len() + 1;
+    }
+    // Use Ratatui's own reflow and clipping to locate controls. Marker colors
+    // exist only in this scratch buffer; the user's paragraph stays unchanged.
+    let mut buffer = Buffer::empty(area);
+    let mut paragraph = Paragraph::new(lines).scroll((scroll, 0));
+    if wrap {
+        paragraph = paragraph.wrap(Wrap { trim: true });
+    }
+    paragraph.render(area, &mut buffer);
+    for y in area.y..area.bottom() {
+        let mut x = area.x;
+        while x < area.right() {
+            let Color::Indexed(marker) = buffer[(x, y)].bg else {
+                x += 1;
+                continue;
+            };
+            let start = x;
+            while x < area.right() && buffer[(x, y)].bg == Color::Indexed(marker) {
+                x += 1;
+            }
+            if let Some(code) = targets.get(marker as usize) {
+                hit(
+                    render,
+                    Rect::new(start, y, x - start, 1),
+                    MouseTarget::MixKey(*code),
+                );
+            }
+        }
+    }
 }
 
 fn selected_detail(app: &App) -> String {

@@ -3,7 +3,7 @@ use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::{
     fs,
-    io::Write,
+    io::{BufWriter, Write},
     path::{Path, PathBuf},
 };
 
@@ -123,25 +123,22 @@ impl Storage {
         }
     }
     pub fn stats(&self) -> Result<crate::stats::SongStats> {
-        let mut stats: crate::stats::SongStats = read_or_default(&self.root.join("stats.json"))?;
+        let stats: crate::stats::SongStats = read_or_default(&self.root.join("stats.json"))?;
         stats.validate()?;
         Ok(stats)
     }
     pub fn save_stats(&self, stats: &crate::stats::SongStats) -> Result<()> {
-        let mut stats = stats.clone();
         stats.validate()?;
-        atomic_json(&self.root.join("stats.json"), &stats)
+        atomic_json(&self.root.join("stats.json"), stats)
     }
     pub fn mix_recipes(&self) -> Result<crate::mix::MixRecipes> {
-        let mut recipes: crate::mix::MixRecipes =
-            read_or_default(&self.root.join("mix-recipes.json"))?;
+        let recipes: crate::mix::MixRecipes = read_or_default(&self.root.join("mix-recipes.json"))?;
         recipes.validate()?;
         Ok(recipes)
     }
     pub fn save_mix_recipes(&self, recipes: &crate::mix::MixRecipes) -> Result<()> {
-        let mut recipes = recipes.clone();
         recipes.validate()?;
-        atomic_json(&self.root.join("mix-recipes.json"), &recipes)
+        atomic_json(&self.root.join("mix-recipes.json"), recipes)
     }
     pub fn clear_stats(&self) -> Result<()> {
         match fs::remove_file(self.root.join("stats.json")) {
@@ -168,8 +165,14 @@ fn read_or_default<T: DeserializeOwned + Default>(path: &Path) -> Result<T> {
 fn atomic_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
     let mut tmp =
         tempfile::NamedTempFile::new_in(path.parent().context("Missing parent directory")?)?;
-    serde_json::to_writer_pretty(&mut tmp, value)?;
-    tmp.write_all(b"\n")?;
+    // JSON emits many small tokens. Buffer them before touching the filesystem,
+    // and flush explicitly so a write failure cannot publish a partial snapshot.
+    {
+        let mut output = BufWriter::new(&mut tmp);
+        serde_json::to_writer_pretty(&mut output, value)?;
+        output.write_all(b"\n")?;
+        output.flush()?;
+    }
     tmp.as_file().sync_all()?;
     // tempfile uses MoveFileExW with REPLACE_EXISTING on Windows, on the same volume.
     tmp.persist(path)
@@ -181,6 +184,46 @@ fn atomic_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn serialization_failure_preserves_committed_snapshot() {
+        struct Failing;
+        impl Serialize for Failing {
+            fn serialize<S: serde::Serializer>(
+                &self,
+                _: S,
+            ) -> std::result::Result<S::Ok, S::Error> {
+                Err(serde::ser::Error::custom("failed snapshot"))
+            }
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("state.json");
+        atomic_json(&path, &vec!["committed"]).unwrap();
+        let before = fs::read(&path).unwrap();
+        assert!(atomic_json(&path, &Failing).is_err());
+        assert_eq!(fs::read(&path).unwrap(), before);
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+    #[test]
+    #[ignore = "Release microbenchmark; run with --release --ignored --nocapture"]
+    fn benchmark_state_save() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Storage {
+            root: dir.path().to_owned(),
+        };
+        for count in [5_000, 50_000] {
+            let mut queue = Queue::default();
+            queue.replace((0..count).map(|i| format!("{i:022}")).collect(), 0, false);
+            let start = std::time::Instant::now();
+            for _ in 0..3 {
+                store.save_queue(&queue).unwrap();
+            }
+            println!(
+                "queue_rows={count} mean_save_ms={:.3}",
+                start.elapsed().as_secs_f64() * 1000.0 / 3.0
+            );
+            assert_eq!(store.queue().unwrap().ids, queue.ids);
+        }
+    }
     #[test]
     fn cache_roundtrips_and_clear_preserves_settings_and_queue() {
         let dir = tempfile::tempdir().unwrap();

@@ -8,6 +8,19 @@ pub(super) fn stats(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, 
     } else {
         " SONG STATISTICS [S/Esc exit] ".to_string()
     };
+    let title_area = Rect::new(
+        area.x.saturating_add(1),
+        area.y,
+        area.width.saturating_sub(2),
+        1,
+    );
+    hit_text(
+        render,
+        title_area,
+        &title,
+        "[S/Esc exit]",
+        MouseTarget::StatsClose,
+    );
     let outer = block_themed(title, true, theme);
     let inner = outer.inner(area);
     frame.render_widget(outer, area);
@@ -67,18 +80,63 @@ pub(super) fn stats(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, 
         )),
     ];
     frame.render_widget(Paragraph::new(summary), areas[0]);
-    let footer = if view.editing {
-        format!("Search: {}_ [Enter done]", view.query)
-    } else if !view.query.is_empty() {
-        format!(
-            "/ {} | {} matches | Tab: {} | Esc clear",
-            view.query,
-            view.rows.len(),
-            view.sort.label()
-        )
+    let compact = inner.width < 35;
+    let sort_text = if view.query.is_empty() && !compact {
+        format!("Tab sort: {}", view.sort.label())
     } else {
-        format!("/ Search | Tab sort: {} | S/Esc exit", view.sort.label())
+        format!("Tab: {}", view.sort.label())
     };
+    let close_text = if compact { "Esc" } else { "S/Esc exit" };
+    let footer = if view.editing {
+        let query = fit_query(&view.query, areas[2].width.saturating_sub(22) as usize);
+        format!("Search: {query}_ [Enter done]")
+    } else if !view.query.is_empty() {
+        let matches = if inner.width >= 60 {
+            format!(" | {} matches", view.rows.len())
+        } else {
+            String::new()
+        };
+        let suffix = format!("{matches} | {sort_text} | Esc clear");
+        let available = (areas[2].width as usize).saturating_sub(2 + Span::raw(&suffix).width());
+        format!("/ {}{suffix}", fit_query(&view.query, available))
+    } else {
+        format!("/ Search | {sort_text} | {close_text}")
+    };
+    hit(render, areas[2], MouseTarget::StatsSearch);
+    if view.editing {
+        hit_text(
+            render,
+            areas[2],
+            &footer,
+            "[Enter done]",
+            MouseTarget::StatsSearchDone,
+        );
+    } else {
+        hit_text(
+            render,
+            areas[2],
+            &footer,
+            &sort_text,
+            MouseTarget::StatsSort,
+        );
+        if view.query.is_empty() {
+            hit_text(
+                render,
+                areas[2],
+                &footer,
+                close_text,
+                MouseTarget::StatsClose,
+            );
+        } else {
+            hit_text(
+                render,
+                areas[2],
+                &footer,
+                "Esc clear",
+                MouseTarget::StatsClear,
+            );
+        }
+    }
     frame.render_widget(
         Paragraph::new(footer).style(Style::default().fg(palette.text_muted)),
         areas[2],
@@ -99,6 +157,16 @@ pub(super) fn stats(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, 
         inner.height.saturating_sub(1) as usize,
         &mut render.stats_scroll,
     );
+    for (line, index) in visible.clone().enumerate() {
+        let y = inner.y.saturating_add(1).saturating_add(line as u16);
+        if y < inner.bottom() {
+            hit(
+                render,
+                Rect::new(inner.x, y, inner.width, 1),
+                MouseTarget::StatsRow(index),
+            );
+        }
+    }
 
     let collapse_artist = inner.width < 70;
     let (widths, header) = if collapse_artist {
@@ -225,4 +293,39 @@ pub(super) fn stats(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, 
         .header(header)
         .column_spacing(1);
     frame.render_widget(table, inner);
+}
+
+fn fit_query(query: &str, width: usize) -> String {
+    let span = Span::raw(query);
+    if span.width() <= width {
+        return query.to_owned();
+    }
+    if width == 0 {
+        return String::new();
+    }
+    let mut result = String::new();
+    let mut used = 0;
+    for grapheme in span.styled_graphemes(Style::default()) {
+        let next = Span::raw(grapheme.symbol).width();
+        if used + next > width - 1 {
+            break;
+        }
+        result.push_str(grapheme.symbol);
+        used += next;
+    }
+    result.push('…');
+    result
+}
+
+fn hit_text(render: &mut RenderState, area: Rect, footer: &str, text: &str, target: MouseTarget) {
+    let Some(start) = footer.rfind(text) else {
+        return;
+    };
+    let x = area
+        .x
+        .saturating_add(ratatui::text::Span::raw(&footer[..start]).width() as u16);
+    let width = ratatui::text::Span::raw(text)
+        .width()
+        .min(area.right().saturating_sub(x) as usize) as u16;
+    hit(render, Rect::new(x, area.y, width, area.height), target);
 }

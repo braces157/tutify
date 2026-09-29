@@ -3,6 +3,43 @@ use super::*;
 const GLASS_ORIENTATION_DEBOUNCE: Duration = Duration::from_millis(300);
 const GLASS_ORIENTATION_RETRY: Duration = Duration::from_secs(2);
 
+/// Frame periods are relative to the last frame; remaining debounce/fade delays
+/// are relative to now. Mixing those origins makes an expired timer spin.
+fn refresh_deadline(
+    now: Instant,
+    last_draw: Instant,
+    dirty: bool,
+    animation: Option<Duration>,
+    idle_refresh: Option<Duration>,
+    orientation_delay: Option<Duration>,
+) -> Option<Instant> {
+    let frame = if dirty {
+        Some(Duration::from_millis(33))
+    } else {
+        animation
+    };
+    frame
+        .map(|delay| last_draw + delay)
+        .into_iter()
+        .chain(idle_refresh.map(|delay| now + delay))
+        .chain(orientation_delay.map(|delay| now + delay))
+        .min()
+}
+
+fn load_history(app: &mut App, store: &Storage) -> Result<()> {
+    // Unlike disposable metadata, history must never be silently replaced by
+    // an empty snapshot after a parse, version, or filesystem error.
+    app.stats = store.stats().map_err(|error| {
+        anyhow::anyhow!("Could not load statistics; stats.json has been preserved: {error:#}")
+    })?;
+    app.mix_recipes = store.mix_recipes().map_err(|error| {
+        anyhow::anyhow!(
+            "Could not load mix recipes; mix-recipes.json has been preserved: {error:#}"
+        )
+    })?;
+    Ok(())
+}
+
 #[derive(Default)]
 struct GlassOrientationSync {
     desired: Option<crate::ui::background::Orientation>,
@@ -70,8 +107,9 @@ pub async fn run(store: Storage, native_glass: bool, glass: bool) -> Result<()> 
         config.theme = "glass".into();
     }
     let queue = store.queue()?;
-    let catalog = Catalog::new(TokenManager::load(&config)?)?;
     let mut app = App::new(config, queue);
+    load_history(&mut app, &store)?;
+    let catalog = Catalog::new(TokenManager::load(&app.config)?)?;
     let mut playback = playback::Playback::spawn_with_visualizer(
         TokenManager::load_streaming()?,
         app.config.client_id.clone(),
@@ -82,22 +120,14 @@ pub async fn run(store: Storage, native_glass: bool, glass: bool) -> Result<()> 
         Ok(cache) => app.cache = cache,
         Err(_) => app.status = "Old or invalid metadata cache ignored; names will reload. Use clear-cache to remove it.".into(),
     }
-    match store.stats() {
-        Ok(stats) => app.stats = stats,
-        Err(_) => app.status = "Old or invalid song statistics ignored; starting fresh.".into(),
-    }
-    match store.mix_recipes() {
-        Ok(recipes) => app.mix_recipes = recipes,
-        Err(_) => app.status = "Old or invalid mix recipes ignored; starting with none.".into(),
-    }
     app.stats.refresh_metadata(&app.cache);
     let (bg_tx, mut bg_rx) = mpsc::unbounded_channel();
     let mut tasks = Tasks::new(catalog, bg_tx.clone())?;
     let (config_tx, config_rx) = watch::channel(None);
-    let (queue_tx, queue_rx) = watch::channel(None);
-    let (cache_tx, cache_rx) = watch::channel(None);
-    let (stats_tx, stats_rx) = watch::channel(None);
-    let (recipes_tx, recipes_rx) = watch::channel(None);
+    let (queue_tx, queue_rx) = watch::channel::<Option<Arc<Queue>>>(None);
+    let (cache_tx, cache_rx) = watch::channel::<Option<Arc<crate::cache::MetadataCache>>>(None);
+    let (stats_tx, stats_rx) = watch::channel::<Option<Arc<SongStats>>>(None);
+    let (recipes_tx, recipes_rx) = watch::channel::<Option<Arc<MixRecipes>>>(None);
     let config_store = store.clone();
     let queue_store = store.clone();
     let cache_store = store.clone();
@@ -211,16 +241,9 @@ pub async fn run(store: Storage, native_glass: bool, glass: bool) -> Result<()> 
             let animation = app.animation_interval();
             let idle_refresh = app.idle_refresh_interval();
             let orientation_delay = orientation_sync.delay(Instant::now());
-            let delay = if dirty {
-                Duration::from_millis(33)
-            } else {
-                animation
-                    .into_iter()
-                    .chain(idle_refresh)
-                    .chain(orientation_delay)
-                    .min()
-                    .unwrap_or(Duration::from_secs(1))
-            };
+            let deadline = refresh_deadline(Instant::now(), last_draw, dirty, animation, idle_refresh, orientation_delay);
+            // The branch is disabled when no refresh is scheduled.
+            let wake_at = tokio::time::Instant::from_std(deadline.unwrap_or(last_draw));
             tokio::select! {
                 Some(event) = media_rx.recv() => {
                     app.note_user_interaction();
@@ -283,7 +306,7 @@ pub async fn run(store: Storage, native_glass: bool, glass: bool) -> Result<()> 
                     }
                     dirty = true;
                 }
-                _ = tokio::time::sleep_until(tokio::time::Instant::from_std(last_draw + delay)), if dirty || animation.is_some() || idle_refresh.is_some() || orientation_delay.is_some() => {
+                _ = tokio::time::sleep_until(wake_at), if deadline.is_some() => {
                     if animation.is_some() { app.animation_frame = app.animation_frame.wrapping_add(1); }
                     dirty = true;
                 }
@@ -327,6 +350,64 @@ pub async fn run(store: Storage, native_glass: bool, glass: bool) -> Result<()> 
 mod tests {
     use super::*;
     use crate::ui::background::Orientation::{Horizontal, Vertical};
+
+    #[test]
+    fn refresh_timers_use_their_own_time_origin() {
+        let now = Instant::now();
+        let old_frame = now - Duration::from_secs(10);
+        let delay = Duration::from_millis(300);
+        assert_eq!(
+            refresh_deadline(now, old_frame, false, None, None, Some(delay)),
+            Some(now + delay)
+        );
+        assert_eq!(
+            refresh_deadline(now, old_frame, false, None, Some(delay), None),
+            Some(now + delay)
+        );
+        assert_eq!(
+            refresh_deadline(now, old_frame, false, None, None, None),
+            None
+        );
+        let last_frame = now - Duration::from_millis(10);
+        assert_eq!(
+            refresh_deadline(now, last_frame, true, None, None, Some(delay)),
+            Some(last_frame + Duration::from_millis(33))
+        );
+        assert_eq!(
+            refresh_deadline(
+                now,
+                last_frame,
+                false,
+                Some(Duration::from_millis(33)),
+                Some(delay),
+                None
+            ),
+            Some(last_frame + Duration::from_millis(33))
+        );
+    }
+
+    #[test]
+    fn startup_preserves_invalid_history_and_accepts_missing_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Storage {
+            root: dir.path().to_owned(),
+        };
+        let mut app = App::new(Config::default(), Queue::default());
+        load_history(&mut app, &store).unwrap();
+        for (name, contents) in [
+            ("stats.json", "broken"),
+            ("stats.json", r#"{"version":2,"tracks":{}}"#),
+            ("mix-recipes.json", "broken"),
+            ("mix-recipes.json", r#"{"version":2,"recipes":[]}"#),
+        ] {
+            let path = store.root.join(name);
+            std::fs::write(&path, contents).unwrap();
+            let error = load_history(&mut app, &store).unwrap_err().to_string();
+            assert!(error.contains(name), "{error}");
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), contents);
+            std::fs::remove_file(path).unwrap();
+        }
+    }
 
     #[test]
     fn native_orientation_waits_for_resize_to_settle_and_coalesces() {

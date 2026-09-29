@@ -40,6 +40,32 @@ commit, terminal dimensions, and whether the machine was under other load.
 Keep raw output with that report. CI runs correctness tests, not timing gates
 whose results depend on shared runner load.
 
+## Buffered persistence and statistics refresh — 2026-09-30
+
+The v0.3.1 review used the same synthetic data, repetitions, optimized build,
+and Windows machine for before/after microbenchmarks (Rust 1.95.0). These are
+local samples, not whole-process latency, account playback, or a hardware-independent SLA.
+
+| Operation | Rows | Before | After |
+| --- | ---: | ---: | ---: |
+| Queue snapshot save | 5,000 | 96.311 ms | 3.437 ms |
+| Queue snapshot save | 50,000 | 941.550 ms | 7.443 ms |
+| Statistics refresh, Plays | 5,000 | 11.028 ms | 1.508 ms |
+| Statistics refresh, Plays | 50,000 | 137.099 ms | 24.270 ms |
+| Statistics refresh, Time | 50,000 | 141.321 ms | 21.089 ms |
+| Statistics refresh, Title | 50,000 | 143.608 ms | 21.103 ms |
+
+Queue saves now buffer serialization before flushing, syncing, and atomic
+replacement. Statistics refresh normalizes titles once, filters before cloning,
+and sorts once. Playback and queue semantics are covered by correctness tests.
+
+```powershell
+cargo test --release --locked benchmark_ -- --ignored --nocapture --test-threads=1
+```
+
+This also runs the existing render and Mix Builder probes. Compare repeated runs
+under equivalent load; timings are not CI pass/fail thresholds.
+
 ## Actual TUI process measurements
 
 Use a release build and a real Windows Terminal session. Prepare queues of

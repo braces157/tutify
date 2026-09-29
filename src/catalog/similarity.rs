@@ -1,6 +1,7 @@
 use super::*;
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
+use unicode_normalization::{UnicodeNormalization, char::is_combining_mark};
 
 #[cfg(test)]
 mod tests {
@@ -256,6 +257,174 @@ mod tests {
         assert!(catalog.radio_recommendations(&seed, &[], 0).await.is_err());
         assert_eq!(spotify.received_requests().await.unwrap().len(), 5);
     }
+
+    #[test]
+    fn latin_aliases_preserve_distinctions_in_other_scripts() {
+        assert_eq!(
+            folded_name_key("Minh Vương M4U"),
+            folded_name_key("Minh Vuong M4u")
+        );
+        assert_eq!(folded_name_key("Đức Phúc"), folded_name_key("Duc Phuc"));
+        assert_eq!(
+            folded_name_key("Thùy Chi"),
+            folded_name_key("Thu\u{300}y Chi")
+        );
+        assert_ne!(folded_name_key("が"), folded_name_key("か"));
+        assert_ne!(folded_name_key("が"), folded_name_key("ガ"));
+    }
+
+    #[tokio::test]
+    async fn accent_alias_requires_seed_recording_and_resolves_candidate_identity() {
+        let (server, similarity) = provider().await;
+        Mock::given(path("/search/artist"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({"data":[
+                    {"id":1,"name":"Minh Vuong M4u"},
+                    {"id":2,"name":"Minh Vuong M4u"},
+                    {"id":3,"name":"Minh Vuong M4U & Thuy Chi"}
+                ]})),
+            )
+            .mount(&server)
+            .await;
+        Mock::given(path("/search"))
+            .and(query_param("q", "Minh Vương M4U mưa"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({"data":[
+                    {"title":"Mưa Rơi Lặng Thầm","artist":{"id":1,"name":"Minh Vương M4U"}},
+                    {"title":"Mưa","artist":{"id":2,"name":"Minh Vương M4U"}},
+                    {"title":"Mưa","artist":{"id":3,"name":"Another artist"}}
+                ]})),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(path("/artist/2/related"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({"data":[
+                    {"name":"Related One"},{"name":"Related Two"}
+                ]})),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+        let seed = parse_track(&item(1, "Mưa", 1, "Minh Vương M4U")).unwrap();
+        assert_eq!(
+            similarity.artists(&seed).await.unwrap(),
+            vec!["Related One", "Related Two"]
+        );
+    }
+
+    #[tokio::test]
+    async fn unverified_accent_alias_never_requests_related_artists() {
+        for recording in [
+            serde_json::json!({"title":"Other song","artist":{"id":1,"name":"Minh Vuong M4u"}}),
+            serde_json::json!({"title":"Mưa","artist":{"id":999,"name":"Minh Vuong M4u"}}),
+        ] {
+            let (server, similarity) = provider().await;
+            Mock::given(path("/search/artist"))
+                .respond_with(
+                    ResponseTemplate::new(200).set_body_json(serde_json::json!({"data":[
+                        {"id":1,"name":"Minh Vuong M4u"}
+                    ]})),
+                )
+                .mount(&server)
+                .await;
+            Mock::given(path("/search"))
+                .respond_with(
+                    ResponseTemplate::new(200)
+                        .set_body_json(serde_json::json!({"data":[recording]})),
+                )
+                .mount(&server)
+                .await;
+            let seed = parse_track(&item(1, "Mưa", 1, "Minh Vương M4U")).unwrap();
+            assert!(similarity.artists(&seed).await.is_err());
+            assert_eq!(server.received_requests().await.unwrap().len(), 2);
+        }
+    }
+
+    #[tokio::test]
+    async fn spotify_accent_alias_requires_unique_artist_id() {
+        let server = MockServer::start().await;
+        let catalog = Catalog::mock(&server.uri());
+        Mock::given(path("/search"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(
+                serde_json::json!({"tracks":{"items":[
+                    item(1,"Song",1,"Đức Phúc"), item(2,"Noise",999,"Unrelated")
+                ]}}),
+            ))
+            .mount(&server)
+            .await;
+        let tracks = catalog
+            .similar_artist_page("Duc Phuc", &[], 0)
+            .await
+            .unwrap();
+        assert_eq!(tracks.len(), 1);
+        assert_eq!(tracks[0].artists, "Đức Phúc");
+        server.reset().await;
+        Mock::given(path("/search"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(
+                serde_json::json!({"tracks":{"items":[
+                    item(1,"Song",1,"Đức Phúc"), item(2,"Other song",2,"Đức Phúc")
+                ]}}),
+            ))
+            .mount(&server)
+            .await;
+        assert!(
+            catalog
+                .similar_artist_page("Duc Phuc", &[], 1)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "Live catalog only; no audio or queue writes"]
+    async fn live_mua_and_castle_radio_catalog_acceptance() -> Result<()> {
+        let store = crate::storage::Storage::local()?;
+        let catalog = Catalog::new(TokenManager::load(&store.config()?)?)?;
+        for (query, title, artist) in [
+            ("mua m4u", "Mưa", "Minh Vương M4U"),
+            (
+                "track:Castle on the Hill artist:Ed Sheeran",
+                "Castle on the Hill",
+                "Ed Sheeran",
+            ),
+        ] {
+            let page = catalog.page(&Browse::Search(query.into()), 0).await?;
+            let Rows::Tracks(tracks) = page.rows else {
+                bail!("Expected tracks");
+            };
+            let seed = tracks
+                .into_iter()
+                .find(|track| track.name == title && track.artists.contains(artist))
+                .with_context(|| format!("Missing seed {title} / {artist}"))?;
+            let radio = catalog.radio_recommendations(&seed, &[], 0).await?;
+            assert_eq!(radio.source, RecommendationSource::SimilarArtists);
+            assert!(radio.tracks.len() >= 6, "Sparse radio for {title}");
+            let mut counts = HashMap::new();
+            for track in &radio.tracks {
+                *counts
+                    .entry(
+                        track
+                            .artist_ids
+                            .first()
+                            .cloned()
+                            .unwrap_or_else(|| track.artists.clone()),
+                    )
+                    .or_insert(0) += 1;
+                println!("  {} / {}", track.name, track.artists);
+            }
+            assert!(counts.len() >= 3 && counts.values().all(|count| *count <= 3));
+            println!(
+                "LIVE {title} / {}: seed + {} suggestions across {} artists",
+                seed.artists,
+                radio.tracks.len(),
+                counts.len()
+            );
+        }
+        Ok(())
+    }
 }
 
 /// Public artist similarity metadata only. Spotify credentials are never sent here.
@@ -280,11 +449,40 @@ fn name_key(name: &str) -> String {
         .collect()
 }
 
+// Catalogs sometimes omit Latin accents. Keep marks in other scripts, where
+// stripping them can change the artist's identity (for example Japanese kana).
+fn latin_fold(value: &str) -> String {
+    let mut latin = false;
+    let folded: String = value
+        .nfd()
+        .filter_map(|c| {
+            if is_combining_mark(c) {
+                return (!latin).then_some(c);
+            }
+            latin = c.is_ascii_alphabetic() || matches!(c, 'đ' | 'Đ');
+            Some(match c {
+                'đ' => 'd',
+                'Đ' => 'D',
+                _ => c,
+            })
+        })
+        .collect();
+    folded.nfc().collect()
+}
+
+fn folded_name_key(name: &str) -> String {
+    name_key(&latin_fold(name))
+}
+
 impl Similarity {
     pub(super) fn new() -> Result<Self> {
         Ok(Self {
             client: reqwest::Client::builder()
-                .user_agent("Tuitify/0.2.8 (https://github.com/braces157/tutify)")
+                .user_agent(concat!(
+                    "Tuitify/",
+                    env!("CARGO_PKG_VERSION"),
+                    " (https://github.com/braces157/tutify)"
+                ))
                 .connect_timeout(Duration::from_secs(4))
                 .timeout(Duration::from_secs(10))
                 .build()?,
@@ -412,13 +610,37 @@ impl Similarity {
         if !exact_ids.is_empty() {
             ids = exact_ids;
         }
-        if ids.len() > 1 {
+        let accent_alias = ids.is_empty();
+        if accent_alias {
+            ids = value["data"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|artist| {
+                    artist["name"]
+                        .as_str()
+                        .is_some_and(|found| folded_name_key(found) == folded_name_key(name))
+                })
+                .filter_map(|artist| artist["id"].as_u64())
+                .collect();
+        }
+        if ids.len() > 1 || (accent_alias && !ids.is_empty()) {
             // Resolve same-name artists using a matching recording, not popularity.
-            let q = format!(
-                "artist:\"{}\" track:\"{}\"",
-                name.replace('"', " "),
-                normalize_title(title)
-            );
+            // Advanced artist filters can reject the accent alias itself; use
+            // ordinary search for aliases and validate title AND candidate ID.
+            let q = if accent_alias {
+                format!(
+                    "{} {}",
+                    name.replace(['"', '\\'], " "),
+                    normalize_title(title)
+                )
+            } else {
+                format!(
+                    "artist:\"{}\" track:\"{}\"",
+                    name.replace('"', " "),
+                    normalize_title(title)
+                )
+            };
             let value = self
                 .get(state, "/search", &[("q", q), ("limit", "10".into())])
                 .await?;
@@ -427,14 +649,23 @@ impl Similarity {
                 .into_iter()
                 .flatten()
                 .filter(|track| {
-                    track["title"]
-                        .as_str()
-                        .is_some_and(|found| normalize_title(found) == normalize_title(title))
+                    track["title"].as_str().is_some_and(|found| {
+                        if accent_alias {
+                            normalize_title(&latin_fold(found))
+                                == normalize_title(&latin_fold(title))
+                        } else {
+                            normalize_title(found) == normalize_title(title)
+                        }
+                    })
                 })
                 .filter(|track| {
-                    track["artist"]["name"]
-                        .as_str()
-                        .is_some_and(|found| name_key(found) == name_key(name))
+                    track["artist"]["name"].as_str().is_some_and(|found| {
+                        if accent_alias {
+                            folded_name_key(found) == folded_name_key(name)
+                        } else {
+                            name_key(found) == name_key(name)
+                        }
+                    })
                 })
                 .filter_map(|track| track["artist"]["id"].as_u64())
                 .collect();
@@ -521,6 +752,20 @@ impl Catalog {
                 .filter(|id| valid_id(id))
                 .map(str::to_owned)
                 .collect();
+            if artist_ids.is_empty() {
+                artist_ids = items
+                    .iter()
+                    .flat_map(|track| track["artists"].as_array().into_iter().flatten())
+                    .filter(|artist| {
+                        artist["name"]
+                            .as_str()
+                            .is_some_and(|found| folded_name_key(found) == folded_name_key(name))
+                    })
+                    .filter_map(|artist| artist["id"].as_str())
+                    .filter(|id| valid_id(id))
+                    .map(str::to_owned)
+                    .collect();
+            }
             // Multiple same-name Spotify artists cannot safely share one pool.
             if artist_ids.len() != 1 {
                 return Ok(vec![]);

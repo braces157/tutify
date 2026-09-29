@@ -41,9 +41,10 @@ impl Default for SongStats {
 
 pub fn is_placeholder(name: &str, id: &str) -> bool {
     name.is_empty()
-        || name == format!("Track {id}")
         || name == "Track unavailable (F5 rechecks)"
-        || (name.starts_with("Track ") && name.len() == 6 + 22 && valid_id(&name[6..]))
+        || name
+            .strip_prefix("Track ")
+            .is_some_and(|suffix| suffix == id || valid_id(suffix))
 }
 
 pub fn format_duration(ms: u64) -> String {
@@ -67,7 +68,7 @@ impl SongStats {
         self.tracks.is_empty()
     }
 
-    pub fn validate(&mut self) -> Result<()> {
+    pub fn validate(&self) -> Result<()> {
         if self.version != 1 {
             bail!(
                 "Unsupported song statistics version {}; preserve stats.json and update Tuitify",
@@ -218,16 +219,7 @@ impl SongStats {
         let mut changed = false;
         for (id, stat) in &mut self.tracks {
             if let Some(track) = cache.get(id) {
-                if !is_placeholder(&track.name, id) {
-                    if stat.name != track.name {
-                        stat.name = track.name.clone();
-                        changed = true;
-                    }
-                    if !track.artists.is_empty() && stat.artists != track.artists {
-                        stat.artists = track.artists.clone();
-                        changed = true;
-                    }
-                }
+                changed |= update_metadata(stat, track);
             }
         }
         if changed {
@@ -235,17 +227,54 @@ impl SongStats {
         }
     }
 
-    pub fn sorted_tracks(&self) -> Vec<TrackStat> {
-        let mut list: Vec<TrackStat> = self.tracks.values().cloned().collect();
-        list.sort_by(|a, b| {
-            b.play_count
-                .cmp(&a.play_count)
-                .then_with(|| b.listened_ms.cmp(&a.listened_ms))
-                .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
-                .then_with(|| a.id.cmp(&b.id))
-        });
-        list
+    /// A queue metadata response changes one entry, not the entire history.
+    pub fn refresh_track_metadata(&mut self, track: &crate::model::Track) {
+        let Some(stat) = self.tracks.get_mut(&track.id) else {
+            return;
+        };
+        if update_metadata(stat, track) {
+            self.revision = self.revision.wrapping_add(1);
+        }
     }
+
+    pub fn sorted_tracks(&self) -> Vec<TrackStat> {
+        let mut list: Vec<_> = self
+            .tracks
+            .values()
+            .map(|s| (s.name.to_lowercase(), s))
+            .collect();
+        list.sort_unstable_by(|(a_title, a), (b_title, b)| compare_plays(a, a_title, b, b_title));
+        list.into_iter().map(|(_, s)| s.clone()).collect()
+    }
+}
+
+fn update_metadata(stat: &mut TrackStat, track: &crate::model::Track) -> bool {
+    if is_placeholder(&track.name, &stat.id) {
+        return false;
+    }
+    let mut changed = false;
+    if stat.name != track.name {
+        stat.name.clone_from(&track.name);
+        changed = true;
+    }
+    if !track.artists.is_empty() && stat.artists != track.artists {
+        stat.artists.clone_from(&track.artists);
+        changed = true;
+    }
+    changed
+}
+
+pub(crate) fn compare_plays(
+    a: &TrackStat,
+    a_title: &str,
+    b: &TrackStat,
+    b_title: &str,
+) -> std::cmp::Ordering {
+    b.play_count
+        .cmp(&a.play_count)
+        .then_with(|| b.listened_ms.cmp(&a.listened_ms))
+        .then_with(|| a_title.cmp(b_title))
+        .then_with(|| a.id.cmp(&b.id))
 }
 
 #[derive(Clone, Debug, Default)]
@@ -352,6 +381,40 @@ mod tests {
     use crate::model::Track;
 
     #[test]
+    fn individual_metadata_refresh_preserves_counts_and_ignores_placeholders() {
+        let mut stats = SongStats::default();
+        let id = "0".repeat(22);
+        stats.add_play(&id, "Old name", "Old artist");
+        stats.add_listened_ms(&id, 12_345, "Old name", "Old artist");
+        let mut track = Track::unknown(&id);
+        let revision = stats.revision;
+        stats.refresh_track_metadata(&track);
+        assert_eq!(stats.revision, revision);
+        track.name = "New name".into();
+        track.artists.clear();
+        stats.refresh_track_metadata(&track);
+        let stat = &stats.tracks[&id];
+        assert_eq!(
+            (
+                &*stat.name,
+                &*stat.artists,
+                stat.play_count,
+                stat.listened_ms
+            ),
+            ("New name", "Old artist", 1, 12_345)
+        );
+        assert_eq!(stats.revision, revision + 1);
+        stats.refresh_track_metadata(&track);
+        assert_eq!(stats.revision, revision + 1);
+        track.artists = "New artist".into();
+        stats.refresh_track_metadata(&track);
+        assert_eq!(stats.tracks[&id].artists, "New artist");
+        track.id = "1".repeat(22);
+        stats.refresh_track_metadata(&track);
+        assert_eq!(stats.len(), 1);
+    }
+
+    #[test]
     fn storage_roundtrip_and_defaults() {
         let mut stats = SongStats::default();
         let id1 = "1".repeat(22);
@@ -368,7 +431,7 @@ mod tests {
         assert_eq!(s1.artists, "Artist A");
 
         let json = serde_json::to_string(&stats).unwrap();
-        let mut loaded: SongStats = serde_json::from_str(&json).unwrap();
+        let loaded: SongStats = serde_json::from_str(&json).unwrap();
         loaded.validate().unwrap();
         assert_eq!(loaded.len(), 2);
         assert_eq!(loaded.tracks.get(&id1), stats.tracks.get(&id1));
@@ -376,7 +439,7 @@ mod tests {
 
     #[test]
     fn validation_rejects_invalid_id_version_or_bounds() {
-        let mut invalid_version = SongStats {
+        let invalid_version = SongStats {
             version: 2,
             ..Default::default()
         };

@@ -1,5 +1,552 @@
 use super::*;
 
+fn assert_mix_hit_text(
+    buffer: &ratatui::buffer::Buffer,
+    area: ratatui::layout::Rect,
+    code: KeyCode,
+) {
+    let labels: &[&str] = match code {
+        KeyCode::Char('p') => &["p pin"],
+        KeyCode::Char('g') => &["g regenerate", "g regen"],
+        KeyCode::Char('a') => &["a artist gap", "a gap"],
+        KeyCode::Char('w') => &["w save"],
+        KeyCode::Char('o') => &["o reopen"],
+        KeyCode::Char('?') => &["? close details", "? back", "? details"],
+        KeyCode::Esc => &["Esc keep name", "Esc close details", "Esc cancel"],
+        KeyCode::Enter => &["Enter save"],
+        KeyCode::Char('3') => &["3"],
+        KeyCode::Char('4') => &["4"],
+        KeyCode::Char('6') => &["6"],
+        KeyCode::Char('[') => &["["],
+        KeyCode::Char(']') => &["]"],
+        _ => panic!("Unexpected mouse control {code:?}"),
+    };
+    let text: String = (area.x..area.right())
+        .map(|x| buffer[(x, area.y)].symbol())
+        .collect();
+    assert!(
+        !text.trim().is_empty() && labels.iter().any(|label| label.contains(&text)),
+        "{code:?} at {area:?}: {text:?}"
+    );
+}
+
+#[test]
+fn mix_control_hit_positions_match_visible_glyphs_after_wrapping() {
+    let mut app = crate::demo::app();
+    app.open_queue_mix();
+    for (width, height) in [(80, 24), (60, 18), (48, 18), (34, 15), (32, 10)] {
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, height)).unwrap();
+        terminal
+            .draw(|frame| ui::draw(frame, &app, &mut app.ui.render.borrow_mut()))
+            .unwrap();
+        let render = app.ui.render.borrow();
+        let mut count = 0;
+        for (area, target) in &render.mouse_hits {
+            if let MouseTarget::MixKey(code) = target {
+                assert_mix_hit_text(terminal.backend().buffer(), *area, *code);
+                count += 1;
+            }
+        }
+        assert!(count >= 3, "expected visible controls at {width}x{height}");
+    }
+    app.mix.detail = true;
+    for (width, height) in [(80, 24), (32, 10)] {
+        let mut detail_hits = 0;
+        for scroll in 0..40 {
+            app.mix.detail_scroll = scroll;
+            let mut terminal =
+                ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, height)).unwrap();
+            terminal
+                .draw(|frame| ui::draw(frame, &app, &mut app.ui.render.borrow_mut()))
+                .unwrap();
+            for (area, target) in &app.ui.render.borrow().mouse_hits {
+                if let MouseTarget::MixKey(code) = target {
+                    assert_mix_hit_text(terminal.backend().buffer(), *area, *code);
+                    detail_hits += 1;
+                }
+            }
+        }
+        assert!(detail_hits > 0, "no detail controls at {width}x{height}");
+    }
+}
+
+#[tokio::test]
+async fn mix_mouse_normal_layout_changes_preview_without_applying_queue() {
+    let mut app = crate::demo::app();
+    app.open_queue_mix();
+    assert!(app.mix.preview.entries.len() > 2);
+    let queue = app.queue.ids.clone();
+    let (mut tasks, _) = tasks();
+    let (tx, mut rx) = mpsc::unbounded_channel();
+
+    draw_mouse(&app, 80, 24);
+    for target in [
+        MouseTarget::MixRow(1),
+        MouseTarget::MixKey(KeyCode::Char('p')),
+        MouseTarget::MixKey(KeyCode::Char('3')),
+        MouseTarget::MixKey(KeyCode::Char('[')),
+        MouseTarget::MixKey(KeyCode::Char('a')),
+        MouseTarget::MixKey(KeyCode::Char('g')),
+        MouseTarget::MixKey(KeyCode::Char('w')),
+        MouseTarget::MixKey(KeyCode::Char('o')),
+        MouseTarget::MixKey(KeyCode::Char('?')),
+        MouseTarget::MixKey(KeyCode::Esc),
+    ] {
+        assert!(
+            app.ui
+                .render
+                .borrow()
+                .mouse_hits
+                .iter()
+                .any(|(_, hit)| *hit == target),
+            "missing {target:?}"
+        );
+    }
+    assert!(
+        !app.ui
+            .render
+            .borrow()
+            .mouse_hits
+            .iter()
+            .any(|(_, hit)| matches!(
+                hit,
+                MouseTarget::MixKey(KeyCode::Enter | KeyCode::Char('A'))
+            ))
+    );
+
+    click_target(
+        &mut app,
+        MouseTarget::MixRow(1),
+        MouseButton::Left,
+        &mut tasks,
+        &tx,
+    );
+    assert_eq!(app.mix.selected, 1);
+    click_target(
+        &mut app,
+        MouseTarget::MixKey(KeyCode::Char('p')),
+        MouseButton::Left,
+        &mut tasks,
+        &tx,
+    );
+    assert!(app.mix.preview.entries[1].pinned);
+    click_target(
+        &mut app,
+        MouseTarget::MixKey(KeyCode::Char('3')),
+        MouseButton::Left,
+        &mut tasks,
+        &tx,
+    );
+    assert_eq!(app.mix.settings.target_minutes, 30);
+    click_target(
+        &mut app,
+        MouseTarget::MixKey(KeyCode::Char('[')),
+        MouseButton::Left,
+        &mut tasks,
+        &tx,
+    );
+    assert_eq!(app.mix.settings.recommendation_percent, 15);
+    click_target(
+        &mut app,
+        MouseTarget::MixKey(KeyCode::Char('a')),
+        MouseButton::Left,
+        &mut tasks,
+        &tx,
+    );
+    assert_eq!(app.mix.settings.artist_gap, 3);
+    draw_mouse(&app, 80, 24);
+    click_target(
+        &mut app,
+        MouseTarget::MixKey(KeyCode::Char('g')),
+        MouseButton::Left,
+        &mut tasks,
+        &tx,
+    );
+    assert_eq!(app.queue.ids, queue);
+    assert!(rx.try_recv().is_err());
+
+    draw_mouse(&app, 80, 24);
+    click_target(
+        &mut app,
+        MouseTarget::MixKey(KeyCode::Char('?')),
+        MouseButton::Left,
+        &mut tasks,
+        &tx,
+    );
+    assert!(app.mix.detail);
+    draw_mouse(&app, 80, 24);
+    assert!(
+        !app.ui
+            .render
+            .borrow()
+            .mouse_hits
+            .iter()
+            .any(|(_, hit)| matches!(
+                hit,
+                MouseTarget::MixRow(_) | MouseTarget::MixKey(KeyCode::Enter | KeyCode::Char('A'))
+            ))
+    );
+    key(
+        &mut app,
+        KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+        &mut tasks,
+        &tx,
+    );
+    draw_mouse(&app, 80, 24);
+    click_target(
+        &mut app,
+        MouseTarget::MixKey(KeyCode::Esc),
+        MouseButton::Left,
+        &mut tasks,
+        &tx,
+    );
+    assert_eq!(app.ui.overlay, Overlay::None);
+    assert_eq!(app.queue.ids, queue);
+    assert!(rx.try_recv().is_err());
+}
+
+#[tokio::test]
+async fn mix_wrapped_details_expose_every_preview_control() {
+    let mut app = crate::demo::app();
+    app.open_queue_mix();
+    app.mix.detail = true;
+    app.mix.source_error = Some("p pin • g regenerate • ? details".into());
+    app.mix.preview.entries[0].track.name = "日本語 p pin • w save".into();
+    let queue = app.queue.ids.clone();
+    let (mut tasks, _) = tasks();
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    for code in [
+        KeyCode::Char('3'),
+        KeyCode::Char('4'),
+        KeyCode::Char('6'),
+        KeyCode::Char('['),
+        KeyCode::Char(']'),
+        KeyCode::Char('a'),
+        KeyCode::Char('p'),
+        KeyCode::Char('g'),
+        KeyCode::Char('w'),
+        KeyCode::Char('o'),
+        KeyCode::Char('?'),
+        KeyCode::Esc,
+    ] {
+        let mut found = false;
+        for scroll in 0..80 {
+            app.mix.detail_scroll = scroll;
+            let mut terminal =
+                ratatui::Terminal::new(ratatui::backend::TestBackend::new(32, 10)).unwrap();
+            terminal
+                .draw(|frame| ui::draw(frame, &app, &mut app.ui.render.borrow_mut()))
+                .unwrap();
+            for (area, target) in &app.ui.render.borrow().mouse_hits {
+                if *target == MouseTarget::MixKey(code) {
+                    assert_mix_hit_text(terminal.backend().buffer(), *area, code);
+                    found = true;
+                }
+            }
+            if found {
+                break;
+            }
+        }
+        assert!(found, "Wrapped control missing: {code:?}");
+        if code == KeyCode::Char('p') {
+            click_target(
+                &mut app,
+                MouseTarget::MixKey(code),
+                MouseButton::Left,
+                &mut tasks,
+                &tx,
+            );
+            assert!(app.mix.preview.entries[0].pinned);
+        }
+    }
+    // Action-looking metadata appears near the top, outside the control section.
+    app.mix.detail_scroll = 0;
+    draw_mouse(&app, 80, 40);
+    assert_eq!(
+        app.ui
+            .render
+            .borrow()
+            .mouse_hits
+            .iter()
+            .filter(|(_, target)| *target == MouseTarget::MixKey(KeyCode::Char('p')))
+            .count(),
+        1
+    );
+    assert_eq!(app.queue.ids, queue);
+    assert!(rx.try_recv().is_err());
+}
+
+#[tokio::test]
+async fn long_mix_recipe_names_keep_only_save_and_cancel_clickable() {
+    let (mut tasks, _) = tasks();
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    for (width, height) in [(32, 10), (34, 15), (48, 18), (80, 24)] {
+        let mut app = crate::demo::app();
+        app.open_queue_mix();
+        app.mix.naming = true;
+        let name: String = "日本語 p pin • ? details • w save "
+            .repeat(4)
+            .chars()
+            .take(80)
+            .collect();
+        app.mix.recipe_name = name.clone();
+        draw_mouse(&app, width, height);
+        let render = app.ui.render.borrow();
+        for code in [KeyCode::Enter, KeyCode::Esc] {
+            assert!(
+                render
+                    .mouse_hits
+                    .iter()
+                    .any(|(_, target)| *target == MouseTarget::MixKey(code)),
+                "{width}x{height}: missing {code:?}"
+            );
+        }
+        assert!(
+            !render
+                .mouse_hits
+                .iter()
+                .any(|(_, target)| matches!(target, MouseTarget::MixKey(KeyCode::Char(_))))
+        );
+        drop(render);
+        click_target(
+            &mut app,
+            MouseTarget::MixKey(KeyCode::Esc),
+            MouseButton::Left,
+            &mut tasks,
+            &tx,
+        );
+        assert!(!app.mix.naming);
+        assert_eq!(app.mix.recipe_name, name);
+        assert!(rx.try_recv().is_err());
+    }
+}
+
+#[tokio::test]
+async fn long_statistics_queries_keep_sort_clear_and_done_clickable() {
+    let (mut tasks, _) = tasks();
+    let (tx, _) = mpsc::unbounded_channel();
+    for (width, height) in [(32, 10), (34, 15), (48, 18), (80, 24)] {
+        let mut app = App::new(Config::default(), Queue::default());
+        app.stats.add_play(&"1".repeat(22), "Song", "Artist");
+        app.ui.overlay = Overlay::Stats;
+        let query = "日本語 👩‍💻 ".repeat(10);
+        app.ui.stats.get_mut().query = query.clone();
+        draw_mouse(&app, width, height);
+        for target in [MouseTarget::StatsSort, MouseTarget::StatsClear] {
+            assert!(
+                app.ui
+                    .render
+                    .borrow()
+                    .mouse_hits
+                    .iter()
+                    .any(|(area, hit)| *hit == target && area.width > 0),
+                "{width}x{height}: missing {target:?}"
+            );
+        }
+        click_target(
+            &mut app,
+            MouseTarget::StatsSort,
+            MouseButton::Left,
+            &mut tasks,
+            &tx,
+        );
+        assert_eq!(
+            app.ui.stats.borrow().sort,
+            crate::app::ui_state::StatsSort::Time
+        );
+        assert_eq!(app.ui.stats.borrow().query, query);
+        app.ui.stats.get_mut().editing = true;
+        draw_mouse(&app, width, height);
+        click_target(
+            &mut app,
+            MouseTarget::StatsSearchDone,
+            MouseButton::Left,
+            &mut tasks,
+            &tx,
+        );
+        assert!(!app.ui.stats.borrow().editing);
+        assert_eq!(app.ui.stats.borrow().query, query);
+        draw_mouse(&app, width, height);
+        click_target(
+            &mut app,
+            MouseTarget::StatsClear,
+            MouseButton::Left,
+            &mut tasks,
+            &tx,
+        );
+        assert!(app.ui.stats.borrow().query.is_empty());
+        assert_eq!(app.ui.overlay, Overlay::Stats);
+    }
+}
+
+#[tokio::test]
+async fn mix_mouse_compact_layout_only_exposes_drawn_preview_controls() {
+    let mut app = crate::demo::app();
+    app.open_queue_mix();
+    let queue = app.queue.ids.clone();
+    let (mut tasks, _) = tasks();
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    draw_mouse(&app, 32, 10);
+    let render = app.ui.render.borrow();
+    let hits = &render.mouse_hits;
+    for code in [KeyCode::Char('p'), KeyCode::Char('?'), KeyCode::Esc] {
+        assert!(
+            hits.iter()
+                .any(|(_, hit)| *hit == MouseTarget::MixKey(code))
+        );
+    }
+    assert!(!hits.iter().any(|(_, hit)| matches!(
+        hit,
+        MouseTarget::MixRow(_)
+            | MouseTarget::MixKey(KeyCode::Enter | KeyCode::Char('A' | 'g' | '3'))
+    )));
+    let pin_area = hits
+        .iter()
+        .find(|(_, hit)| *hit == MouseTarget::MixKey(KeyCode::Char('p')))
+        .unwrap()
+        .0;
+    assert!(pin_area.right() <= 32 && pin_area.bottom() <= 10);
+    drop(render);
+
+    click_target(
+        &mut app,
+        MouseTarget::MixKey(KeyCode::Char('p')),
+        MouseButton::Right,
+        &mut tasks,
+        &tx,
+    );
+    assert!(!app.mix.preview.entries[0].pinned);
+    click_target(
+        &mut app,
+        MouseTarget::MixKey(KeyCode::Char('p')),
+        MouseButton::Left,
+        &mut tasks,
+        &tx,
+    );
+    assert!(app.mix.preview.entries[0].pinned);
+    click_target(
+        &mut app,
+        MouseTarget::MixKey(KeyCode::Char('?')),
+        MouseButton::Left,
+        &mut tasks,
+        &tx,
+    );
+    assert!(app.mix.detail);
+    draw_mouse(&app, 32, 10);
+    click_target(
+        &mut app,
+        MouseTarget::MixKey(KeyCode::Char('?')),
+        MouseButton::Left,
+        &mut tasks,
+        &tx,
+    );
+    assert!(!app.mix.detail);
+    draw_mouse(&app, 32, 10);
+    click_target(
+        &mut app,
+        MouseTarget::MixKey(KeyCode::Esc),
+        MouseButton::Left,
+        &mut tasks,
+        &tx,
+    );
+    assert_eq!(app.ui.overlay, Overlay::None);
+    assert_eq!(app.queue.ids, queue);
+    assert!(rx.try_recv().is_err());
+}
+
+#[tokio::test]
+async fn mix_mouse_naming_and_scrolled_details_use_visible_actions() {
+    let mut app = crate::demo::app();
+    app.open_queue_mix();
+    let queue = app.queue.ids.clone();
+    let (mut tasks, _) = tasks();
+    let (tx, mut rx) = mpsc::unbounded_channel();
+
+    draw_mouse(&app, 80, 24);
+    click_target(
+        &mut app,
+        MouseTarget::MixKey(KeyCode::Char('w')),
+        MouseButton::Left,
+        &mut tasks,
+        &tx,
+    );
+    assert!(app.mix.naming);
+    draw_mouse(&app, 80, 24);
+    assert!(
+        app.ui
+            .render
+            .borrow()
+            .mouse_hits
+            .iter()
+            .any(|(_, hit)| *hit == MouseTarget::MixKey(KeyCode::Enter))
+    );
+    assert!(
+        !app.ui
+            .render
+            .borrow()
+            .mouse_hits
+            .iter()
+            .any(|(_, hit)| matches!(hit, MouseTarget::MixRow(_)))
+    );
+    click_target(
+        &mut app,
+        MouseTarget::MixKey(KeyCode::Enter),
+        MouseButton::Left,
+        &mut tasks,
+        &tx,
+    );
+    assert!(!app.mix.naming);
+    assert!(!app.mix_recipes.recipes.is_empty());
+    assert_eq!(app.queue.ids, queue);
+
+    draw_mouse(&app, 80, 24);
+    click_target(
+        &mut app,
+        MouseTarget::MixKey(KeyCode::Char('?')),
+        MouseButton::Left,
+        &mut tasks,
+        &tx,
+    );
+    assert!(app.mix.detail);
+    let mut found = false;
+    for scroll in 0..40 {
+        app.mix.detail_scroll = scroll;
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(80, 24)).unwrap();
+        terminal
+            .draw(|frame| ui::draw(frame, &app, &mut app.ui.render.borrow_mut()))
+            .unwrap();
+        let render = app.ui.render.borrow();
+        if let Some((area, _)) = render
+            .mouse_hits
+            .iter()
+            .find(|(_, hit)| *hit == MouseTarget::MixKey(KeyCode::Char('?')))
+        {
+            assert_eq!(terminal.backend().buffer()[(area.x, area.y)].symbol(), "?");
+            found = true;
+        }
+        drop(render);
+        if found {
+            break;
+        }
+    }
+    assert!(
+        found,
+        "scrolled details should expose a visible close control"
+    );
+    click_target(
+        &mut app,
+        MouseTarget::MixKey(KeyCode::Char('?')),
+        MouseButton::Left,
+        &mut tasks,
+        &tx,
+    );
+    assert!(!app.mix.detail);
+    assert_eq!(app.queue.ids, queue);
+    assert!(rx.try_recv().is_err());
+}
+
 #[tokio::test]
 async fn right_click_filtered_row_opens_actions_without_pasting_and_enqueues_that_track() {
     let mut app = App::new(Config::default(), Queue::default());
@@ -166,6 +713,199 @@ async fn mouse_wheel_and_playback_badge_use_existing_controls() {
         &mut tasks,
         &tx
     ));
+}
+
+#[tokio::test]
+async fn stats_mouse_rows_search_sort_and_footer_use_drawn_hit_regions() {
+    let mut app = App::new(Config::default(), Queue::default());
+    let first_id = "1".repeat(22);
+    let second_id = "2".repeat(22);
+    app.stats.add_play(&first_id, "Zulu Song", "Artist One");
+    app.stats.add_play(&first_id, "Zulu Song", "Artist One");
+    app.stats.add_play(&second_id, "Alpha Song", "Artist Two");
+    app.stats.tracks.get_mut(&first_id).unwrap().listened_ms = 10_000;
+    app.stats.tracks.get_mut(&second_id).unwrap().listened_ms = 50_000;
+    app.ui.overlay = Overlay::Stats;
+
+    let (mut tasks, _) = tasks();
+    let (tx, _) = mpsc::unbounded_channel();
+    draw_mouse(&app, 100, 30);
+    assert!(
+        app.ui
+            .render
+            .borrow()
+            .mouse_hits
+            .iter()
+            .any(|(_, target)| *target == MouseTarget::StatsRow(1))
+    );
+
+    click_target(
+        &mut app,
+        MouseTarget::StatsRow(1),
+        MouseButton::Left,
+        &mut tasks,
+        &tx,
+    );
+    assert_eq!(app.ui.stats.borrow().selected, 1);
+    assert!(app.queue.ids.is_empty());
+
+    draw_mouse(&app, 100, 30);
+    click_target(
+        &mut app,
+        MouseTarget::StatsSort,
+        MouseButton::Left,
+        &mut tasks,
+        &tx,
+    );
+    assert_eq!(
+        app.ui.stats.borrow().sort,
+        crate::app::ui_state::StatsSort::Time
+    );
+    assert_eq!(app.ui.stats.borrow().selected, 0);
+    draw_mouse(&app, 100, 30);
+    assert_eq!(app.ui.stats.borrow().rows[0].name, "Alpha Song");
+
+    click_target(
+        &mut app,
+        MouseTarget::StatsSearch,
+        MouseButton::Left,
+        &mut tasks,
+        &tx,
+    );
+    assert!(app.ui.stats.borrow().editing);
+    for character in "Alpha".chars() {
+        key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE),
+            &mut tasks,
+            &tx,
+        );
+    }
+    draw_mouse(&app, 100, 30);
+    click_target(
+        &mut app,
+        MouseTarget::StatsSearchDone,
+        MouseButton::Left,
+        &mut tasks,
+        &tx,
+    );
+    assert!(!app.ui.stats.borrow().editing);
+    draw_mouse(&app, 100, 30);
+    assert_eq!(app.ui.stats.borrow().rows.len(), 1);
+    assert_eq!(app.ui.stats.borrow().rows[0].name, "Alpha Song");
+
+    click_target(
+        &mut app,
+        MouseTarget::StatsClear,
+        MouseButton::Left,
+        &mut tasks,
+        &tx,
+    );
+    assert!(app.ui.stats.borrow().query.is_empty());
+    assert_eq!(app.ui.overlay, Overlay::Stats);
+    draw_mouse(&app, 100, 30);
+    click_target(
+        &mut app,
+        MouseTarget::StatsClose,
+        MouseButton::Left,
+        &mut tasks,
+        &tx,
+    );
+    assert_eq!(app.ui.overlay, Overlay::None);
+}
+
+#[tokio::test]
+async fn stats_mouse_wheel_navigates_and_overlay_consumes_underlying_clicks() {
+    let mut app = App::new(Config::default(), Queue::default());
+    for i in 0..30 {
+        app.stats
+            .add_play(&format!("{i:022}"), &format!("Song {i}"), "Artist");
+    }
+    app.catalog.view = View::Search;
+    app.catalog.selected = 7;
+    app.ui.overlay = Overlay::Stats;
+    app.loaded = true;
+    app.state = State::Playing;
+
+    let (mut tasks, _) = tasks();
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    draw_mouse(&app, 120, 35);
+    let row = app
+        .ui
+        .render
+        .borrow()
+        .mouse_hits
+        .iter()
+        .find(|(_, target)| *target == MouseTarget::StatsRow(0))
+        .map(|(area, _)| *area)
+        .expect("stats renderer should register its visible rows");
+    assert!(mouse(
+        &mut app,
+        MouseEvent {
+            kind: MouseEventKind::ScrollDown,
+            column: row.x,
+            row: row.y,
+            modifiers: KeyModifiers::NONE
+        },
+        &mut tasks,
+        &tx
+    ));
+    assert_eq!(app.ui.stats.borrow().selected, 3);
+    assert_eq!(app.catalog.selected, 7);
+
+    for target in [MouseTarget::Navigation(View::Liked), MouseTarget::PlayPause] {
+        draw_mouse(&app, 120, 35);
+        click_target(&mut app, target, MouseButton::Left, &mut tasks, &tx);
+        assert_eq!(app.catalog.view, View::Search);
+        assert_eq!(app.state, State::Playing);
+        assert!(rx.try_recv().is_err());
+    }
+}
+
+#[tokio::test]
+async fn stats_title_exit_hit_closes_empty_narrow_and_filtered_overlays() {
+    let (mut tasks, _) = tasks();
+    let (tx, _) = mpsc::unbounded_channel();
+
+    for (width, height) in [(100, 30), (34, 15)] {
+        let mut app = App::new(Config::default(), Queue::default());
+        app.ui.overlay = Overlay::Stats;
+        draw_mouse(&app, width, height);
+        let close = app
+            .ui
+            .render
+            .borrow()
+            .mouse_hits
+            .iter()
+            .find(|(_, target)| *target == MouseTarget::StatsClose)
+            .map(|(area, _)| *area)
+            .expect("stats title should expose its visible exit text");
+        assert!(close.width > 0 && close.height > 0);
+        assert!(close.right() <= width && close.bottom() <= height);
+        click_target(
+            &mut app,
+            MouseTarget::StatsClose,
+            MouseButton::Left,
+            &mut tasks,
+            &tx,
+        );
+        assert_eq!(app.ui.overlay, Overlay::None);
+    }
+
+    let mut app = App::new(Config::default(), Queue::default());
+    app.stats.add_play(&"1".repeat(22), "Song", "Artist");
+    app.ui.overlay = Overlay::Stats;
+    app.ui.stats.get_mut().query = "Song".into();
+    draw_mouse(&app, 100, 30);
+    click_target(
+        &mut app,
+        MouseTarget::StatsClose,
+        MouseButton::Left,
+        &mut tasks,
+        &tx,
+    );
+    assert_eq!(app.ui.overlay, Overlay::None);
+    assert_eq!(app.ui.stats.borrow().query, "Song");
 }
 
 #[test]

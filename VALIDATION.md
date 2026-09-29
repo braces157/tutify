@@ -1,5 +1,49 @@
 # Validation record
 
+## v0.3.1 review, Unicode matching, and release — 2026-09-30
+
+Windows x64, Rust 1.95.0. The application review repaired persistence startup
+protection, buffered atomic saves, snapshot sharing, statistics refresh/metadata
+updates, Glass refresh deadlines, output-rate FFT mapping, and artist fallback
+identity checks. Statistics and Mix Builder mouse controls were completed for
+wrapped layouts and long Unicode names/searches. Subsequent repairs cover Latin
+accent aliases in related-artist discovery and verified primary-artist lyrics
+fallback after a missing duet credit, with bounded server retries.
+
+Completed verification:
+
+- `cargo test --release --locked`: **363 passed, 0 failed, 16 ignored** on the
+  final application fixes; release packaging also runs `cargo test --locked`.
+- `cargo fmt --check` and strict `cargo clippy --all-targets --locked -- -D warnings`: passed.
+- `npm ci`, compiled CSS, and `npm test`: **12 Microsoft Edge tests passed**.
+  Browser checks cover demo interactions, accessibility, reduced motion, mobile
+  overflow, clipboard recovery, and agreement between Rust/package versions,
+  executable/ZIP URLs, and Cargo install tags.
+- Live read-only Radio/catalog acceptance: Mưa — Minh Vương M4U, Thùy Chi
+  returned **14 suggestions across 8 primary artists**; Castle on the Hill —
+  Ed Sheeran returned **15 suggestions across 10 primary artists**.
+- Live read-only LRCLIB acceptance: **59 synced lines for Mưa**, **49 for Castle
+  on the Hill**. Lyrics text was not printed in acceptance output.
+- Offline regressions cover composed/decomposed Unicode, Vietnamese accents,
+  Japanese combining-mark distinctions, wrong-recording rejection, ambiguous
+  IDs, HTTP 429/503, long wrapped mouse controls, and invalid saved-state preservation.
+- Four optimized render, persistence, statistics, and Mix Builder benchmarks
+  passed during the review; local samples and reproduction commands are in
+  [BENCHMARKS.md](BENCHMARKS.md).
+
+Live catalog/lyrics checks used production endpoints without audio or saved-state
+writes. This release did not repeat live audio, physical output-device switching,
+Discord, or real OS mouse/paste delivery acceptance. Synthetic audio-rate tests
+verify frequency mapping, not audible hardware. Older audio results below and in
+the Smart Shuffle guide are historical, not fresh release evidence.
+
+Release delivery uses `scripts/release.ps1` to build the Windows executable,
+package all linked docs/assets and the per-user installer, and produce SHA-256
+files for the ZIP and executable. The executable installed on PATH is checked by
+hash against that release build; restart and generate fresh Radio suggestions
+after updating. Invalid history must be repaired or deliberately moved aside;
+startup does not silently overwrite it.
+
 ## Second Mix Builder/application repair — 2026-09-10
 
 Reproduced all six supplied review probes before changing behavior. Repaired

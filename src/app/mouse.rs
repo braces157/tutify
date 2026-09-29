@@ -61,8 +61,62 @@ pub(super) fn mouse(
     tx: &mpsc::UnboundedSender<Command>,
 ) -> bool {
     if app.ui.overlay == Overlay::MixBuilder {
-        // Mix Builder is intentionally keyboard-driven in the MVP. Do not let
-        // stale underlying hit regions mutate the live queue while it is open.
+        // Only the overlay's own visible preview controls can receive clicks.
+        // Applying a mix remains an explicit keyboard action.
+        if event.kind == MouseEventKind::Down(MouseButton::Left) {
+            let target =
+                app.ui
+                    .render
+                    .borrow()
+                    .mouse_hits
+                    .iter()
+                    .rev()
+                    .find_map(|(area, target)| {
+                        area.contains((event.column, event.row).into())
+                            .then_some(*target)
+                    });
+            match target {
+                Some(MouseTarget::MixRow(index))
+                    if !app.mix.detail
+                        && !app.mix.naming
+                        && index < app.mix.preview.entries.len() =>
+                {
+                    app.mix.selected = index;
+                }
+                Some(MouseTarget::MixKey(code))
+                    if matches!(
+                        code,
+                        KeyCode::Esc
+                            | KeyCode::Char(
+                                'p' | 'g' | '3' | '4' | '6' | '[' | ']' | 'a' | 'w' | 'o' | '?'
+                            )
+                    ) =>
+                {
+                    key(app, KeyEvent::new(code, KeyModifiers::NONE), tasks, tx);
+                }
+                Some(MouseTarget::MixKey(KeyCode::Enter)) if app.mix.naming => {
+                    key(
+                        app,
+                        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+                        tasks,
+                        tx,
+                    );
+                }
+                _ => {}
+            }
+        } else if matches!(
+            event.kind,
+            MouseEventKind::ScrollUp | MouseEventKind::ScrollDown
+        ) {
+            let code = if event.kind == MouseEventKind::ScrollUp {
+                KeyCode::Up
+            } else {
+                KeyCode::Down
+            };
+            for _ in 0..3 {
+                key(app, KeyEvent::new(code, KeyModifiers::NONE), tasks, tx);
+            }
+        }
         return true;
     }
     if !matches!(
@@ -82,6 +136,62 @@ pub(super) fn mouse(
         .rev()
         .find(|(area, _)| area.contains((event.column, event.row).into()))
         .copied();
+    if app.ui.overlay == Overlay::Stats {
+        match event.kind {
+            MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
+                app.ui.stats.get_mut().editing = false;
+                let code = if event.kind == MouseEventKind::ScrollUp {
+                    KeyCode::Up
+                } else {
+                    KeyCode::Down
+                };
+                for _ in 0..3 {
+                    key(app, KeyEvent::new(code, KeyModifiers::NONE), tasks, tx);
+                }
+            }
+            MouseEventKind::Down(MouseButton::Left) => match hit.map(|(_, target)| target) {
+                Some(MouseTarget::StatsRow(index)) => {
+                    let max_index = app.len().saturating_sub(1);
+                    let view = app.ui.stats.get_mut();
+                    view.editing = false;
+                    view.selected = index.min(max_index);
+                }
+                Some(MouseTarget::StatsSearch) => app.ui.stats.get_mut().editing = true,
+                Some(MouseTarget::StatsSort) => {
+                    key(
+                        app,
+                        KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE),
+                        tasks,
+                        tx,
+                    );
+                }
+                Some(MouseTarget::StatsSearchDone) => {
+                    key(
+                        app,
+                        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+                        tasks,
+                        tx,
+                    );
+                }
+                Some(MouseTarget::StatsClear) => {
+                    key(
+                        app,
+                        KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+                        tasks,
+                        tx,
+                    );
+                }
+                Some(MouseTarget::StatsClose) => {
+                    app.ui.close(Overlay::Stats);
+                    app.status = "Exited song statistics".into();
+                }
+                _ => {}
+            },
+            MouseEventKind::Down(MouseButton::Right) => {}
+            _ => unreachable!("mouse event kind checked above"),
+        }
+        return true;
+    }
     if app.context_menu.is_some() {
         if event.kind == MouseEventKind::Down(MouseButton::Left) {
             if let Some((_, MouseTarget::Menu(index))) = hit {
@@ -96,17 +206,6 @@ pub(super) fn mouse(
         return false;
     };
     if event.kind == MouseEventKind::ScrollUp || event.kind == MouseEventKind::ScrollDown {
-        if app.ui.overlay == Overlay::Stats {
-            let code = if event.kind == MouseEventKind::ScrollUp {
-                KeyCode::Up
-            } else {
-                KeyCode::Down
-            };
-            for _ in 0..3 {
-                key(app, KeyEvent::new(code, KeyModifiers::NONE), tasks, tx);
-            }
-            return true;
-        }
         if app.ui.overlay == Overlay::Visualizer
             || (app.ui.overlay == Overlay::Lyrics
                 && app
@@ -146,9 +245,6 @@ pub(super) fn mouse(
         return true;
     }
     let right = event.kind == MouseEventKind::Down(MouseButton::Right);
-    if app.ui.overlay == Overlay::Stats {
-        return false;
-    }
     match target {
         MouseTarget::SearchMode(scope) if !right => choose_search(app, scope, tasks),
         MouseTarget::Navigation(view) if !right => {

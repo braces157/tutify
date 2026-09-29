@@ -1,5 +1,9 @@
 # Codebase refactoring review — 2026-09-08
 
+Current v0.3.1 boundaries and verification are documented in
+[ARCHITECTURE.md](ARCHITECTURE.md) and [VALIDATION.md](VALIDATION.md). Counts and
+line references in this review describe its historical snapshot.
+
 Implementation follow-up: the staged refactor has now been applied. The findings
 and line references below describe the pre-refactor snapshot. See
 [ARCHITECTURE.md](ARCHITECTURE.md) for the resulting module boundaries and

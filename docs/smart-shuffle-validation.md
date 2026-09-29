@@ -1,6 +1,6 @@
 # Smart Shuffle and Track Radio validation
 
-Updated 2026-09-15 on Windows.
+Updated for v0.3.1 on 2026-09-30, Windows x64.
 
 ## What was wrong
 
@@ -17,7 +17,9 @@ credits are no longer the production discovery source.
 
 1. Resolve the seed artist in Deezer. Prefer an exact name. For multiple exact
    names, require a matching seed recording rather than choosing the most popular
-   result. Cache identities by Spotify artist ID so same-name artists stay separate.
+   result. If no strict match exists, Latin accent aliases require a matching
+   recording before selecting an artist ID. Preserve marks in non-Latin scripts.
+   Cache identities by Spotify artist ID so same-name artists stay separate.
 2. Read related artists from that artist's feed. No broad genre query and no
    recursive recommendation-to-recommendation walk is used.
 3. Query at most six neighbouring artists in Spotify to obtain five usable
@@ -45,7 +47,33 @@ song title. It does not receive Spotify bearer tokens or user listening history.
 The existing Spotify recommendations path for supported Mix Builder accounts
 remains available; its fallback uses the same new discovery engine.
 
-## Real audio acceptance
+## v0.3.1 catalog acceptance — 2026-09-30
+
+The read-only `live_mua_and_castle_radio_catalog_acceptance` check uses live
+Deezer/Spotify catalog requests, without audio or saved-state writes:
+
+| Seed | Suggestions | Total including seed | Distinct suggested primary artists |
+| --- | ---: | ---: | ---: |
+| Mưa — Minh Vương M4U, Thùy Chi | 14 | 15 | 8 |
+| Castle on the Hill — Ed Sheeran | 15 | 16 | 10 |
+
+Deezer's artist search returns "Minh Vuong M4u" while Spotify uses "Minh Vương
+M4U". The old strict comparison rejected the seed. The corrected alias path
+requires a matching Mưa recording and candidate ID before requesting related
+artists. Spotify neighbour pools also accept a unique accent alias while
+rejecting unrelated credits and ambiguous IDs. These results reflect provider
+coverage at the time of the check, including Korean soundtrack neighbours for
+Mưa; they do not promise Vietnamese-only or mood-matched recommendations.
+
+```powershell
+cargo test --release --locked live_mua_and_castle_radio_catalog_acceptance -- --ignored --nocapture
+```
+
+The current regular suite has 363 passing tests and 16 opt-ins. New regressions
+cover accent aliases, canonical Unicode equivalence, Japanese mark distinctions,
+recording verification, and ambiguous Spotify artist rejection.
+
+## Historical real audio acceptance — 2026-09-15
 
 Command:
 
@@ -86,7 +114,7 @@ variety and playback, not a subjective listening-quality score.
 The saved Spotify login was initially expired/revoked. Both login steps completed
 before the real audio checks. No live rate limit occurred during these checks.
 
-## Automated coverage
+## Historical automated coverage — 2026-09-15
 
 Final checks: 301 regular tests passed, 11 opt-in tests ignored; Clippy with
 warnings denied, formatting and diff whitespace checks passed.
@@ -105,7 +133,7 @@ The retained catalog-only acceptance test is
 `live_japanese_and_olivia_app_catalog_acceptance`; it uses synthetic playback
 acknowledgements and is not evidence of audible playback.
 
-## Delivery
+## Historical delivery — 2026-09-15
 
 Release build installed and SHA-256 verified on the canonical PATH location,
 the previous bin location, and the existing project-local launch copy:

@@ -40,6 +40,12 @@ GPU rendering. Opaque selection and shortcut surfaces preserve control contrast 
 artwork, while queue, lyrics, Unicode metadata, and real-time FFT views share the same
 continuous background treatment.
 
+V0.3.1 improves verified Latin accent matching in related-artist discovery and
+primary-artist lyrics lookup for duets. It completes Statistics/Mix Builder mouse
+controls, protects invalid saved history, buffers atomic JSON writes, avoids
+duplicate snapshot clones, speeds up statistics refresh, and corrects refresh
+deadlines and spectrum sample-rate mapping.
+
 Deferred by user choice: persistent timestamped listening history, AI suggestions, and song
 tier lists. If an AI phase is pursued, the preferred integration is a cloud API
 using the user's own key. Do not add listening collection or send Spotify data to

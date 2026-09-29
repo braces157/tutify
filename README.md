@@ -50,9 +50,9 @@ workflow inside Windows Terminal—no Electron shell and no background service.
 
 <p align="center"><strong>Synchronized lyrics over a native-resolution wallpaper</strong></p>
 
-> The visualizer and lyrics screenshots show the final pre-release Glass UI before
-> its displayed version label advanced from v0.2.9 to v0.3.0. The published binaries
-> and package metadata report v0.3.0.
+> These captures document the v0.3.0 Glass interface; the visualizer and lyrics
+> views were captured before its version label advanced from v0.2.9. The current
+> v0.3.1 release keeps this appearance and adds the fixes listed below.
 
 ## Highlights
 
@@ -77,11 +77,16 @@ workflow inside Windows Terminal—no Electron shell and no background service.
 
 ### Current release
 
-The latest published download is **v0.3.0**. It introduces the wallpaper-backed
-Glass theme with two rendering paths: a portable Unicode cell renderer and a
-full-resolution Windows Terminal profile. Glass keeps selected rows and controls
-readable over detailed artwork, supports custom JPEG, PNG, WebP, and BMP images,
-and includes dedicated queue, lyrics, and real-time visualizer presentation.
+The latest published download is **v0.3.1**. It improves Vietnamese artist
+matching for Track Radio, lyrics for songs with multiple credited artists,
+mouse controls in Statistics and Mix Builder, and performance when saving large
+queues or refreshing statistics. Invalid statistics and recipe files now stop
+startup with an error so the original data is preserved. The spectrum uses the
+actual audio-device sample rate, and idle Glass redraw scheduling is corrected.
+
+The wallpaper-backed Glass theme supports both a portable Unicode renderer and a
+full-resolution Windows Terminal profile. See the [release notes](docs/releases/v0.3.1.md)
+and [changelog](CHANGELOG.md) for the complete update.
 
 ## Requirements
 
@@ -101,8 +106,8 @@ The native demo needs no Spotify account or audio device.
 
 ## Install
 
-1. Download `Tuitify-0.3.0-windows-x86_64.zip` from
-   [release v0.3.0](https://github.com/braces157/tutify/releases/tag/v0.3.0).
+1. Download `Tuitify-0.3.1-windows-x86_64.zip` from
+   [release v0.3.1](https://github.com/braces157/tutify/releases/tag/v0.3.1).
 2. Extract the archive.
 3. Open Windows Terminal in the extracted folder and run:
 
@@ -214,7 +219,7 @@ text; finish text entry before using playback commands.
 | `t` | Cycle color themes |
 | `/` or `f` | Filter loaded Liked Songs/playlist rows; `/` opens search from other views |
 | `F2` / `F3` | Search Spotify / search your saved library |
-| `F5` | Refresh catalog data or retry metadata |
+| `F5` | Refresh catalog data, retry metadata, or retry lyrics in the lyrics view |
 | `Home` / `End` | Seek to the start / end of the track |
 | `[` / `]` | Adjust volume by 1% outside Mix Builder |
 | `C` / `Delete` | Clear the queue / remove its selected entry |
@@ -267,9 +272,14 @@ unfocused. Terminals that support mouse reporting can also select, scroll, seek,
 toggle playback, and open context menus (including "View Album" and "View Artist"
 actions on track rows).
 
+Press `S` (`Shift+S`) for Song Statistics. Click rows to select them, use the
+mouse wheel to scroll, and click the footer to search, change sorting, finish
+editing, or clear the filter. Click the exit label in the title to close the view.
+Long searches keep the footer actions visible, including in a 32 × 10 terminal.
+
 ## Album and artist browsing
 
-Tuitify v0.2.8 includes native in-terminal browsing for albums and artists:
+Tuitify includes native in-terminal browsing for albums and artists:
 
 - **Album tracklists:** Select any track in Search, Liked Songs, or Queue and
   press `a`, or right-click to choose **View Album**. This opens the full album
@@ -311,6 +321,12 @@ explicitly apply it.
 - Press `w` to name and save a local recipe. Press `o` to cycle through and reopen
   saved recipes.
 
+Mix Builder also supports clicking preview rows and the displayed pin, target,
+suggestion, artist-spacing, regenerate, save/reopen, details, and cancel controls.
+The mouse wheel selects rows or scrolls details. Wrapped controls remain clickable
+in narrow terminals, and recipe save/cancel buttons stay visible with long names.
+Applying a preview uses `Enter` to replace or `A` to append.
+
 Duration, suggestion ratio, and artist spacing are preferences. Suggestion
 percentages are measured by **track duration**, not song count. The builder shows
 the achieved duration and ratio; `?` opens full details, and Up/Down scroll them.
@@ -347,6 +363,12 @@ anchored to the original artist across refills. The queue identifies the source
 as "Similar artists • Deezer". This is artist similarity, not Spotify's private
 personalization or a guarantee of matching a song's mood and energy.
 
+Latin accent differences between catalogs, such as "Minh Vương M4U" and
+"Minh Vuong M4u", are accepted only after confirming a matching seed recording.
+Exact names remain preferred, and ambiguous artist identities are rejected.
+Queue sizes vary with available matches: up to fifteen suggestions plus the
+selected song, rather than a guaranteed sixteen-song queue.
+
 Smart Shuffle mixes marked suggestions after every three original tracks while
 preserving playback. Related-artist and Spotify candidate results are cached to
 avoid repeating requests on mode changes. If similarity is unavailable, the app
@@ -381,7 +403,10 @@ may show them to other people according to your Discord privacy settings. To
 disable it, close Tuitify, set `"discord_rpc": false` in `config.json`, and restart.
 
 Opening lyrics sends the track title, artists, and duration to LRCLIB; Spotify
-tokens are not sent there. Artwork may use Spotify's public oEmbed service when
+tokens are not sent there. A missing full-credit match can retry the primary
+artist, validating the returned title, artist, and duration. Unicode accents are
+preserved. HTTP 502–504 errors can retry once with a short wait; longer server
+cooldowns and HTTP 429 remain explicit errors. Artwork may use Spotify's public oEmbed service when
 catalog artwork is missing. These requests are separate from analytics.
 Radio and Smart Shuffle send the seed artist's name to Deezer's public metadata
 API; resolving ambiguous artist names can also send the seed song title. Spotify
@@ -399,8 +424,8 @@ Useful maintenance commands:
 .\tuitify.exe logout
 ```
 
-Logout retains device settings and the public client ID. In the development
-build, it also retains `mix-recipes.json`, including saved playlist names and IDs.
+Logout retains device settings, the public client ID, and `mix-recipes.json`,
+including saved playlist names and IDs.
 Remove that file manually with the player closed if you want to clear recipes.
 
 ## Troubleshooting
@@ -413,7 +438,13 @@ Remove that file manually with the player closed if you want to clear recipes.
   429, wait for the reported cooldown instead of repeating authentication.
 - **Restricted playlist:** Spotify may allow listing a playlist but restrict its
   contents to owners or collaborators in development mode.
-- **Invalid config or queue:** Tuitify reports the path and preserves the file.
+- **Radio unavailable:** press `R` to start a fresh Radio session. Available
+  suggestions depend on the provider's artist coverage; a restored queue does
+  not rerun discovery after an update.
+- **Lyrics unavailable:** press `F5` in the lyrics view. A 503 is a temporary
+  LRCLIB server failure; percent-encoded Vietnamese/Japanese characters in a URL
+  are normal. A missing result can mean the provider has no lyrics for that recording.
+- **Invalid config, queue, statistics, or recipes:** Tuitify reports the path and preserves the file.
   Close the player and move it aside before restarting to reset that state.
 
 ## Build from source
@@ -453,6 +484,7 @@ npm test
 - [Architecture](ARCHITECTURE.md) — module boundaries, state ownership, and runtime design
 - [Benchmarks](BENCHMARKS.md) — reproducible terminal rendering measurements
 - [Validation](VALIDATION.md) — completed checks and remaining acceptance limits
+- [Changelog](CHANGELOG.md) — changes in each release
 - [Roadmap](ROADMAP.md) — planned work and explicit non-goals
 - [Performance review](PERFORMANCE_REVIEW.md) — profiling findings and optimization notes
 - [Refactor review](REFACTOR_REVIEW.md) — structural review and safeguards

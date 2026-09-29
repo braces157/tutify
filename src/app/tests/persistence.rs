@@ -1,5 +1,24 @@
 use super::*;
 
+#[tokio::test]
+async fn shared_snapshot_saves_final_queue_independently_of_later_edits() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Storage {
+        root: dir.path().to_owned(),
+    };
+    let output = store.clone();
+    let (tx, rx) = watch::channel(None);
+    let (bg, _) = mpsc::unbounded_channel();
+    let writer = writer(rx, bg, move |queue: Arc<Queue>| output.save_queue(&queue));
+    let mut queue = Queue::default();
+    queue.enqueue("0".repeat(22));
+    tx.send_replace(Some(Arc::new(queue.clone())));
+    queue.enqueue("1".repeat(22));
+    drop(tx);
+    writer.await.unwrap().unwrap();
+    assert_eq!(store.queue().unwrap().ids, vec!["0".repeat(22)]);
+}
+
 #[test]
 fn checkpoint_sends_only_changed_components() {
     let mut app = App::new(Config::default(), Queue::default());

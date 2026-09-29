@@ -13,13 +13,14 @@ $version = if ($cargoToml -match 'version\s*=\s*"([^"]+)"') { $Matches[1] } else
 $releaseFolder = Join-Path (Get-Location) "dist/Tuitify-$version-windows-x86_64"
 New-Item -ItemType Directory -Force -Path $releaseFolder | Out-Null
 Copy-Item -LiteralPath 'target/release/tuitify.exe' -Destination $releaseFolder
-Copy-Item -LiteralPath 'README.md', 'LICENSE', 'ROADMAP.md', 'VALIDATION.md', 'BENCHMARKS.md' -Destination $releaseFolder
+Copy-Item -LiteralPath 'README.md', 'LICENSE', 'ROADMAP.md', 'VALIDATION.md', 'BENCHMARKS.md', 'ARCHITECTURE.md', 'CHANGELOG.md', 'PERFORMANCE_REVIEW.md', 'REFACTOR_REVIEW.md' -Destination $releaseFolder
+Copy-Item -LiteralPath 'docs' -Destination $releaseFolder -Recurse -Force
 $releaseScripts = Join-Path $releaseFolder 'scripts'
 New-Item -ItemType Directory -Force -Path $releaseScripts | Out-Null
 Copy-Item -LiteralPath 'scripts/install.ps1' -Destination $releaseScripts
-$releaseNotes = "dist/RELEASE_NOTES-$version.md"
+$releaseNotes = "docs/releases/v$version.md"
 if (Test-Path -LiteralPath $releaseNotes) {
-    Copy-Item -LiteralPath $releaseNotes -Destination $releaseFolder
+    Copy-Item -LiteralPath $releaseNotes -Destination (Join-Path $releaseFolder "RELEASE_NOTES-$version.md")
 }
 $zipPath = "$releaseFolder.zip"
 Compress-Archive -Path "$releaseFolder/*" -DestinationPath $zipPath -Force

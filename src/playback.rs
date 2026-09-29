@@ -600,6 +600,8 @@ impl WindowsAudio {
         let device = device.ok_or_else(|| self.fail("no default audio output device available"))?;
         let (sink, stream, sample_rate) = self.open_output(&device)?;
         self.resampler = SincResampler::new(44_100, sample_rate);
+        // The tap observes resampled output, so FFT bins follow the device rate.
+        self.visualizer.set_sample_rate(sample_rate);
         self.output = Some((sink, stream, sample_rate));
         self.output_device = Some(device);
         Ok(())

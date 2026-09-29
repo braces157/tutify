@@ -140,6 +140,29 @@ test('copy fallback works when the clipboard API is absent', async ({ page }) =>
   await expect(page.locator('#install-content-1 button')).toContainText('Select command');
 });
 
+test('release downloads and install commands match the Rust and website versions', async ({ page }) => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const root = path.resolve(__dirname, '..');
+  const packageInfo = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+  const lock = JSON.parse(fs.readFileSync(path.join(root, 'package-lock.json'), 'utf8'));
+  const cargo = fs.readFileSync(path.join(root, 'Cargo.toml'), 'utf8');
+  const version = cargo.match(/\[package\][\s\S]*?\bversion\s*=\s*"([^"]+)"/)[1];
+  expect(packageInfo.version).toBe(version);
+  expect(lock.version).toBe(version);
+  expect(lock.packages[''].version).toBe(version);
+  await page.goto('/docs/index.html');
+  await expect(page.locator('.version-mark')).toHaveText(version);
+  const urls = await page.locator('a[href*="/releases/download/"]').evaluateAll(links => links.map(link => link.href));
+  expect(urls.length).toBeGreaterThanOrEqual(4);
+  for (const url of urls) {
+    expect(url).toMatch(new RegExp(`^https://github\\.com/braces157/tutify/releases/download/v${version.replaceAll('.', '\\.')}(/tuitify\\.exe|/Tuitify-${version.replaceAll('.', '\\.')}\\-windows-x86_64\\.zip)$`));
+  }
+  await page.locator('#install-tab-1').click();
+  await expect(page.locator('#install-content-1 code')).toContainText(`--tag v${version}`);
+  await expect(page.locator('a[href*="github.com/braces157/tuitify"]')).toHaveCount(0);
+});
+
 test('copy controls explain clipboard failures and leave command text selectable', async ({ page }) => {
   await page.goto('/docs/index.html');
   await page.locator('#install-tab-1').click();

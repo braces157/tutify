@@ -164,7 +164,7 @@ pub struct MixRecipes {
 }
 
 impl MixRecipes {
-    pub fn validate(&mut self) -> anyhow::Result<()> {
+    pub fn validate(&self) -> anyhow::Result<()> {
         anyhow::ensure!(self.version == 1, "Unsupported mix recipe version");
         anyhow::ensure!(self.recipes.len() <= 100, "Too many saved mix recipes");
         for recipe in &self.recipes {
