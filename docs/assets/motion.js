@@ -2,8 +2,7 @@
   'use strict';
   const root = document.documentElement;
   const finePointer = window.matchMedia('(hover: hover) and (pointer: fine)');
-  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)');
-  const allowed = () => !reduce.matches && !document.hidden && !root.classList.contains('motion-paused');
+  const allowed = () => root.classList.contains('motion-enabled') && !document.hidden && !root.classList.contains('motion-paused');
   const record = document.querySelector('.record-scene');
   const magnets = Array.from(document.querySelectorAll('.button-primary'));
   let pointerFrame = 0;

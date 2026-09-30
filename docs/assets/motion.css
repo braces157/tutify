@@ -121,9 +121,9 @@ html.motion-paused .record-scroll-layer, html.motion-paused .hero-copy { animati
   .demo-summary-action svg { width: 1rem; height: 1rem; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .record-sleeve { transform: rotate(-9deg); }
-  .signal-content { opacity: 1; transform: none; }
-  .kinetic-track, .record-backdrop { animation: none; }
-  .button-primary { transform: none !important; }
-  .record-scroll-layer, .hero-copy { animation: none !important; }
+  html:not(.motion-override) .record-sleeve { transform: rotate(-9deg); }
+  html:not(.motion-override) .signal-content { opacity: 1; transform: none; }
+  html:not(.motion-override) .kinetic-track, html:not(.motion-override) .record-backdrop { animation: none; }
+  html:not(.motion-override) .button-primary { transform: none !important; }
+  html:not(.motion-override) .record-scroll-layer, html:not(.motion-override) .hero-copy { animation: none !important; }
 }

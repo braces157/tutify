@@ -7,23 +7,28 @@
   let modeAnimations = [];
   let motionPreference = null;
   try { motionPreference = localStorage.getItem('tuitify-motion'); } catch (_) { /* Storage may be unavailable. */ }
-  let motionOn = motionPreference === null ? !reducedMotion.matches : motionPreference === 'on';
+  // Follow the device by default; an explicit choice belongs to the visitor.
+  const motionEnabled = () => motionPreference === 'on' || (motionPreference !== 'off' && !reducedMotion.matches);
 
   function updateMotion() {
-    const enabled = motionOn && !reducedMotion.matches;
+    const enabled = motionEnabled();
     root.classList.toggle('motion-enabled', enabled);
+    root.classList.toggle('motion-override', motionPreference === 'on');
     root.classList.toggle('motion-paused', !enabled || document.hidden);
     toggle.setAttribute('aria-pressed', String(enabled));
-    toggle.disabled = reducedMotion.matches;
-    toggle.setAttribute('aria-label', reducedMotion.matches ? 'Animations off: reduced motion preference' : enabled ? 'Pause website animations' : 'Enable website animations');
-    toggle.querySelector('.motion-label').textContent = reducedMotion.matches ? 'Reduced motion' : enabled ? 'Motion on' : 'Motion off';
+    toggle.disabled = false;
+    toggle.setAttribute('aria-label', enabled ? 'Pause website animations' : 'Enable website animations');
+    toggle.title = !enabled && reducedMotion.matches && motionPreference !== 'off'
+      ? 'Your device prefers reduced motion. Click to enable animations for this website.'
+      : enabled ? 'Pause website animations' : 'Enable website animations';
+    toggle.querySelector('.motion-label').textContent = enabled ? 'Motion on' : 'Motion off';
     toggle.querySelector('.motion-icon').textContent = enabled ? 'Ⅱ' : '▷';
     if (!enabled) modeAnimations.forEach(animation => animation.cancel());
     document.dispatchEvent(new CustomEvent('tuitify:motion-change', { detail: { enabled } }));
   }
   toggle.addEventListener('click', () => {
-    motionOn = !(motionOn && !reducedMotion.matches);
-    try { localStorage.setItem('tuitify-motion', motionOn ? 'on' : 'off'); } catch (_) { /* Keep the setting for this visit. */ }
+    motionPreference = motionEnabled() ? 'off' : 'on';
+    try { localStorage.setItem('tuitify-motion', motionPreference); } catch (_) { /* Keep the setting for this visit. */ }
     updateMotion();
   });
   reducedMotion.addEventListener('change', updateMotion);
@@ -56,8 +61,9 @@
     }, { rootMargin: '-15% 0px -55% 0px' });
     sections.forEach((section) => navigation.observe(section));
   }
-  // A no-JavaScript page is visible by default; only enable reveals after observing.
-  if ('IntersectionObserver' in window) updateMotion();
+  // Keep the content visible if this browser cannot observe reveal targets.
+  if (!('IntersectionObserver' in window)) document.querySelectorAll('.reveal').forEach(element => element.classList.add('is-visible'));
+  updateMotion();
 
   const menuButton = document.querySelector('.menu-toggle');
   const menu = document.getElementById('mobile-nav');
@@ -107,7 +113,7 @@
     stage.querySelector('.signal-indicator').textContent = content.caption;
     stage.querySelectorAll('.signal-title > span').forEach((line, index) => {
       line.textContent = content.lines[index];
-      if (changed && motionOn && !reducedMotion.matches) {
+      if (changed && motionEnabled()) {
         modeAnimations.push(line.animate([{ opacity: 0, transform: 'translateY(25px)' }, { opacity: 1, transform: 'translateY(0)' }], { duration: 650, delay: index * 65, easing: 'cubic-bezier(.22,1,.36,1)' }));
       }
     });
@@ -124,7 +130,7 @@
   document.querySelectorAll('[data-demo-action]').forEach((key) => key.addEventListener('click', () => {
     const screen = document.getElementById('tui-terminal-screen');
     disclosure.open = true;
-    screen.scrollIntoView({ behavior: motionOn && !reducedMotion.matches ? 'smooth' : 'instant', block: 'center' });
+    screen.scrollIntoView({ behavior: motionEnabled() ? 'smooth' : 'instant', block: 'center' });
     screen.focus({ preventScroll: true });
     actions[key.dataset.demoAction]();
   }));

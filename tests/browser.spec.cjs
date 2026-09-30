@@ -15,7 +15,7 @@ test('uses local compiled assets without parser-blocking CSS runtimes', async ({
     if (new URL(url).origin !== 'http://127.0.0.1:4173') remoteRequests.push(url);
   });
   await page.goto('/docs/index.html');
-  await expect(page.locator('link[href="assets/tailwind.compiled.css"]')).toHaveCount(1);
+  await expect(page.locator('link[href^="assets/tailwind.compiled.css"]')).toHaveCount(1);
   await expect(page.locator('script[src="assets/demo.js"]')).toHaveCount(1);
   expect(remoteRequests).toEqual([]);
 });
@@ -198,10 +198,54 @@ test('website motion can be paused and the preference persists', async ({ page }
 test('operating system reduced motion keeps content visible and animations still', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto('/docs/index.html');
-  await expect(page.locator('.motion-toggle')).toBeDisabled();
+  await expect(page.locator('.motion-toggle')).toBeEnabled();
   await expect(page.locator('.motion-toggle')).toHaveAttribute('aria-pressed', 'false');
   await expect.poll(() => page.locator('.vinyl-label').evaluate(element => parseFloat(getComputedStyle(element).animationDuration))).toBeLessThan(.01);
   await expect.poll(() => page.locator('.questions-heading').evaluate(element => getComputedStyle(element).opacity)).toBe('1');
+});
+
+test('visitors can enable and persist animation when their device prefers reduced motion', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto('/docs/index.html');
+  const toggle = page.getByRole('button', { name: 'Enable website animations' });
+  await toggle.click();
+  await expect(page.locator('.motion-toggle')).toHaveAttribute('aria-pressed', 'true');
+  await expect.poll(() => page.locator('.vinyl-label').evaluate(element => parseFloat(getComputedStyle(element).animationDuration))).toBeGreaterThan(1);
+  const rotation = await page.locator('.vinyl-label').evaluate(element => getComputedStyle(element).transform);
+  await expect.poll(() => page.locator('.vinyl-label').evaluate(element => getComputedStyle(element).transform)).not.toBe(rotation);
+  await page.locator('#signal-stage').scrollIntoViewIfNeeded();
+  const canvas = page.locator('#signal-canvas');
+  const first = await canvas.evaluate(element => element.toDataURL());
+  await expect.poll(() => canvas.evaluate(element => element.toDataURL())).not.toBe(first);
+  await page.reload();
+  await expect(page.locator('.motion-toggle')).toHaveAttribute('aria-pressed', 'true');
+  await expect.poll(() => page.locator('.vinyl-label').evaluate(element => parseFloat(getComputedStyle(element).animationDuration))).toBeGreaterThan(1);
+  await page.locator('#signal-stage').scrollIntoViewIfNeeded();
+  const reloaded = await canvas.evaluate(element => element.toDataURL());
+  await expect.poll(() => canvas.evaluate(element => element.toDataURL())).not.toBe(reloaded);
+  await page.locator('.motion-toggle').click();
+  await expect(page.locator('.motion-toggle')).toHaveAttribute('aria-pressed', 'false');
+  await page.waitForTimeout(100);
+  const paused = await canvas.evaluate(element => element.toDataURL());
+  await page.waitForTimeout(250);
+  expect(await canvas.evaluate(element => element.toDataURL())).toBe(paused);
+});
+
+test('device motion changes are followed until the visitor makes an explicit choice', async ({ page }) => {
+  await page.goto('/docs/index.html');
+  const toggle = page.locator('.motion-toggle');
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  await toggle.click();
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  await toggle.click();
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
 });
 
 test('sound study switches features and supports keyboard navigation', async ({ page }) => {

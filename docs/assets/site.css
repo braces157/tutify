@@ -50,6 +50,7 @@ button[hidden], nav[hidden], div[hidden] { display: none !important; }
 .source-link { display: flex; gap: 1.2rem; align-items: center; font-size: .8rem; border-left: 1px solid var(--line); padding-left: 1.5rem; }
 .source-link:hover { color: var(--accent); }
 .motion-toggle { display: flex; align-items: center; gap: .6rem; color: var(--muted); font: .63rem var(--mono); padding: .65rem 0; }
+.motion-toggle:hover { color: var(--paper); }
 .motion-icon { color: var(--accent); font: .95rem var(--mono); }
 .menu-toggle { display: none; width: 2.5rem; height: 2.5rem; align-items: center; justify-content: center; flex-direction: column; gap: 5px; }
 .menu-toggle span { width: 1.2rem; height: 1px; background: var(--paper); transition: transform 180ms; }
@@ -345,7 +346,7 @@ html.motion-paused .hero-enter { animation: none; }
   #tui-now-playing-badge { font-size: .55rem; }
 }
 @media (prefers-reduced-motion: reduce) {
-  html { scroll-behavior: auto; }
-  *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; scroll-behavior: auto !important; }
-  html.motion-enabled .reveal:not(.is-visible) { opacity: 1; transform: none; }
+  html:not(.motion-override) { scroll-behavior: auto; }
+  html:not(.motion-override) *, html:not(.motion-override) *::before, html:not(.motion-override) *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; scroll-behavior: auto !important; }
+  html:not(.motion-override) .reveal:not(.is-visible) { opacity: 1; transform: none; }
 }

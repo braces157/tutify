@@ -127,8 +127,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  html { scroll-behavior: auto !important; }
-  *, *::before, *::after {
+  html:not(.motion-override) { scroll-behavior: auto !important; }
+  html:not(.motion-override) *, html:not(.motion-override) *::before, html:not(.motion-override) *::after {
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
     scroll-behavior: auto !important;
