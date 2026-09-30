@@ -3,6 +3,7 @@ const { test, expect } = require('@playwright/test');
 async function openDemo(page) {
   await page.goto('/docs/index.html');
   await page.locator('#interactive-demo').scrollIntoViewIfNeeded();
+  await page.locator('#demo-disclosure summary').click();
   await expect(page.locator('#tui-terminal-screen')).toBeVisible();
 }
 
@@ -65,6 +66,7 @@ test('shortcuts are scoped to the demo and do not intercept native buttons', asy
   await expect(page.locator('#install-content-1')).toBeVisible();
   await expect(page.locator('#tui-play-btn')).toHaveAttribute('aria-label', 'Pause demo playback');
 
+  await page.locator('#demo-disclosure summary').click();
   const screen = page.locator('#tui-terminal-screen');
   await screen.focus();
   await page.keyboard.press('Space');
@@ -92,6 +94,7 @@ test('mobile layout stays within the viewport', async ({ page }) => {
   await page.goto('/docs/index.html');
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
   await expect.poll(() => page.locator('#interactive-demo').evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+  await page.locator('#demo-disclosure summary').click();
   for (const id of ['tui-radio-btn', 'tui-tab-5', 'tui-btn-lyrics']) {
     const bounds = await page.locator(`#${id}`).boundingBox();
     expect(bounds.x).toBeGreaterThanOrEqual(0);
@@ -201,30 +204,63 @@ test('operating system reduced motion keeps content visible and animations still
   await expect.poll(() => page.locator('.questions-heading').evaluate(element => getComputedStyle(element).opacity)).toBe('1');
 });
 
-test('screenshot tabs load the selected real capture and support keyboard navigation', async ({ page }) => {
+test('sound study switches features and supports keyboard navigation', async ({ page }) => {
   await page.goto('/docs/index.html');
-  await page.locator('#screenshot-tab-queue').focus();
+  await expect(page.locator('#product-screenshot')).toHaveCount(0);
+  await expect(page.locator('#demo-disclosure')).not.toHaveAttribute('open');
+  await page.locator('#signal-tab-queue').focus();
   await page.keyboard.press('ArrowRight');
-  await expect(page.locator('#screenshot-tab-lyrics')).toBeFocused();
-  await expect(page.locator('#screenshot-tab-lyrics')).toHaveAttribute('aria-selected', 'true');
-  await expect(page.locator('#product-screenshot')).toHaveAttribute('src', /glass-lyrics.jpg$/);
-  await expect.poll(() => page.locator('#product-screenshot').evaluate(image => image.complete && image.naturalWidth > 0)).toBe(true);
-  await expect(page.locator('#screenshot-caption')).toContainText('Every word');
+  await expect(page.locator('#signal-tab-lyrics')).toBeFocused();
+  await expect(page.locator('#signal-tab-lyrics')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('#signal-title')).toHaveText('KNOW EVERYWORD.');
+  await expect(page.locator('#signal-description')).toContainText('LRCLIB');
   await page.keyboard.press('End');
-  await expect(page.locator('#screenshot-tab-spectrum')).toBeFocused();
-  await expect(page.locator('#product-screenshot')).toHaveAttribute('alt', /real-time audio spectrum/);
-  await expect(page.locator('#screenshot-panel')).toHaveAttribute('aria-labelledby', 'screenshot-tab-spectrum');
+  await expect(page.locator('#signal-tab-spectrum')).toBeFocused();
+  await expect(page.locator('#signal-title')).toHaveText('FEEL THEFREQUENCY.');
+  await expect(page.locator('#signal-panel')).toHaveAttribute('aria-labelledby', 'signal-tab-spectrum');
 });
 
-test('screenshot failure has a useful recovery state', async ({ page }) => {
-  await page.route('**/glass-lyrics.jpg', route => route.abort());
+test('sound study retains useful content when canvas is unavailable', async ({ page }) => {
+  await page.addInitScript(() => { HTMLCanvasElement.prototype.getContext = () => null; });
   await page.goto('/docs/index.html');
-  await page.locator('#screenshot-tab-lyrics').click();
-  await expect(page.locator('.screenshot-error')).toBeVisible();
-  await expect(page.locator('.screenshot-error a')).toHaveAttribute('href', /#preview$/);
-  await page.locator('#screenshot-tab-queue').click();
-  await expect.poll(() => page.locator('#product-screenshot').evaluate(image => image.complete && image.naturalWidth > 0)).toBe(true);
-  await expect(page.locator('.screenshot-error')).toBeHidden();
+  await page.locator('#signal-stage').scrollIntoViewIfNeeded();
+  await expect(page.locator('.signal-fallback')).toBeVisible();
+  await page.locator('#signal-tab-lyrics').click();
+  await expect(page.locator('#signal-description')).toContainText('Lyrics');
+  await expect(page.locator('#signal-tab-lyrics')).toHaveAttribute('aria-selected', 'true');
+});
+
+test('canvas moves while visible and pauses with motion controls and offscreen', async ({ page }) => {
+  await page.goto('/docs/index.html');
+  await page.locator('#signal-stage').scrollIntoViewIfNeeded();
+  const canvas = page.locator('#signal-canvas');
+  await page.waitForTimeout(400);
+  const first = await canvas.evaluate(element => element.toDataURL());
+  await expect.poll(() => canvas.evaluate(element => element.toDataURL())).not.toBe(first);
+  await page.locator('.motion-toggle').click();
+  const paused = await canvas.evaluate(element => element.toDataURL());
+  await page.waitForTimeout(250);
+  expect(await canvas.evaluate(element => element.toDataURL())).toBe(paused);
+  await page.locator('.motion-toggle').click();
+  await page.locator('footer').scrollIntoViewIfNeeded();
+  await page.waitForTimeout(300);
+  const offscreen = await canvas.evaluate(element => element.toDataURL());
+  await page.waitForTimeout(250);
+  expect(await canvas.evaluate(element => element.toDataURL())).toBe(offscreen);
+});
+
+test('record responds to the pointer and stops when motion is disabled', async ({ page }) => {
+  await page.goto('/docs/index.html');
+  await page.waitForTimeout(1200);
+  const record = page.locator('.record-scene');
+  const box = await record.boundingBox();
+  await page.mouse.move(box.x + box.width * .8, box.y + box.height * .3);
+  await expect(record).toHaveClass(/is-hovered/);
+  await expect.poll(() => record.evaluate(element => element.style.getPropertyValue('--tilt-x'))).not.toBe('');
+  await page.locator('.motion-toggle').click();
+  await page.mouse.move(box.x + box.width * .8, box.y + box.height * .3);
+  await expect(record).not.toHaveClass(/is-hovered/);
+  expect(await record.evaluate(element => element.style.getPropertyValue('--tilt-x'))).toBe('');
 });
 
 test('mobile navigation supports opening, escape, and section links', async ({ page }) => {
@@ -268,7 +304,10 @@ test('animated layout fits phones, tablets, and desktop screens', async ({ page 
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), `overflow at ${width}px`).toBe(true);
     for (const id of ['features', 'interactive-demo', 'install']) {
       expect(await page.locator(`#${id}`).evaluate(element => element.scrollWidth <= element.clientWidth + 1), `${id} overflow at ${width}px`).toBe(true);
+      await page.locator(`#${id}`).scrollIntoViewIfNeeded();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), `scrolling to ${id} at ${width}px`).toBe(true);
     }
+    await page.evaluate(() => window.scrollTo(0, 0));
   }
 });
 
