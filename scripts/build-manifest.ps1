@@ -42,7 +42,13 @@ function Get-TuitifyBuildIdentity {
 
 function Get-TuitifySourceDigest {
     param([Parameter(Mandatory = $true)][string]$ProjectRoot)
-    $root = (Resolve-Path -LiteralPath $ProjectRoot -ErrorAction Stop).Path.TrimEnd('\', '/')
+    # Resolve-Path preserves 8.3 aliases in Windows PowerShell, while enumerated
+    # FileInfo.FullName expands them. Use the same representation for both before
+    # taking relative substrings (including when TEMP contains RUNNER~1).
+    $rootItem = Get-Item -LiteralPath (Resolve-Path -LiteralPath $ProjectRoot -ErrorAction Stop).Path -Force -ErrorAction Stop
+    if (-not $rootItem.PSIsContainer -or ($rootItem.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'Build source root must be a regular directory' }
+    $root = $rootItem.FullName.TrimEnd('\', '/')
+    $prefix = $root + [IO.Path]::DirectorySeparatorChar
     $names = New-Object 'System.Collections.Generic.List[string]'
     foreach ($name in @('Cargo.toml', 'Cargo.lock', 'build.rs', 'build_support.rs')) { $names.Add($name) }
     function Add-SourceFiles([string]$directory) {
@@ -51,7 +57,10 @@ function Get-TuitifySourceDigest {
         foreach ($item in Get-ChildItem -LiteralPath $directory -Force -ErrorAction Stop) {
             if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Build source must not contain reparse points' }
             if ($item.PSIsContainer) { Add-SourceFiles $item.FullName }
-            else { $names.Add($item.FullName.Substring($root.Length + 1).Replace('\', '/')) }
+            else {
+                if (-not $item.FullName.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase)) { throw 'Build input is outside the source root' }
+                $names.Add($item.FullName.Substring($prefix.Length).Replace('\', '/'))
+            }
         }
     }
     Add-SourceFiles (Join-Path $root 'src')

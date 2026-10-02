@@ -26,6 +26,12 @@ Completed local release checks:
 - Nine bounded release-CLI cases passed for report redaction, exact executable
   identity, non-clobbering export, invalid/future state, interrupted journals,
   and unchanged saved files. The fixtures use isolated data and no live service.
+- The first hosted run exposed Windows PowerShell expanding 8.3 directory aliases
+  during file enumeration. The source-hash helper now normalizes its root before
+  taking relative paths and checks containment. An expanded regression reproduced
+  the failure locally, then passed for ordinary, short-alias, and trailing-slash
+  roots with Unicode filenames and binary content. All seven integration tests,
+  formatting, and strict Clippy passed after the fix.
 - The same application source previously passed the locked suite and release
   build with minimum Rust 1.88.0. Hosted CI independently tests the versioned
   source on stable and the minimum declared by Cargo.toml.

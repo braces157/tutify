@@ -212,7 +212,12 @@ fn windows_powershell_source_checker_agrees_with_rust_for_unicode_and_binary_inp
     let helper = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/build-manifest.ps1");
     let quote = |path: &Path| path.to_string_lossy().replace('\'', "''");
     let script = format!(
-        "$ErrorActionPreference='Stop'; . '{}'; Get-TuitifySourceDigest -ProjectRoot '{}'",
+        "$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'; . '{}'; \
+         $taskRoot='{}'; \
+         Get-TuitifySourceDigest -ProjectRoot $taskRoot; \
+         $taskShort=(New-Object -ComObject Scripting.FileSystemObject).GetFolder($taskRoot).ShortPath; \
+         Get-TuitifySourceDigest -ProjectRoot $taskShort; \
+         Get-TuitifySourceDigest -ProjectRoot ((Get-Item -LiteralPath $taskRoot).FullName + '\\')",
         quote(&helper),
         quote(root.path())
     );
@@ -227,8 +232,8 @@ fn windows_powershell_source_checker_agrees_with_rust_for_unicode_and_binary_inp
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert_eq!(
-        String::from_utf8(output.stdout).unwrap().trim(),
-        build_support::source_digest(root.path()).unwrap()
-    );
+    let expected = build_support::source_digest(root.path()).unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let hashes: Vec<_> = stdout.lines().map(str::trim).collect();
+    assert_eq!(hashes, vec![expected.as_str(); 3]);
 }
