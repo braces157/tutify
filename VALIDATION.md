@@ -32,6 +32,11 @@ Completed local release checks:
   the failure locally, then passed for ordinary, short-alias, and trailing-slash
   roots with Unicode filenames and binary content. All seven integration tests,
   formatting, and strict Clippy passed after the fix.
+- Hosted stable Rust 1.99 added a Clippy check for constant-size slice chunks.
+  The resampler now uses `as_chunks::<2>().0`, retaining complete stereo pairs
+  and the existing remainder behavior. Its stereo-slice/pair equivalence test
+  passed with the declared minimum Rust 1.88; the full release checks are repeated
+  for the final source before packaging.
 - The same application source previously passed the locked suite and release
   build with minimum Rust 1.88.0. Hosted CI independently tests the versioned
   source on stable and the minimum declared by Cargo.toml.

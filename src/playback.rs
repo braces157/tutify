@@ -415,7 +415,7 @@ impl SincResampler {
             self.pos = pad as f64;
         }
         self.history.reserve(num_frames);
-        for chunk in samples.chunks_exact(2) {
+        for chunk in samples.as_chunks::<2>().0 {
             self.history.push([chunk[0], chunk[1]]);
         }
         self.process_history(num_frames)
