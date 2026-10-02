@@ -10,7 +10,7 @@ pub(super) fn help(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, a
     Enter          Play track or open playlist\n\
     Backspace      Return from playlist to playlists index\n\
     a              View album for selected track\n\
-    Shift+A / A    View artist top tracks\n\
+    Shift+A / A    View artist tracks (Top Tracks or Artist Search)\n\
     Esc            Back to previous view / Close overlay / Quit\n\n\
     Mouse controls\n\
     Left click     Select row / switch view / edit search\n\
@@ -25,6 +25,12 @@ pub(super) fn help(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, a
     p              Play next (in Album/Artist views) / Previous track\n\
     Left / Right   Seek backward / forward 10 seconds\n\
     Home / End     Jump to beginning / end of track\n\n\
+    Listening tools\n\
+    F6             Sleep timer and queue cleanup menu\n\
+                   Choose 15/30/45/60 minutes or stop after the loaded track\n\
+                   Timer keeps running while paused; changing tracks cancels end-track mode\n\
+                   Remove played entries, upcoming duplicate IDs, or known unavailable tracks\n\
+                   Current track is preserved; queue cleanup can be undone\n\n\
     Volume\n\
     + / -          Volume up / down 5%\n\
     [ / ]          Fine volume control 1%\n\
@@ -32,11 +38,16 @@ pub(super) fn help(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, a
     Queue & playlists\n\
     u / Ctrl-Z     Undo queue edit (restores paused)\n\
     e              Add selected track to queue\n\
+    Ctrl+Enter     Play selected track next; Queue moves the existing occurrence\n\
     R (Shift-R)    Start Track Radio (play track & queue related recommendations)\n\
     K / J          Move selected track Up / Down in Queue\n\
     d / x / Delete Remove selected item from Queue\n\
     C (Shift-C)    Clear entire Queue\n\
     . or c         Jump to currently playing track in Queue\n\
+    / or f         Filter Queue by title, artist or album; Esc clears\n\
+    Ctrl+R         Restore the last cleared Queue filter\n\
+                   Enter finishes typing; actions keep original queue positions\n\
+                   Matches use loaded metadata; missing info is counted\n\
     s              Cycle shuffle: off / on / Smart (✦ suggestions)\n\
     r              Cycle repeat: Off -> Queue -> Track\n\n\
     Views & themes\n\
@@ -52,11 +63,15 @@ pub(super) fn help(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, a
     / or f         Filter loaded Liked/Playlist rows only\n\
     F2             Search Spotify catalog\n\
     F3             Search all saved Liked Songs/playlist tracks\n\
+    F4             Inspect skipped library sources (partial coverage)\n\
+    Up / Down      Recall recent searches while typing; Down restores your draft\n\
     Esc            Cancel library scan; retain partial matches\n\
     PgDn           Load next catalog page\n\
-    F5             Refresh / retry network connection\n\
+    F5             Refresh data / recheck access (service waits still apply)\n\
     q / Ctrl-C     Quit and save state\n\n\
     Troubleshooting\n\
+    F7             Recent errors; r previews a redacted support report; e exports the preview\n\
+    Diagnostics    `tuitify doctor` is offline; `tuitify support` previews redacted local JSON\n\
     Login issue? Exit and run `tuitify auth --force`.\n\
     Streaming issue? Run `tuitify auth --streaming --force`.\n\
     No audio? Check Windows default output device and Spotify Premium.";

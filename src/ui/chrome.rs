@@ -15,7 +15,7 @@ pub(super) fn header(frame: &mut Frame<'_>, app: &App, area: Rect) {
     );
 
     if area.width >= 58 {
-        let command_width = if area.width >= 86 { 28 } else { 17 };
+        let command_width = if area.width >= 86 { 38 } else { 24 };
         let parts = Layout::horizontal([Constraint::Min(24), Constraint::Length(command_width)])
             .split(area);
         let identity = Line::from(vec![
@@ -30,9 +30,9 @@ pub(super) fn header(frame: &mut Frame<'_>, app: &App, area: Rect) {
             ),
         ]);
         let commands = if area.width >= 86 {
-            "? Help   t Theme   q Quit "
+            "F6 Tools   ? Help   t Theme   q Quit "
         } else {
-            "? Help   q Quit "
+            "F6 Tools ? Help q Quit "
         };
         frame.render_widget(Paragraph::new(identity), parts[0]);
         frame.render_widget(
@@ -49,7 +49,7 @@ pub(super) fn header(frame: &mut Frame<'_>, app: &App, area: Rect) {
                     format!("  {version}"),
                     Style::default().fg(palette.text_muted),
                 ),
-                Span::styled("   ? Help", Style::default().fg(palette.text_muted)),
+                Span::styled("   F6 Tools", Style::default().fg(palette.text_muted)),
             ])),
             area,
         );
@@ -59,6 +59,25 @@ pub(super) fn header(frame: &mut Frame<'_>, app: &App, area: Rect) {
 pub(super) fn footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let theme = Theme::from_str(&app.config.theme);
     let palette = theme.palette();
+    if app.ui.overlay == Overlay::Diagnostics {
+        let view = &app.ui.diagnostics;
+        let message = if view.notice.is_empty() {
+            "Session errors survive status changes; reports are never uploaded automatically."
+        } else {
+            view.notice
+        };
+        let filename = view
+            .exported_name
+            .as_ref()
+            .map_or_else(String::new, |name| format!(" {name}"));
+        frame.render_widget(
+            Paragraph::new(format!("{message}{filename}"))
+                .style(Style::default().fg(palette.text_muted))
+                .wrap(Wrap { trim: true }),
+            area,
+        );
+        return;
+    }
     let status_split = Layout::vertical([Constraint::Length(1), Constraint::Min(0)]).split(area);
     let auth_expired = app.catalog_health == crate::catalog::Health::AuthenticationRequired;
 
@@ -101,7 +120,11 @@ pub(super) fn footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
         return;
     }
     let mut hints = Vec::new();
-    if app.ui.overlay == Overlay::MixBuilder {
+    if app.ui.overlay == Overlay::ListeningTools {
+        push_hint(&mut hints, "Enter", "Apply", true, theme);
+        push_hint(&mut hints, "↑/↓", "Choose", false, theme);
+        push_hint(&mut hints, "Esc", "Close", false, theme);
+    } else if app.ui.overlay == Overlay::MixBuilder {
         push_hint(&mut hints, "Enter", "Replace", true, theme);
         push_hint(&mut hints, "A", "Append", false, theme);
         push_hint(&mut hints, "p", "Pin", false, theme);
@@ -109,6 +132,13 @@ pub(super) fn footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
             push_hint(&mut hints, "g", "Regenerate", false, theme);
         }
         push_hint(&mut hints, "Esc", "Cancel", false, theme);
+    } else if app.catalog.view == View::Queue
+        && app.ui.overlay == Overlay::None
+        && app.ui.queue.editing
+    {
+        push_hint(&mut hints, "Enter", "Done", true, theme);
+        push_hint(&mut hints, "Esc", "Clear", false, theme);
+        push_hint(&mut hints, "↑/↓", "Matches", false, theme);
     } else {
         push_hint(&mut hints, "Space", "Play/Pause", true, theme);
         if !app.catalog.history.is_empty() {
@@ -117,7 +147,10 @@ pub(super) fn footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
         push_hint(
             &mut hints,
             "/",
-            if matches!(app.catalog.view, View::Liked | View::Playlists) {
+            if matches!(
+                app.catalog.view,
+                View::Liked | View::Playlists | View::Queue
+            ) {
                 "Filter"
             } else {
                 "Search"

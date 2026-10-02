@@ -89,14 +89,14 @@ async fn fetch_from(client: &Client, base: &str, track: &Track) -> Result<Option
     // artist alone. Stable ID count prevents splitting a single artist's name
     // such as "Earth, Wind & Fire" or guessing from legacy metadata.
     let artists: Vec<_> = track.artists.split(',').map(str::trim).collect();
-    if artists.len() > 1 && artists.len() == track.artist_ids.len() && !artists[0].is_empty() {
-        if let Some(json) =
+    if artists.len() > 1
+        && artists.len() == track.artist_ids.len()
+        && !artists[0].is_empty()
+        && let Some(json) =
             request(client, base, &track.name, artists[0], track.duration_ms).await?
-        {
-            if same_recording(&json, track, artists[0]) {
-                return Ok(Some(parse_lyrics(&json)));
-            }
-        }
+        && same_recording(&json, track, artists[0])
+    {
+        return Ok(Some(parse_lyrics(&json)));
     }
     Ok(None)
 }

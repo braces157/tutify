@@ -1,37 +1,25 @@
 use crate::{
-    auth::{TokenManager, http_client, retry_delay},
+    auth::{TokenManager, http_client},
     model::{Playlist, Track, track_id, valid_id},
+    service::{FailureKind, Provider, ServiceFailure},
 };
 use anyhow::{Context, Result, bail};
 use futures_util::{Stream, StreamExt};
 use serde_json::Value;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
-use std::{sync::Arc, time::Instant};
 use tokio::sync::Mutex;
 
+mod capabilities;
 mod discovery;
 mod similarity;
 pub(crate) use discovery::recording as recording_key;
 #[cfg(test)]
+mod capability_tests;
+#[cfg(test)]
 mod discovery_tests;
-
-#[derive(Debug)]
-pub struct MissingItem;
-impl std::fmt::Display for MissingItem {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("Track or playlist not available to this account. Choose another item.")
-    }
-}
-impl std::error::Error for MissingItem {}
-
-#[derive(Debug)]
-struct AccessDenied;
-impl std::fmt::Display for AccessDenied {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("Spotify denied access. Playlist items require ownership or collaboration in development mode. Also check app user access, scopes, and the app owner's Premium subscription.")
-    }
-}
-impl std::error::Error for AccessDenied {}
+#[cfg(test)]
+mod failure_tests;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Browse {
@@ -54,6 +42,23 @@ pub struct Page {
     pub rows: Rows,
     pub offset: usize,
     pub next: Option<usize>,
+    pub artist_source: Option<ArtistResultSource>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ArtistResultSource {
+    TopTracks,
+    ArtistSearch,
+    Demo,
+}
+impl ArtistResultSource {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::TopTracks => "Top Tracks",
+            Self::ArtistSearch => "Artist Search",
+            Self::Demo => "Demo Tracks",
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -89,19 +94,67 @@ pub enum Health {
     AuthenticationRequired,
 }
 
+/// Aggregate session observations only; no resource/account IDs are exported.
+#[derive(Clone, Debug, serde::Serialize)]
+pub(crate) struct CapabilitySummary {
+    pub endpoint: &'static str,
+    pub supported: usize,
+    pub restricted: usize,
+    pub missing: usize,
+    pub unknown: usize,
+}
+impl CapabilitySummary {
+    pub fn unknown() -> Vec<Self> {
+        [
+            "artist_top_tracks",
+            "recommendations",
+            "playlist_items",
+            "save_library",
+            "remove_library",
+        ]
+        .into_iter()
+        .map(|endpoint| Self {
+            endpoint,
+            supported: 0,
+            restricted: 0,
+            missing: 0,
+            unknown: 0,
+        })
+        .collect()
+    }
+}
+
 #[derive(Clone)]
 pub struct Catalog {
     client: reqwest::Client,
     tokens: TokenManager,
     base: String,
-    cooldown: Arc<Mutex<Option<Instant>>>,
+    cooldown: Arc<Mutex<Option<ServiceFailure>>>,
     health: Arc<AtomicU8>,
+    capabilities: Arc<capabilities::Capabilities>,
     offline: bool,
     discovery: Arc<Mutex<std::collections::HashMap<String, discovery::Profile>>>,
     similarity: Option<similarity::Similarity>,
 }
 
 impl Catalog {
+    pub(crate) fn capability_summary(&self) -> Vec<CapabilitySummary> {
+        self.capabilities.summary()
+    }
+    /// Only failures from the playlist-items endpoint may be skipped by a
+    /// library scan. Token-service failures can have the same HTTP status.
+    pub(crate) fn inaccessible_playlist(error: &anyhow::Error) -> Option<FailureKind> {
+        if !error.is::<capabilities::Denied>() {
+            return None;
+        }
+        let kind = error.downcast_ref::<ServiceFailure>()?.kind;
+        matches!(
+            kind,
+            FailureKind::AccessRestricted | FailureKind::MissingItem
+        )
+        .then_some(kind)
+    }
+
     pub(crate) fn offline() -> Result<Self> {
         Ok(Self {
             offline: true,
@@ -114,6 +167,12 @@ impl Catalog {
         let mut catalog = Self::new(TokenManager::mock(format!("{base}/token"), false)).unwrap();
         catalog.base = base.to_owned();
         catalog.similarity = None;
+        catalog
+    }
+    #[cfg(test)]
+    pub(crate) fn mock_with_tokens(base: &str, tokens: TokenManager) -> Self {
+        let mut catalog = Self::mock(base);
+        catalog.tokens = tokens;
         catalog
     }
 
@@ -131,6 +190,7 @@ impl Catalog {
             base: "https://api.spotify.com/v1".into(),
             cooldown: Arc::new(Mutex::new(None)),
             health: Arc::new(AtomicU8::new(0)),
+            capabilities: Arc::new(capabilities::Capabilities::default()),
             offline: false,
             discovery: Arc::new(Mutex::new(std::collections::HashMap::new())),
             similarity: Some(similarity::Similarity::new()?),
@@ -146,13 +206,20 @@ impl Catalog {
     }
 
     pub(crate) async fn get(&self, path: &str, query: &[(&str, String)]) -> Result<Value> {
-        let result = self.request(path, query).await;
+        let result = self.capability_request(path, query).await;
         match &result {
             Ok(_) => self.health.store(1, Ordering::Relaxed),
-            Err(error) if error.is::<crate::auth::AuthenticationRequired>() => {
+            Err(error) if ServiceFailure::is(error, FailureKind::AuthenticationRequired) => {
                 self.health.store(3, Ordering::Relaxed);
             }
-            Err(_) => {
+            Err(error) => {
+                // Token refresh can fail with its own rate/quota gate. Share
+                // that cause with every catalog clone and cached access path.
+                if let Some(failure) = error.downcast_ref::<ServiceFailure>()
+                    && failure.throttled()
+                {
+                    *self.cooldown.lock().await = Some(*failure);
+                }
                 // A network outage does not resolve a known authentication failure.
                 if self.health() != Health::AuthenticationRequired {
                     self.health.store(2, Ordering::Relaxed);
@@ -162,17 +229,56 @@ impl Catalog {
         result
     }
 
+    pub(crate) fn refresh_capabilities(&self) {
+        self.capabilities.refresh();
+    }
+
+    async fn capability_request(&self, path: &str, query: &[(&str, String)]) -> Result<Value> {
+        let Some(key) = capabilities::Key::for_request("GET", path, query) else {
+            return self.request(path, query).await;
+        };
+        let slot = self.capabilities.slot(key.clone());
+        // Serialize only identical capability scopes. Different resources and
+        // ordinary metadata requests continue independently.
+        let mut observation = slot.lock().await;
+        if let Some(failure) = *self.cooldown.lock().await
+            && failure.active()
+        {
+            return Err(failure.into());
+        }
+        if let Some(failure) = observation.and_then(capabilities::Observation::denial) {
+            return Err(anyhow::Error::new(failure).context(capabilities::Denied).context(
+                "Recent access restriction remembered for this item; press F5 to recheck (expires within five minutes)"
+            ));
+        }
+        let result = self.request(path, query).await.and_then(|value| {
+            if key.metadata_only_playlist(&value) {
+                let mut failure = ServiceFailure::spotify(FailureKind::AccessRestricted);
+                failure.status = Some(200);
+                Err(anyhow::Error::new(failure).context(capabilities::Denied))
+            } else if !key.expected_shape(&value) {
+                Err(
+                    anyhow::Error::new(ServiceFailure::spotify(FailureKind::InvalidResponse))
+                        .context(key.invalid_response_hint()),
+                )
+            } else {
+                Ok(value)
+            }
+        });
+        // Authentication, cooldown/quota, transport and malformed responses
+        // establish no endpoint capability. Never memoize these as a denial.
+        *observation = capabilities::Observation::from_result(&result);
+        result
+    }
+
     async fn request(&self, path: &str, query: &[(&str, String)]) -> Result<Value> {
         if self.offline {
             bail!("Offline catalog boundary rejected a network request");
         }
-        if let Some(until) = *self.cooldown.lock().await {
-            if until > Instant::now() {
-                bail!(
-                    "Spotify rate limit: wait {} seconds, then press F5 to retry",
-                    until.saturating_duration_since(Instant::now()).as_secs() + 1
-                );
-            }
+        if let Some(failure) = *self.cooldown.lock().await
+            && failure.active()
+        {
+            return Err(failure.into());
         }
         let mut token = self.tokens.access().await?;
         for attempt in 0..2 {
@@ -183,35 +289,31 @@ impl Catalog {
                 .bearer_auth(&token)
                 .send()
                 .await
-                .context("Cannot reach Spotify. Check your connection, then press F5 to retry")?;
+                .map_err(|_| ServiceFailure::spotify(FailureKind::Transport))?;
             match response.status().as_u16() {
                 200 => {
-                    return response.json().await.context(
-                        "Spotify returned an invalid catalog response; press F5 to retry",
-                    );
+                    return response
+                        .json()
+                        .await
+                        .map_err(|_| ServiceFailure::spotify(FailureKind::InvalidResponse).into());
                 }
                 401 if attempt == 0 => {
                     token = self.tokens.refresh_rejected(&token).await?;
                 }
-                401 => return Err(crate::auth::AuthenticationRequired.into()),
-                403 => return Err(AccessDenied.into()),
-                404 => return Err(MissingItem.into()),
-                429 => {
-                    let wait = retry_delay(
-                        response
-                            .headers()
-                            .get("retry-after")
-                            .and_then(|v| v.to_str().ok()),
-                    );
-                    *self.cooldown.lock().await = Instant::now().checked_add(wait);
-                    bail!(
-                        "Spotify rate limit: wait {} seconds, then press F5 to retry",
-                        wait.as_secs()
-                    );
+                _ => {
+                    let failure = ServiceFailure::from_response(response, Provider::Spotify).await;
+                    if failure.throttled() {
+                        *self.cooldown.lock().await = Some(failure);
+                    }
+                    if matches!(
+                        failure.kind,
+                        FailureKind::AccessRestricted | FailureKind::MissingItem
+                    ) && capabilities::Key::for_request("GET", path, query).is_some()
+                    {
+                        return Err(anyhow::Error::new(failure).context(capabilities::Denied));
+                    }
+                    return Err(failure.into());
                 }
-                status => bail!(
-                    "Spotify returned HTTP {status}. Retry later with F5; your queue is preserved."
-                ),
             }
         }
         unreachable!()
@@ -243,39 +345,43 @@ impl Catalog {
     pub async fn recommendations(&self, seed: &Track) -> Result<Recommendations> {
         let normalized_seed = normalize_title(&seed.name);
 
-        // 1. Try official /v1/recommendations endpoint first
         let rec_query = [("seed_tracks", seed.id.clone()), ("limit", "20".into())];
-        if let Ok(value) = self.get("/recommendations", &rec_query).await {
-            if let Some(items) = value["tracks"].as_array() {
-                let mut tracks = Vec::new();
-                let mut seen_titles = std::collections::HashSet::new();
-                let mut seen_ids = std::collections::HashSet::new();
-                seen_titles.insert(normalized_seed.clone());
-
-                for item in items {
-                    if let Some(t) = parse_track(item) {
-                        let norm = normalize_title(&t.name);
-                        if t.playable
-                            && t.id != seed.id
-                            && !seen_titles.contains(&norm)
-                            && seen_ids.insert(t.id.clone())
-                        {
-                            seen_titles.insert(norm);
-                            tracks.push(t);
-                        }
-                    }
-                }
-                // Keep Spotify's ordering, including small recommendation pools.
-                if !tracks.is_empty() {
-                    return Ok(Recommendations {
-                        tracks,
-                        source: RecommendationSource::Spotify,
-                    });
+        let value = match self.get("/recommendations", &rec_query).await {
+            Ok(value) => value,
+            Err(error)
+                if error.is::<capabilities::Denied>()
+                    && ServiceFailure::is(&error, FailureKind::AccessRestricted) =>
+            {
+                return self.collaboration_recommendations(seed).await;
+            }
+            Err(error) => return Err(error),
+        };
+        let items = value["tracks"]
+            .as_array()
+            .ok_or_else(|| ServiceFailure::spotify(FailureKind::InvalidResponse))?;
+        let mut tracks = Vec::new();
+        let mut seen_titles = std::collections::HashSet::new();
+        let mut seen_ids = std::collections::HashSet::new();
+        seen_titles.insert(normalized_seed);
+        for item in items {
+            if let Some(track) = parse_track(item) {
+                let normalized = normalize_title(&track.name);
+                if track.playable
+                    && track.id != seed.id
+                    && !seen_titles.contains(&normalized)
+                    && seen_ids.insert(track.id.clone())
+                {
+                    seen_titles.insert(normalized);
+                    tracks.push(track);
                 }
             }
         }
-
-        self.collaboration_recommendations(seed).await
+        // A valid empty pool stays an empty Spotify result, not evidence of an
+        // unavailable endpoint. Preserve the successful provider's ordering.
+        Ok(Recommendations {
+            tracks,
+            source: RecommendationSource::Spotify,
+        })
     }
 
     /// Smart Shuffle uses supported catalog search rather than the deprecated
@@ -295,12 +401,24 @@ impl Catalog {
     }
 
     pub async fn page(&self, browse: &Browse, offset: usize) -> Result<Page> {
+        self.page_with_artist_source(browse, offset, None).await
+    }
+
+    /// Continuations retain the source established by the first artist page.
+    /// A fresh request (offset zero, including F5) probes Top Tracks again.
+    pub(crate) async fn page_with_artist_source(
+        &self,
+        browse: &Browse,
+        offset: usize,
+        artist_source: Option<ArtistResultSource>,
+    ) -> Result<Page> {
         if let Browse::Search(query) = browse {
             if let Some(id) = track_id(query) {
                 return Ok(Page {
                     rows: Rows::Tracks(vec![self.track(&id).await?]),
                     offset: 0,
                     next: None,
+                    artist_source: None,
                 });
             }
             if query.trim().is_empty() {
@@ -308,6 +426,7 @@ impl Catalog {
                     rows: Rows::Tracks(vec![]),
                     offset: 0,
                     next: None,
+                    artist_source: None,
                 });
             }
         }
@@ -342,69 +461,74 @@ impl Catalog {
                 rows: Rows::Tracks(tracks),
                 offset,
                 next,
+                artist_source: None,
             });
         }
         if let Browse::Artist(id) = browse {
             if !valid_id(id) {
                 bail!("Invalid artist ID");
             }
-            let query = [("market", "from_token".to_string())];
-            match self.get(&format!("/artists/{id}/top-tracks"), &query).await {
-                Ok(value) => {
-                    let tracks = value["tracks"]
-                        .as_array()
-                        .context("Spotify omitted catalog items; press F5 to retry")?
-                        .iter()
-                        .filter_map(parse_track)
-                        .collect();
-                    return Ok(Page {
-                        rows: Rows::Tracks(tracks),
-                        offset,
-                        next: None,
-                    });
-                }
-                Err(err) if err.is::<AccessDenied>() => {
-                    // In Development Mode, Spotify rejects /artists/{id}/top-tracks with 403 Forbidden.
-                    // Fall back to resolving the artist's name and searching their popular tracks.
-                    if let Ok(info) = self.get(&format!("/artists/{id}"), &[]).await {
-                        if let Some(name) = info["name"].as_str() {
-                            let search_query = [
-                                ("type", "track".to_string()),
-                                ("q", format!("artist:\"{name}\"")),
-                                ("limit", "10".to_string()),
-                                ("offset", offset.to_string()),
-                            ];
-                            if let Ok(search_val) = self.get("/search", &search_query).await {
-                                if let Some(items) = search_val["tracks"]["items"].as_array() {
-                                    // Search is fuzzy and artist names are not
-                                    // unique. Retain only verified Spotify IDs,
-                                    // including collaborations with this artist.
-                                    let tracks: Vec<Track> = items
-                                        .iter()
-                                        .filter_map(parse_track)
-                                        .filter(|track| track.artist_ids.contains(id))
-                                        .collect();
-                                    let next = if !search_val["tracks"]["next"].is_null()
-                                        && search_val["tracks"].get("next").is_some()
-                                        && search_val["tracks"]["next"].as_str() != Some("")
-                                    {
-                                        offset.checked_add(10)
-                                    } else {
-                                        None
-                                    };
-                                    return Ok(Page {
-                                        rows: Rows::Tracks(tracks),
-                                        offset,
-                                        next,
-                                    });
-                                }
-                            }
-                        }
+            if offset == 0 || artist_source != Some(ArtistResultSource::ArtistSearch) {
+                let query = [("market", "from_token".to_string())];
+                match self.get(&format!("/artists/{id}/top-tracks"), &query).await {
+                    Ok(value) => {
+                        let tracks = value["tracks"]
+                            .as_array()
+                            .context("Spotify omitted catalog items; press F5 to retry")?
+                            .iter()
+                            .filter_map(parse_track)
+                            .collect();
+                        return Ok(Page {
+                            rows: Rows::Tracks(tracks),
+                            offset,
+                            next: None,
+                            artist_source: Some(ArtistResultSource::TopTracks),
+                        });
                     }
-                    return Err(err);
+                    Err(err)
+                        if err.is::<capabilities::Denied>()
+                            && ServiceFailure::is(&err, FailureKind::AccessRestricted) =>
+                    {
+                        // A classified catalog restriction permits Artist Search.
+                    }
+                    Err(err) => return Err(err),
                 }
-                Err(err) => return Err(err),
             }
+            // Search results must retain verified artist membership.
+            // Preserve a fallback's failure rather than the initial denial.
+            let info = self.get(&format!("/artists/{id}"), &[]).await?;
+            let name = info["name"]
+                .as_str()
+                .ok_or_else(|| ServiceFailure::spotify(FailureKind::InvalidResponse))?;
+            let search_query = [
+                ("type", "track".to_string()),
+                ("q", format!("artist:\"{name}\"")),
+                ("limit", "10".to_string()),
+                ("offset", offset.to_string()),
+            ];
+            let search_val = self.get("/search", &search_query).await?;
+            let items = search_val["tracks"]["items"]
+                .as_array()
+                .ok_or_else(|| ServiceFailure::spotify(FailureKind::InvalidResponse))?;
+            let tracks = items
+                .iter()
+                .filter_map(parse_track)
+                .filter(|track| track.artist_ids.contains(id))
+                .collect();
+            let next = if !search_val["tracks"]["next"].is_null()
+                && search_val["tracks"].get("next").is_some()
+                && search_val["tracks"]["next"].as_str() != Some("")
+            {
+                offset.checked_add(10)
+            } else {
+                None
+            };
+            return Ok(Page {
+                rows: Rows::Tracks(tracks),
+                offset,
+                next,
+                artist_source: Some(ArtistResultSource::ArtistSearch),
+            });
         }
         let limit = if matches!(browse, Browse::Search(_)) {
             10
@@ -435,9 +559,7 @@ impl Catalog {
         };
         let Some(items) = page["items"].as_array() else {
             if matches!(browse, Browse::Playlist(_)) {
-                bail!(
-                    "Playlist contents are restricted to owners or collaborators in Spotify development mode; this account can only see its metadata."
-                );
+                return Err(ServiceFailure::spotify(FailureKind::InvalidResponse).into());
             }
             bail!("Spotify omitted catalog items; press F5 to retry");
         };
@@ -480,7 +602,12 @@ impl Catalog {
                     .collect(),
             )
         };
-        Ok(Page { rows, offset, next })
+        Ok(Page {
+            rows,
+            offset,
+            next,
+            artist_source: None,
+        })
     }
 }
 
@@ -648,7 +775,10 @@ mod tests {
             .mount(&server)
             .await;
         let error = catalog.page(&Browse::Liked, 0).await.unwrap_err();
-        assert!(error.is::<crate::auth::AuthenticationRequired>());
+        assert!(ServiceFailure::is(
+            &error,
+            FailureKind::AuthenticationRequired
+        ));
         assert_eq!(observer.health(), Health::AuthenticationRequired);
 
         server.reset().await;
@@ -1225,6 +1355,7 @@ mod tests {
             .unwrap();
         assert_eq!(page.offset, 0);
         assert_eq!(page.next, None);
+        assert_eq!(page.artist_source, Some(ArtistResultSource::TopTracks));
         match page.rows {
             Rows::Tracks(tracks) => {
                 assert_eq!(tracks.len(), 1);
@@ -1284,7 +1415,7 @@ mod tests {
             .page(&Browse::Artist(artist_id.into()), 0)
             .await
             .unwrap_err();
-        assert!(err.is::<MissingItem>());
+        assert!(ServiceFailure::is(&err, FailureKind::MissingItem));
     }
 
     #[tokio::test]
@@ -1378,6 +1509,7 @@ mod tests {
             .unwrap();
         assert_eq!(page.offset, 0);
         assert_eq!(page.next, None);
+        assert_eq!(page.artist_source, Some(ArtistResultSource::ArtistSearch));
         match page.rows {
             Rows::Tracks(tracks) => {
                 assert_eq!(tracks.len(), 2);

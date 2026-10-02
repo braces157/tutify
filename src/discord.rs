@@ -88,14 +88,13 @@ impl DiscordPresence {
 
     pub async fn close(&mut self) {
         self.tx.take();
-        if let Some(mut task) = self.task.take() {
-            if tokio::time::timeout(Duration::from_millis(750), &mut task)
+        if let Some(mut task) = self.task.take()
+            && tokio::time::timeout(Duration::from_millis(750), &mut task)
                 .await
                 .is_err()
-            {
-                task.abort();
-                let _ = task.await;
-            }
+        {
+            task.abort();
+            let _ = task.await;
         }
     }
 
@@ -436,19 +435,17 @@ async fn worker_with_connector<F, Fut>(
                 let Some(update) = rx.borrow_and_update().clone() else { continue; };
                 if pipe.is_none() {
                     if !matches!(update.snapshot.state, State::Playing | State::Paused) || update.snapshot.track.is_none() { continue; }
-                    if let Ok(mut candidate) = connect().await {
-                        if handshake(&mut candidate, &client_id).await.is_ok() { pipe = Some(candidate); }
-                    }
+                    if let Ok(mut candidate) = connect().await
+                        && handshake(&mut candidate, &client_id).await.is_ok() { pipe = Some(candidate); }
                 }
                 let Some(p) = &mut pipe else { continue; };
                 let snapshot = update.current();
-                if let Some(track) = &snapshot.track {
-                    if track.album_art_url.is_none() && !art_cache.contains_key(&track.id) {
+                if let Some(track) = &snapshot.track
+                    && track.album_art_url.is_none() && !art_cache.contains_key(&track.id) {
                         let art = if let Some(client) = &http_client { fetch_album_art(client, &track.id).await } else { None };
                         if art_cache.len() >= 256 { art_cache.clear(); }
                         art_cache.insert(track.id.clone(), art);
                     }
-                }
                 // A skip/pause can arrive during an artwork request: always send
                 // the newest state, never a buffered song that has already ended.
                 let Some(update) = rx.borrow_and_update().clone() else { continue; };

@@ -118,7 +118,7 @@ pub async fn run(store: Storage, native_glass: bool, glass: bool) -> Result<()> 
     );
     match store.cache() {
         Ok(cache) => app.cache = cache,
-        Err(_) => app.status = "Old or invalid metadata cache ignored; names will reload. Use clear-cache to remove it.".into(),
+        Err(_) => app.status = "Metadata cache unavailable and preserved; names will reload. Use state inspect cache or clear-cache.".into(),
     }
     app.stats.refresh_metadata(&app.cache);
     let (bg_tx, mut bg_rx) = mpsc::unbounded_channel();
@@ -186,6 +186,7 @@ pub async fn run(store: Storage, native_glass: bool, glass: bool) -> Result<()> 
     let mut last_draw = Instant::now() - Duration::from_millis(33);
     let result: Result<()> = async {
         loop {
+            if app.check_sleep(Instant::now(), &playback.commands) { dirty = true; }
             app.catalog_health = tasks.catalog.health();
             if let Some(controls) = &mut media_controls {
                 controls.update(media_controls::Snapshot {
@@ -241,7 +242,9 @@ pub async fn run(store: Storage, native_glass: bool, glass: bool) -> Result<()> 
             let animation = app.animation_interval();
             let idle_refresh = app.idle_refresh_interval();
             let orientation_delay = orientation_sync.delay(Instant::now());
-            let deadline = refresh_deadline(Instant::now(), last_draw, dirty, animation, idle_refresh, orientation_delay);
+            let now = Instant::now();
+            let deadline = refresh_deadline(now, last_draw, dirty, animation, idle_refresh, orientation_delay)
+                .into_iter().chain(app.ui.listening.sleep.refresh_at(now)).min();
             // The branch is disabled when no refresh is scheduled.
             let wake_at = tokio::time::Instant::from_std(deadline.unwrap_or(last_draw));
             tokio::select! {
@@ -280,6 +283,7 @@ pub async fn run(store: Storage, native_glass: bool, glass: bool) -> Result<()> 
                         }
                         app.loaded = false;
                         app.state = State::Failed;
+                        app.ui.diagnostics.history.record_text(Subsystem::Playback, "Playback worker exited");
                         app.status = "Playback worker exited; restart Tuitify.".into();
                     }
                     app.ui.render.borrow_mut().mouse_hits.clear();
@@ -301,7 +305,10 @@ pub async fn run(store: Storage, native_glass: bool, glass: bool) -> Result<()> 
                         match result {
                             Ok(()) if app.status.starts_with("Glass orientation update failed:") => app.status.clear(),
                             Ok(()) => (),
-                            Err(error) => app.status = format!("Glass orientation update failed: {error}. Retrying shortly."),
+                            Err(error) => {
+                                app.ui.diagnostics.history.record_text(Subsystem::Terminal, &error);
+                                app.status = format!("Glass orientation update failed: {error}. Retrying shortly.");
+                            },
                         }
                     }
                     dirty = true;

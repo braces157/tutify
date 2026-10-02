@@ -12,6 +12,10 @@ pub struct HistoryEntry {
     pub next: Option<usize>,
     pub query: String,
     pub search_scope: SearchScope,
+    pub library_scanned: usize,
+    pub library_skipped: Arc<Vec<crate::library::SkippedPlaylist>>,
+    pub artist_source: Option<crate::catalog::ArtistResultSource>,
+    pub artist_label: String,
     pub filter: String,
     pub filtering: bool,
     #[allow(dead_code)]
@@ -39,6 +43,9 @@ pub struct BrowseState {
     pub query: String,
     pub search_scope: SearchScope,
     pub library_scanned: usize,
+    pub library_skipped: Arc<Vec<crate::library::SkippedPlaylist>>,
+    pub artist_source: Option<crate::catalog::ArtistResultSource>,
+    pub artist_label: String,
     pub editing: bool,
     pub busy: bool,
     pub title: String,
@@ -62,6 +69,9 @@ impl BrowseState {
             query: String::new(),
             search_scope: SearchScope::Spotify,
             library_scanned: 0,
+            library_skipped: Arc::new(Vec::new()),
+            artist_source: None,
+            artist_label: "Artist".into(),
             editing: false,
             busy: false,
             title: "Search".into(),
@@ -145,6 +155,7 @@ impl BrowseState {
         cached.indices.clone()
     }
     pub(super) fn reset_rows(&mut self) {
+        self.artist_source = None;
         self.rows = Rows::Tracks(Vec::new());
         self.rows_revision = self.rows_revision.wrapping_add(1);
     }
@@ -160,6 +171,13 @@ impl BrowseState {
     }
 
     pub(super) fn apply_page(&mut self, page: super::Page) {
+        self.artist_source = page.artist_source;
+        if self.view == View::Artist {
+            self.title = match self.artist_source {
+                Some(source) => format!("{} • {}", self.artist_label, source.label()),
+                None => self.artist_label.clone(),
+            };
+        }
         self.next = page.next;
         self.rows_revision = self.rows_revision.wrapping_add(1);
         if page.offset == 0 {
@@ -191,13 +209,26 @@ impl App {
         let entry = HistoryEntry {
             view: self.catalog.view,
             browse: self.catalog.browse.clone(),
-            title: self.catalog.title.clone(),
+            title: if self.catalog.view == View::Search
+                && self.catalog.search_scope == SearchScope::Library
+                && self.catalog.busy
+            {
+                // Navigating away aborts this scan; returning restores a
+                // snapshot, not a running job.
+                "Saved library — partial results".into()
+            } else {
+                self.catalog.title.clone()
+            },
             selected: self.catalog.selected,
             scroll: self.ui.render.borrow().catalog_scroll,
             rows: self.catalog.rows.clone(),
             next: self.catalog.next,
             query: self.catalog.query.clone(),
             search_scope: self.catalog.search_scope,
+            library_scanned: self.catalog.library_scanned,
+            library_skipped: self.catalog.library_skipped.clone(),
+            artist_source: self.catalog.artist_source,
+            artist_label: self.catalog.artist_label.clone(),
             filter: self.catalog.filter.clone(),
             filtering: self.catalog.filtering,
             breadcrumb,
@@ -218,6 +249,10 @@ impl App {
             self.catalog.next = entry.next;
             self.catalog.query = entry.query;
             self.catalog.search_scope = entry.search_scope;
+            self.catalog.library_scanned = entry.library_scanned;
+            self.catalog.library_skipped = entry.library_skipped;
+            self.catalog.artist_source = entry.artist_source;
+            self.catalog.artist_label = entry.artist_label;
             self.catalog.filter = entry.filter;
             self.catalog.filtering = entry.filtering;
             self.catalog.editing = false;

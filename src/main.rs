@@ -1,5 +1,6 @@
 mod app;
 mod auth;
+mod build_info;
 mod cache;
 mod catalog;
 mod demo;
@@ -12,13 +13,14 @@ mod mix;
 mod model;
 mod playback;
 mod queue;
+mod service;
 pub mod stats;
 mod storage;
 mod terminal_profile;
 mod ui;
 pub mod visualizer;
 
-use anyhow::Result;
+use anyhow::{Result, ensure};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
@@ -43,8 +45,21 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Show immutable source/compiler identity and the observed executable hash.
+    Version {
+        /// Machine-readable build identity without authentication or saved-state access.
+        #[arg(long)]
+        json: bool,
+    },
     /// Run the real terminal UI with an isolated fictional catalog and simulated playback.
     Demo,
+    /// Read-only installation, terminal, state, credential, audio and catalog diagnostics.
+    Doctor(diagnostics::doctor::Options),
+    /// Preview redacted local diagnostics as JSON; optionally save a new report file.
+    Support {
+        #[arg(long)]
+        output: Option<PathBuf>,
+    },
     /// Guided setup; reuse saved logins and open any missing browser login steps.
     Auth {
         /// Use a personal Spotify Developer app for catalog requests instead
@@ -61,6 +76,23 @@ enum Command {
     Logout,
     /// Delete cached track names and availability; keep credentials and queue.
     ClearCache,
+    /// Inspect, back up, or recover one state file without authentication or music.
+    State {
+        #[command(subcommand)]
+        command: StateCommand,
+    },
+    /// Create a versioned backup of settings, queue, recipes, and aggregate stats.
+    Backup {
+        /// New backup file, outside the live data directory; never overwritten.
+        file: PathBuf,
+    },
+    /// Preview a validated saved-state restore; credentials and cache stay unchanged.
+    Restore {
+        file: PathBuf,
+        /// Apply exactly the preview identified by this confirmation token.
+        #[arg(long, value_parser = storage::confirmation_token)]
+        confirm: Option<String>,
+    },
     /// Configure the Glass background image and dimming for both terminal orientations.
     Background {
         /// JPEG, PNG, WebP, or BMP image to use behind the terminal UI.
@@ -80,12 +112,130 @@ enum Command {
     Probe { track: String },
 }
 
+#[derive(Subcommand)]
+enum StateCommand {
+    /// Report file/version/invariant failures; no saved state is changed.
+    Inspect {
+        #[arg(value_enum)]
+        file: Option<storage::StateFile>,
+    },
+    /// Preserve this file's exact bytes, including damaged or future-version data.
+    Backup {
+        #[arg(value_enum)]
+        file: storage::StateFile,
+        destination: PathBuf,
+    },
+    /// Preview restoring just this file from a component or whole-state backup.
+    Restore {
+        #[arg(value_enum)]
+        file: storage::StateFile,
+        source: PathBuf,
+        /// Optional destination for the original-file backup; defaults beside the data directory.
+        #[arg(long)]
+        backup: Option<PathBuf>,
+        #[arg(long, value_parser = storage::confirmation_token)]
+        confirm: Option<String>,
+    },
+    /// Preview resetting just this file; preserve its original in a component backup.
+    Reset {
+        #[arg(value_enum)]
+        file: storage::StateFile,
+        #[arg(long)]
+        backup: Option<PathBuf>,
+        #[arg(long, value_parser = storage::confirmation_token)]
+        confirm: Option<String>,
+    },
+}
+
+fn state_command(store: &storage::Storage, command: StateCommand) -> Result<()> {
+    match command {
+        StateCommand::Inspect { file } => {
+            let files = file.map_or_else(|| storage::StateFile::ALL.to_vec(), |file| vec![file]);
+            let mut healthy = true;
+            for file in files {
+                let inspection = store.inspect_state(file);
+                healthy &= inspection.result.is_ok();
+                println!("{inspection}");
+            }
+            ensure!(
+                healthy,
+                "Saved-state inspection found failures; original files were preserved"
+            );
+        }
+        StateCommand::Backup { file, destination } => {
+            store.backup_component(file, &destination)?;
+            println!(
+                "{} preserved in component backup: {}",
+                file.name(),
+                destination.display()
+            );
+            println!(
+                "Exact original bytes are retained even if damaged or unsupported; restore requires valid supported state."
+            );
+        }
+        StateCommand::Restore {
+            file,
+            source,
+            backup,
+            confirm,
+        } => {
+            recover_state(store, file, Some(source), backup, confirm)?;
+        }
+        StateCommand::Reset {
+            file,
+            backup,
+            confirm,
+        } => {
+            recover_state(store, file, None, backup, confirm)?;
+        }
+    }
+    Ok(())
+}
+fn recover_state(
+    store: &storage::Storage,
+    file: storage::StateFile,
+    source: Option<PathBuf>,
+    backup: Option<PathBuf>,
+    confirm: Option<String>,
+) -> Result<()> {
+    let preview = store.recovery_preview(file, source.as_deref(), backup.as_deref())?;
+    println!("{preview}");
+    if let Some(confirm) = confirm {
+        std::io::Write::flush(&mut std::io::stdout())?;
+        preview.apply(store, &confirm)?;
+        println!("Recovery complete for {}.", file.name());
+    } else {
+        println!("Preview only; no state files or credentials were changed.");
+        let quote =
+            |path: &std::path::Path| format!("'{}'", path.to_string_lossy().replace('\'', "''"));
+        let action = match source {
+            Some(source) => format!("restore {} {}", file.argument(), quote(&source)),
+            None => format!("reset {}", file.argument()),
+        };
+        let backup = backup.map_or_else(String::new, |path| format!(" --backup {}", quote(&path)));
+        println!(
+            "Apply this preview: tuitify state {action}{backup} --confirm {}",
+            preview.token
+        );
+    }
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     diagnostics::init();
     let cli = Cli::parse();
+    if let Some(Command::Version { json }) = cli.command {
+        return build_info::run(json);
+    }
     if matches!(cli.command, Some(Command::Demo)) {
         return app::run_demo(cli.glass).await;
+    }
+    if let Some(Command::Doctor(options)) = cli.command {
+        return diagnostics::doctor::run(options).await;
+    }
+    if let Some(Command::Support { output }) = cli.command {
+        return diagnostics::support::run(output).await;
     }
     let store = storage::Storage::local()?;
     let mut instance = Some(store.lock()?);
@@ -102,7 +252,9 @@ async fn main() -> Result<()> {
     }
     let _instance = instance;
     match cli.command {
-        Some(Command::Demo) => unreachable!(),
+        Some(
+            Command::Demo | Command::Doctor(_) | Command::Support { .. } | Command::Version { .. },
+        ) => unreachable!(),
         Some(Command::Auth {
             client_id,
             streaming,
@@ -123,6 +275,32 @@ async fn main() -> Result<()> {
         Some(Command::ClearCache) => {
             store.clear_cache()?;
             println!("Metadata cache cleared.");
+            Ok(())
+        }
+        Some(Command::State { command }) => state_command(&store, command),
+        Some(Command::Backup { file }) => {
+            store.backup(&file)?;
+            println!("Saved-state backup created: {}", file.display());
+            println!(
+                "Includes config, queue, mix recipes, and aggregate statistics. Credentials and cache are excluded."
+            );
+            Ok(())
+        }
+        Some(Command::Restore { file, confirm }) => {
+            let preview = store.restore_preview(&file)?;
+            println!("{preview}");
+            if let Some(token) = confirm {
+                std::io::Write::flush(&mut std::io::stdout())?;
+                preview.apply(&store, &token)?;
+                println!("Restore complete. Credentials and cache were left unchanged.");
+            } else {
+                println!("Preview only; no saved-state files were changed.");
+                println!(
+                    "Apply this preview: tuitify restore '{}' --confirm {}",
+                    file.to_string_lossy().replace('\'', "''"),
+                    preview.token
+                );
+            }
             Ok(())
         }
         Some(Command::Background {
@@ -212,6 +390,64 @@ mod tests {
     use super::*;
 
     #[test]
+    fn cli_state_recovery_is_whitelisted_and_reset_restore_default_to_preview() {
+        assert!(Cli::try_parse_from(["tuitify", "state", "inspect"]).is_ok());
+        assert!(Cli::try_parse_from(["tuitify", "state", "inspect", "mix-recipes.json"]).is_ok());
+        assert!(Cli::try_parse_from(["tuitify", "state", "backup", "recipes", "out.json"]).is_ok());
+        for command in ["reset", "restore"] {
+            let mut args = vec!["tuitify", "state", command, "recipes"];
+            if command == "restore" {
+                args.push("out.json");
+            }
+            let cli = Cli::try_parse_from(args.clone()).unwrap();
+            assert!(matches!(
+                cli.command,
+                Some(Command::State {
+                    command: StateCommand::Reset { confirm: None, .. }
+                        | StateCommand::Restore { confirm: None, .. }
+                })
+            ));
+            args.extend(["--confirm", "yes"]);
+            assert!(Cli::try_parse_from(args).is_err());
+        }
+        for target in [
+            "credentials",
+            "../queue.json",
+            "restore-journal.json",
+            "other",
+        ] {
+            assert!(Cli::try_parse_from(["tuitify", "state", "reset", target]).is_err());
+        }
+    }
+
+    #[test]
+    fn cli_backup_and_restore_default_to_preview_and_require_a_valid_confirmation_token() {
+        let cli = Cli::try_parse_from(["tuitify", "backup", "saved.json"]).unwrap();
+        assert!(matches!(cli.command, Some(Command::Backup { .. })));
+        let cli = Cli::try_parse_from(["tuitify", "restore", "saved.json"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Command::Restore { confirm: None, .. })
+        ));
+        let token = "A".repeat(64);
+        let cli =
+            Cli::try_parse_from(["tuitify", "restore", "saved.json", "--confirm", &token]).unwrap();
+        let Some(Command::Restore {
+            confirm: Some(parsed),
+            ..
+        }) = cli.command
+        else {
+            panic!("restore expected")
+        };
+        assert_eq!(parsed, "a".repeat(64));
+        assert!(
+            Cli::try_parse_from(["tuitify", "restore", "saved.json", "--confirm", "yes"]).is_err()
+        );
+        assert!(Cli::try_parse_from(["tuitify", "backup"]).is_err());
+        assert!(Cli::try_parse_from(["tuitify", "restore"]).is_err());
+    }
+
+    #[test]
     fn cli_accepts_glass_flag() {
         let cli = Cli::try_parse_from(["tuitify", "--glass"]).unwrap();
         assert!(cli.glass);
@@ -225,6 +461,69 @@ mod tests {
         assert!(!cli.glass);
         assert!(cli.glass_window);
         assert!(!cli.native_glass);
+    }
+
+    #[test]
+    fn cli_doctor_is_offline_by_default_and_network_is_explicit() {
+        let cli = Cli::try_parse_from(["tuitify", "doctor", "--json"]).unwrap();
+        match cli.command {
+            Some(Command::Doctor(options)) => {
+                assert!(!options.network);
+                assert!(options.json);
+                assert_eq!(options.timeout, 10);
+                assert!(options.artist.is_none());
+            }
+            _ => panic!("expected doctor"),
+        }
+        for flag in ["--artist", "--playlist", "--seed-track"] {
+            assert!(
+                Cli::try_parse_from(["tuitify", "doctor", flag, "1111111111111111111111"]).is_err()
+            );
+            assert!(
+                Cli::try_parse_from([
+                    "tuitify",
+                    "doctor",
+                    "--network",
+                    flag,
+                    "1111111111111111111111"
+                ])
+                .is_ok()
+            );
+            assert!(
+                Cli::try_parse_from(["tuitify", "doctor", "--network", flag, "bad/endpoint"])
+                    .is_err()
+            );
+        }
+        assert!(Cli::try_parse_from(["tuitify", "doctor", "--timeout", "2"]).is_err());
+        for seconds in ["0", "31"] {
+            assert!(
+                Cli::try_parse_from(["tuitify", "doctor", "--network", "--timeout", seconds])
+                    .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn cli_support_defaults_to_preview_and_accepts_only_explicit_output() {
+        let cli = Cli::try_parse_from(["tuitify", "support"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Command::Support { output: None })
+        ));
+        let cli = Cli::try_parse_from([
+            "tuitify",
+            "support",
+            "--output",
+            "private folder/report.json",
+        ])
+        .unwrap();
+        match cli.command {
+            Some(Command::Support { output }) => {
+                assert_eq!(output, Some(PathBuf::from("private folder/report.json")))
+            }
+            _ => panic!("expected support"),
+        }
+        assert!(Cli::try_parse_from(["tuitify", "support", "--network"]).is_err());
     }
 
     #[test]

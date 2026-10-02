@@ -81,7 +81,13 @@ pub(super) fn navigation(frame: &mut Frame<'_>, app: &App, render: &mut RenderSt
 pub(super) fn body(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, area: Rect) {
     let theme = Theme::from_str(&app.config.theme);
     let palette = theme.palette();
-    if app.ui.overlay == Overlay::MixBuilder {
+    if matches!(
+        app.ui.overlay,
+        Overlay::MixBuilder
+            | Overlay::ListeningTools
+            | Overlay::LibraryCoverage
+            | Overlay::Diagnostics
+    ) {
         center(frame, app, render, area);
         return;
     }

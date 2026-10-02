@@ -1,5 +1,11 @@
 # Deferred work
 
+The current code-backed implementation checklist is maintained locally in
+`FUTURE_PLAN.md` in the development workspace, reviewed on 2026-10-01. It includes
+priorities, dependencies, implementation areas, completion criteria, and optional
+scope expansions. The release history and explicit deferrals below remain useful
+context; the checklist does not reverse those earlier choices.
+
 V1 ships search, playlists, liked songs, standalone playback, local queue controls,
 and settings/queue persistence.
 

@@ -125,15 +125,14 @@ pub(super) fn diversify_smart_order(app: &mut App) {
     }
     app.queue.order.truncate(cursor + 1);
     app.queue.order.extend(arranged);
-    if let Some(selected_entry) = selected_entry {
-        if let Some(selected) = app
+    if let Some(selected_entry) = selected_entry
+        && let Some(selected) = app
             .queue
             .order
             .iter()
             .position(|&entry| entry == selected_entry)
-        {
-            app.queue.selected = selected;
-        }
+    {
+        app.queue.selected = selected;
     }
     app.queue.revision += 1;
 }
@@ -403,6 +402,10 @@ impl Tasks {
             }
             Err(error) => {
                 self.smart.stopped = true;
+                app.ui
+                    .diagnostics
+                    .history
+                    .record(Subsystem::Recommendations, &error);
                 app.status = format!(
                     "Smart Shuffle recommendations unavailable: {error:#}. Your queue still plays; cycle s to retry."
                 );

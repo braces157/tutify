@@ -1,3 +1,4 @@
+use crate::service::{FailureKind, Provider, ServiceFailure};
 use crate::storage::{Config, Storage};
 use anyhow::{Context, Result, bail};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
@@ -29,13 +30,20 @@ const SCOPES: &str =
     "user-read-private user-library-read playlist-read-private playlist-read-collaborative";
 const STREAMING_SCOPES: &str = "streaming user-read-playback-state user-modify-playback-state user-read-currently-playing user-library-read user-read-private";
 
+pub(crate) mod doctor;
+mod identity;
+use identity::{AccountIdentity, AccountRelation, bind_streaming, require_same, token_identity};
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Tokens {
     pub access_token: String,
     pub refresh_token: String,
     pub expires_at: u64,
+    // Compatibility alias from pre-migration builds, never a stable Web API ID.
     #[serde(default)]
     pub account_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    identity: Option<AccountIdentity>,
 }
 
 #[derive(Deserialize)]
@@ -92,9 +100,20 @@ fn credential_tokens(
     result: std::result::Result<String, keyring::Error>,
 ) -> Result<Option<Tokens>> {
     match result {
-        Ok(value) => Ok(serde_json::from_str::<Tokens>(&value)
-            .ok()
-            .filter(|tokens| !tokens.access_token.is_empty() && !tokens.refresh_token.is_empty())),
+        Ok(value) => {
+            let tokens: Tokens = serde_json::from_str(&value).map_err(|_| {
+                anyhow::anyhow!(
+                    "Saved login is damaged; preserve credentials and local files before recovery"
+                )
+            })?;
+            if let Some(identity) = &tokens.identity {
+                identity.validate()?;
+            }
+            Ok(
+                (!tokens.access_token.is_empty() && !tokens.refresh_token.is_empty())
+                    .then_some(tokens),
+            )
+        }
         Err(keyring::Error::NoEntry) => Ok(None),
         Err(error) => Err(error)
             .context("Cannot read Windows Credential Manager; saved logins have not been changed"),
@@ -106,74 +125,168 @@ fn known_account_id(id: &str) -> Option<&str> {
     (!id.is_empty() && !id.eq_ignore_ascii_case("unknown")).then_some(id)
 }
 
-fn accounts_match(previous: Option<&str>, verified: &str) -> bool {
-    match (
-        previous.and_then(known_account_id),
-        known_account_id(verified),
-    ) {
-        (Some(previous), Some(verified)) => previous == verified,
-        _ => false,
-    }
-}
-
-fn saved_login_state(catalog: Option<&Tokens>, streaming: Option<&Tokens>) -> (bool, bool, bool) {
+fn saved_login_state(catalog: Option<&Tokens>, streaming: Option<&Tokens>) -> Result<(bool, bool)> {
     let catalog_saved = catalog.is_some();
-    let accounts_conflict = catalog.zip(streaming).is_some_and(|(catalog, streaming)| {
-        match (
-            known_account_id(&catalog.account_id),
-            known_account_id(&streaming.account_id),
-        ) {
-            (Some(catalog), Some(streaming)) => catalog != streaming,
-            _ => false,
+    let streaming_saved = match catalog.zip(streaming) {
+        Some((catalog, streaming)) => {
+            let catalog = token_identity(catalog, false)?;
+            let streaming = token_identity(streaming, true)?;
+            if known_account_id(&catalog.stable_web_api_id).is_some()
+                && known_account_id(&streaming.stable_web_api_id).is_some()
+            {
+                catalog.relation(&streaming) == AccountRelation::Same
+                    && known_account_id(&catalog.streaming_username).is_some()
+                    && catalog.streaming_username == streaming.streaming_username
+            } else {
+                // Backward-compatible local check for credentials created by
+                // the previous verifier. Never compare a stable ID to a username.
+                known_account_id(&catalog.legacy_web_api_id).is_some()
+                    && catalog.legacy_web_api_id == streaming.streaming_username
+            }
         }
-    });
-    let streaming_saved = streaming.is_some()
-        && (!catalog_saved
-            || accounts_match(
-                catalog.map(|tokens| tokens.account_id.as_str()),
-                streaming.map_or("", |tokens| tokens.account_id.as_str()),
-            ));
-    (catalog_saved, streaming_saved, accounts_conflict)
+        None => streaming.is_some(),
+    };
+    Ok((catalog_saved, streaming_saved))
 }
 
-/// Read only the account identity from the saved catalog credential. A legacy
-/// credential can still be usable without an account ID; treat that identity
-/// as unknown so a successful re-login cannot reuse its queue accidentally.
-fn saved_catalog_account_id() -> Result<Option<String>> {
-    let value = match entry()?.get_password() {
-        Ok(value) => value,
-        Err(keyring::Error::NoEntry) => return Ok(None),
-        Err(error) => {
-            return Err(error).context(
-                "Cannot read Windows Credential Manager; saved logins have not been changed",
-            );
-        }
-    };
-    let tokens = match serde_json::from_str::<Tokens>(&value) {
-        Ok(tokens) => tokens,
-        Err(_) => return Ok(None),
-    };
-    if tokens.access_token.is_empty() || tokens.refresh_token.is_empty() {
-        return Ok(None);
-    }
-    Ok(known_account_id(&tokens.account_id).map(str::to_owned))
-}
-
-/// Queue and metadata belong to the catalog account. Streaming reauth is
-/// allowed only after its account has been checked against the catalog login,
-/// so it never clears those snapshots itself.
-fn update_account_state(
+/// Reauthentication is not a reset operation. Unknown or different identities
+/// leave every local file intact; a deliberate switch uses backup/logout.
+fn check_account_state(
     store: &Storage,
-    previous_catalog_account: Option<&str>,
-    verified_account: &str,
-) -> Result<bool> {
-    let preserve = accounts_match(previous_catalog_account, verified_account);
-    if !preserve {
-        store.clear_queue()?;
-        store.clear_cache()?;
-        store.clear_stats()?;
+    previous: Option<&AccountIdentity>,
+    verified: &AccountIdentity,
+) -> Result<()> {
+    if let Some(previous) = previous {
+        require_same(previous.relation(verified))?;
+    } else if ["queue.json", "cache.json", "stats.json"]
+        .iter()
+        .any(|name| store.root.join(name).exists())
+    {
+        require_same(AccountRelation::Ambiguous)?;
     }
-    Ok(preserve)
+    Ok(())
+}
+
+async fn prepare_catalog_identity(
+    store: &Storage,
+    previous: Option<&TokenManager>,
+    mut verified: AccountIdentity,
+    profile_endpoint: &str,
+) -> Result<AccountIdentity> {
+    let previous = if let Some(manager) = previous {
+        let tokens = manager.state.lock().await.clone();
+        let previous = token_identity(&tokens, false)?;
+        if previous.relation(&verified) == AccountRelation::Same
+            || (known_account_id(&previous.stable_web_api_id).is_some()
+                && known_account_id(&verified.stable_web_api_id).is_some())
+        {
+            Some(previous)
+        } else {
+            Some(profile_identity_at(&manager.access().await?, profile_endpoint).await.context(
+                "Previous account verification failed; credentials and account files are preserved",
+            )?)
+        }
+    } else {
+        None
+    };
+    check_account_state(store, previous.as_ref(), &verified)?;
+    if let Some(previous) = previous
+        && known_account_id(&previous.stable_web_api_id).is_some()
+        && previous.stable_web_api_id == verified.stable_web_api_id
+    {
+        verified.streaming_username = previous.streaming_username;
+    }
+    Ok(verified)
+}
+
+async fn prepare_streaming_identity<F, Fut>(
+    catalog: &TokenManager,
+    username: &str,
+    profile_endpoint: &str,
+    streaming_profile: F,
+) -> Result<AccountIdentity>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = Result<AccountIdentity>>,
+{
+    let access = catalog.access().await?;
+    let mut verified = profile_identity_at(&access, profile_endpoint).await?;
+    let previous = token_identity(&*catalog.state.lock().await, false)?;
+    let stable_comparable = known_account_id(&previous.stable_web_api_id).is_some()
+        && known_account_id(&verified.stable_web_api_id).is_some();
+    if stable_comparable {
+        require_same(previous.relation(&verified))?;
+    }
+    if stable_comparable
+        && known_account_id(&previous.streaming_username).is_some()
+        && previous.streaming_username == username
+    {
+        return bind_streaming(verified, &previous.streaming_username, username);
+    }
+    // /me.id is the current user's legacy handle, not the immutable account ID.
+    // Matching it to the authenticated AP username preserves the old verifier's
+    // supported path while recording the stable ID from that same /me response.
+    if known_account_id(&verified.legacy_web_api_id) == known_account_id(username)
+        && known_account_id(username).is_some()
+    {
+        return bind_streaming(verified, username, username);
+    }
+    // A different/absent legacy handle needs independent evidence: /me using
+    // the SAME token that authenticated the streaming username. Catalog tokens
+    // lack streaming scope, so they must never be used for an AP handshake.
+    let streaming = streaming_profile().await.context(
+        "Cannot establish a verified catalog/streaming identity mapping; saved account files are preserved",
+    )?;
+    require_same(verified.relation(&streaming))?;
+    if known_account_id(&verified.stable_web_api_id).is_none() {
+        verified.stable_web_api_id = streaming.stable_web_api_id;
+    }
+    bind_streaming(verified, username, username)
+}
+
+fn commit_catalog_login(
+    store: &Storage,
+    config: &Config,
+    tokens: &Tokens,
+    previous: Option<&Tokens>,
+    save: impl Fn(&Tokens) -> Result<()>,
+    remove: impl Fn() -> Result<()>,
+) -> Result<()> {
+    save(tokens)?;
+    if let Err(error) = store.save_config(config) {
+        let rollback = match previous {
+            Some(previous) => save(previous),
+            None => remove(),
+        };
+        rollback.context("Catalog config save failed and credential rollback also failed; local account files are preserved")?;
+        return Err(error).context(
+            "Catalog config save failed; previous login restored and account files preserved",
+        );
+    }
+    Ok(())
+}
+
+fn commit_streaming_login(
+    previous_catalog: &Tokens,
+    mapped_catalog: &Tokens,
+    streaming: &Tokens,
+    save: impl Fn(&Tokens, bool) -> Result<()>,
+) -> Result<()> {
+    save(mapped_catalog, false)?;
+    if let Err(error) = save(streaming, true) {
+        save(previous_catalog, false).context(
+            "Streaming credential save failed and catalog metadata rollback also failed; local account files are preserved",
+        )?;
+        return Err(error).context("Streaming credential save failed; previous catalog metadata restored and account files preserved");
+    }
+    Ok(())
+}
+
+fn delete_catalog_credential() -> Result<()> {
+    match entry()?.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(error) => Err(error.into()),
+    }
 }
 
 /// Check locally first: expired access tokens still have reusable refresh tokens.
@@ -194,17 +307,8 @@ pub async fn setup(
         .transpose()?
         .flatten();
     let streaming_tokens = credential_tokens(stream_entry()?.get_password())?;
-    let (catalog_saved, streaming_saved, accounts_conflict) =
-        saved_login_state(catalog_tokens.as_ref(), streaming_tokens.as_ref());
-    if accounts_conflict {
-        // A previous catalog-account replacement may have committed its token
-        // before local snapshot cleanup or streaming credential invalidation
-        // completed. Treat the catalog account as authoritative and finish the
-        // cleanup before allowing setup to continue.
-        if let Some(catalog) = &catalog_tokens {
-            update_account_state(store, None, &catalog.account_id)?;
-        }
-    }
+    let (catalog_saved, streaming_saved) =
+        saved_login_state(catalog_tokens.as_ref(), streaming_tokens.as_ref())?;
     let steps = setup_steps(
         catalog_saved,
         streaming_saved,
@@ -503,57 +607,63 @@ async fn finish_login(
         ])
         .send()
         .await
-        .context("Cannot reach Spotify login; check your network and run auth again")?;
+        .map_err(|_| ServiceFailure::spotify(FailureKind::Transport))?;
     let token = decode_token(response).await?;
     println!("Authorization exchanged. Verifying the Spotify account...");
-    let account_id = if streaming {
-        streaming_account_id(&token.access_token).await?
-    } else {
-        profile_id(&token.access_token).await?
-    };
-    let account_id = known_account_id(&account_id)
-        .context("Spotify account ID missing")?
-        .to_owned();
-    let tokens = Tokens {
-        account_id,
+    let mut tokens = Tokens {
+        account_id: String::new(),
+        identity: None,
         access_token: token.access_token,
         refresh_token: token
             .refresh_token
             .context("Spotify did not issue a refresh token; retry login")?,
         expires_at: now() + token.expires_in,
     };
-    let previous_catalog_account = if streaming {
+    if streaming {
+        let username = streaming_username(&tokens.access_token).await?;
         let catalog = TokenManager::load(config)?;
-        let cached_id = catalog.state.lock().await.account_id.clone();
-        let id = if let Some(id) = known_account_id(&cached_id) {
-            id.to_owned()
-        } else {
-            profile_id(&catalog.access().await?).await?
-        };
-        if !accounts_match(Some(&id), &tokens.account_id) {
-            bail!(
-                "Streaming and catalog logins belong to different Spotify accounts. Run tuitify auth --streaming and choose the same account."
-            );
-        }
-        Some(id)
+        let mapped = prepare_streaming_identity(
+            &catalog,
+            &username,
+            "https://api.spotify.com/v1/me",
+            || profile_identity(&tokens.access_token),
+        )
+        .await?;
+        let previous_catalog = catalog.state.lock().await.clone();
+        let mut catalog_tokens = previous_catalog.clone();
+        tokens.account_id = username;
+        tokens.identity = Some(mapped.clone());
+        catalog_tokens.account_id = mapped.legacy_web_api_id.clone();
+        catalog_tokens.identity = Some(mapped);
+        commit_streaming_login(&previous_catalog, &catalog_tokens, &tokens, save_tokens)?;
     } else {
-        saved_catalog_account_id()?
-    };
-    // Commit the verified replacement before clearing any account-owned
-    // snapshots. A failed credential/config write therefore leaves the old
-    // login and its queue intact for a retry.
-    save_tokens(&tokens, streaming)?;
-    if !streaming {
-        store.save_config(config)?;
-        // Queue and metadata survive a verified re-login for the same catalog
-        // account. An account change or unknown prior identity clears both
-        // only after the new credentials have been committed. Streaming
-        // reauth never reaches this branch after its account check above.
-        update_account_state(
+        let verified = profile_identity(&tokens.access_token).await?;
+        let previous_tokens = credential_tokens(entry()?.get_password())?;
+        // The old token must use its original client when refreshed. During
+        // comparison it is read-only: failed migration cannot replace it.
+        let previous_manager = previous_tokens
+            .as_ref()
+            .map(|tokens| TokenManager::from_tokens(&store.config()?, tokens.clone(), false))
+            .transpose()?;
+        let verified = prepare_catalog_identity(
             store,
-            previous_catalog_account.as_deref(),
-            &tokens.account_id,
+            previous_manager.as_ref(),
+            verified,
+            "https://api.spotify.com/v1/me",
+        )
+        .await?;
+        tokens.account_id = verified.legacy_web_api_id.clone();
+        tokens.identity = Some(verified);
+        commit_catalog_login(
+            store,
+            config,
+            &tokens,
+            previous_tokens.as_ref(),
+            |tokens| save_tokens(tokens, false),
+            delete_catalog_credential,
         )?;
+        // Keep the established two-login workflow. Invalidating streaming
+        // credentials never removes queue/cache/stats, even after a mismatch.
         match stream_entry()?.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => (),
             Err(e) => return Err(e.into()),
@@ -563,47 +673,37 @@ async fn finish_login(
     Ok(())
 }
 
-/// A semantic failure retained through anyhow context, independent of display text.
-#[derive(Debug)]
-pub struct AuthenticationRequired;
-impl std::fmt::Display for AuthenticationRequired {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("Spotify login expired or was revoked; run tuitify auth --force")
-    }
-}
-impl std::error::Error for AuthenticationRequired {}
-
 async fn decode_token(response: reqwest::Response) -> Result<TokenResponse> {
     match response.status().as_u16() {
         200 => Ok(response
             .json()
             .await
-            .context("Invalid Spotify token response")?),
-        400 | 401 => Err(AuthenticationRequired.into()),
-        429 => bail!(
-            "Spotify login is rate-limited (HTTP 429). Wait at least {} seconds before retrying; this does not indicate a Premium problem.",
-            retry_delay(
-                response
-                    .headers()
-                    .get("retry-after")
-                    .and_then(|v| v.to_str().ok())
-            )
-            .as_secs()
-        ),
-        status => {
-            bail!("Spotify login returned HTTP {status}; check your connection and retry later")
+            .map_err(|_| ServiceFailure::spotify(FailureKind::InvalidResponse))?),
+        400 | 401 => {
+            let mut failure = ServiceFailure::spotify(FailureKind::AuthenticationRequired);
+            failure.status = Some(response.status().as_u16());
+            Err(failure.into())
+        }
+        _ => {
+            let mut failure = ServiceFailure::from_response(response, Provider::Spotify).await;
+            // A missing OAuth endpoint is a service/request failure, not an
+            // unavailable song that queue hydration can skip.
+            if failure.kind == FailureKind::MissingItem {
+                failure.kind = FailureKind::RequestRejected;
+            }
+            Err(failure.into())
         }
     }
 }
 
-async fn profile_id(token: &str) -> Result<String> {
-    profile_id_at(token, "https://api.spotify.com/v1/me").await
+async fn profile_identity(token: &str) -> Result<AccountIdentity> {
+    profile_identity_at(token, "https://api.spotify.com/v1/me").await
 }
 
 /// Librespot's welcome packet returns the authenticated canonical username.
-/// Streaming authorization must not use the shared streaming client's Web API
-/// quota, because Spotify may reject that metadata request for this client.
-async fn streaming_account_id(token: &str) -> Result<String> {
+/// The handshake uses no streaming-client Web API quota. Only ambiguous identity
+/// mappings need a separate profile request in prepare_streaming_identity.
+async fn streaming_username(token: &str) -> Result<String> {
     use librespot_core::{authentication::Credentials, config::SessionConfig, session::Session};
     let session = Session::new(
         SessionConfig {
@@ -643,7 +743,7 @@ async fn streaming_account_id(token: &str) -> Result<String> {
     Ok(id.trim().to_owned())
 }
 
-async fn profile_id_at(token: &str, endpoint: &str) -> Result<String> {
+async fn profile_identity_at(token: &str, endpoint: &str) -> Result<AccountIdentity> {
     let client = http_client()?;
     for attempt in 0..2 {
         let response = client
@@ -651,17 +751,19 @@ async fn profile_id_at(token: &str, endpoint: &str) -> Result<String> {
             .bearer_auth(token)
             .send()
             .await
-            .context("Cannot verify Spotify account; check network and retry login")?;
+            .map_err(|_| ServiceFailure::spotify(FailureKind::Transport))?;
         match response.status().as_u16() {
             200 => (),
-            429 => {
-                let wait = retry_delay(
-                    response
-                        .headers()
-                        .get("retry-after")
-                        .and_then(|v| v.to_str().ok()),
-                );
-                if attempt == 0 && wait <= Duration::from_secs(30) {
+            _ => {
+                let failure = ServiceFailure::from_response(response, Provider::Spotify).await;
+                let wait = failure
+                    .retry_at
+                    .map(|until| until.saturating_duration_since(Instant::now()));
+                if attempt == 0
+                    && failure.kind == FailureKind::RateLimited
+                    && wait.is_some_and(|wait| wait <= Duration::from_secs(30))
+                {
+                    let wait = wait.unwrap();
                     println!(
                         "Spotify rate limit (HTTP 429). Waiting {} seconds before one verification retry; Premium is not the issue.",
                         wait.as_secs()
@@ -669,41 +771,29 @@ async fn profile_id_at(token: &str, endpoint: &str) -> Result<String> {
                     tokio::time::sleep(wait).await;
                     continue;
                 }
-                bail!(
-                    "Spotify account verification is rate-limited (HTTP 429). Wait at least {} seconds before retrying login. Premium is not the issue; avoid repeated login attempts during this wait.",
-                    wait.as_secs()
-                );
+                return Err(failure.into());
             }
-            401 => bail!(
-                "Spotify account verification rejected the login (HTTP 401); run the same auth command again."
-            ),
-            403 => bail!(
-                "Spotify denied account verification (HTTP 403). Check that this account is allowed in your Developer app and that the app owner has Premium."
-            ),
-            status => bail!(
-                "Spotify account verification returned HTTP {status}. Setup did not finish; retry later."
-            ),
         }
-        let profile: serde_json::Value = response.json().await?;
-        let id = profile["id"]
-            .as_str()
-            .and_then(known_account_id)
-            .context("Spotify account ID missing")?;
-        return Ok(id.to_owned());
+        let profile: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|_| ServiceFailure::spotify(FailureKind::InvalidResponse))?;
+        return AccountIdentity::from_profile(&profile)
+            .map_err(|_| ServiceFailure::spotify(FailureKind::InvalidResponse).into());
     }
     unreachable!()
 }
 
+#[cfg(test)]
+async fn profile_id_at(token: &str, endpoint: &str) -> Result<String> {
+    let identity = profile_identity_at(token, endpoint).await?;
+    Ok(known_account_id(&identity.legacy_web_api_id)
+        .unwrap_or(&identity.stable_web_api_id)
+        .to_owned())
+}
+
 pub fn retry_delay(header: Option<&str>) -> Duration {
-    header
-        .and_then(|s| {
-            s.parse::<u64>().ok().map(Duration::from_secs).or_else(|| {
-                httpdate::parse_http_date(s)
-                    .ok()
-                    .and_then(|date| date.duration_since(SystemTime::now()).ok())
-            })
-        })
-        .unwrap_or(Duration::from_secs(60))
+    crate::service::retry_after(header).unwrap_or(Duration::from_secs(60))
 }
 
 #[derive(Clone)]
@@ -714,7 +804,8 @@ pub struct TokenManager {
     endpoint: String,
     persist: bool,
     streaming: bool,
-    cooldown: Arc<Mutex<Option<Instant>>>,
+    read_only: bool,
+    cooldown: Arc<Mutex<Option<ServiceFailure>>>,
 }
 
 impl TokenManager {
@@ -725,12 +816,14 @@ impl TokenManager {
                 refresh_token: String::new(),
                 expires_at: u64::MAX,
                 account_id: "demo".into(),
+                identity: None,
             })),
             client: http_client()?,
             client_id: "demo".into(),
             endpoint: "http://127.0.0.1:1/offline".into(),
             persist: false,
             streaming: false,
+            read_only: false,
             cooldown: Arc::new(Mutex::new(None)),
         })
     }
@@ -738,15 +831,19 @@ impl TokenManager {
         let text = entry()?
             .get_password()
             .context("No saved Spotify login; run tuitify auth first")?;
+        let tokens = credential_tokens(Ok(text))?.context("Saved login has no reusable tokens")?;
+        Self::from_tokens(config, tokens, true)
+    }
+    fn from_tokens(config: &Config, tokens: Tokens, persist: bool) -> Result<Self> {
+        token_identity(&tokens, false)?;
         Ok(Self {
-            state: Arc::new(Mutex::new(
-                serde_json::from_str(&text).context("Saved login is damaged; run tuitify auth")?,
-            )),
+            state: Arc::new(Mutex::new(tokens)),
             client: http_client()?,
             client_id: config.client_id.clone(),
             endpoint: TOKEN_URL.into(),
-            persist: true,
+            persist,
             streaming: false,
+            read_only: false,
             cooldown: Arc::new(Mutex::new(None)),
         })
     }
@@ -754,21 +851,28 @@ impl TokenManager {
         let text = stream_entry()?
             .get_password()
             .context("No streaming login; run tuitify auth --streaming")?;
+        let tokens =
+            credential_tokens(Ok(text))?.context("Streaming login has no reusable tokens")?;
+        token_identity(&tokens, true)?;
         Ok(Self {
-            state: Arc::new(Mutex::new(
-                serde_json::from_str(&text)
-                    .context("Streaming login damaged; run tuitify auth --streaming")?,
-            )),
+            state: Arc::new(Mutex::new(tokens)),
             client: http_client()?,
             client_id: STREAMING_CLIENT_ID.to_owned(),
             endpoint: TOKEN_URL.into(),
             persist: true,
             streaming: true,
+            read_only: false,
             cooldown: Arc::new(Mutex::new(None)),
         })
     }
     pub async fn access(&self) -> Result<String> {
         self.token(None).await
+    }
+    pub(crate) async fn verify_streaming_username(&self, username: &str) -> Result<()> {
+        let identity = token_identity(&*self.state.lock().await, true)?;
+        bind_streaming(identity.clone(), &identity.streaming_username, username)
+            .map(|_| ())
+            .context("Streaming connection account could not be verified; run tuitify auth --streaming --force")
     }
     pub async fn refresh_rejected(&self, rejected: &str) -> Result<String> {
         self.token(Some(rejected)).await
@@ -779,13 +883,15 @@ impl TokenManager {
         if !rejected_current && state.expires_at > now() + 60 {
             return Ok(state.access_token.clone());
         }
-        if let Some(until) = *self.cooldown.lock().await {
-            if until > Instant::now() {
-                bail!(
-                    "Spotify login rate limit; wait {} seconds before retrying",
-                    until.saturating_duration_since(Instant::now()).as_secs() + 1
-                );
-            }
+        // Doctor must never rotate credentials, even remotely. Its optional
+        // GET probes require an already usable token and never refresh a 401.
+        if self.read_only {
+            return Err(ServiceFailure::spotify(FailureKind::AuthenticationRequired).into());
+        }
+        if let Some(failure) = *self.cooldown.lock().await
+            && failure.active()
+        {
+            return Err(failure.into());
         }
         let response = self
             .client
@@ -797,25 +903,26 @@ impl TokenManager {
             ])
             .send()
             .await
-            .context("Token refresh failed; check your connection and retry")?;
-        if response.status().as_u16() == 429 {
-            let delay = retry_delay(
-                response
-                    .headers()
-                    .get("retry-after")
-                    .and_then(|v| v.to_str().ok()),
-            );
-            *self.cooldown.lock().await = Instant::now().checked_add(delay);
-        }
-        let token = decode_token(response).await.with_context(|| {
-            if self.streaming {
-                "Streaming login failed; use tuitify auth --streaming --force if revoked"
-            } else {
-                "Catalog login failed; run tuitify auth --force if revoked"
+            .map_err(|_| ServiceFailure::spotify(FailureKind::Transport))?;
+        let token = match decode_token(response).await {
+            Ok(token) => token,
+            Err(error) => {
+                if let Some(failure) = error.downcast_ref::<ServiceFailure>() {
+                    if failure.throttled() {
+                        *self.cooldown.lock().await = Some(*failure);
+                    }
+                    if failure.kind == FailureKind::AuthenticationRequired && self.streaming {
+                        return Err(error).context(
+                            "Streaming login revoked; run tuitify auth --streaming --force",
+                        );
+                    }
+                }
+                return Err(error);
             }
-        })?;
+        };
         let updated = Tokens {
             account_id: state.account_id.clone(),
+            identity: state.identity.clone(),
             access_token: token.access_token,
             refresh_token: token
                 .refresh_token
@@ -829,6 +936,14 @@ impl TokenManager {
         Ok(state.access_token.clone())
     }
     #[cfg(test)]
+    pub(crate) fn mock_for_account(endpoint: String, client_id: &str, account_id: &str) -> Self {
+        let mut manager = Self::mock(endpoint, false);
+        manager.client_id = client_id.into();
+        manager.state.try_lock().unwrap().account_id = account_id.into();
+        manager
+    }
+
+    #[cfg(test)]
     pub fn mock(endpoint: String, expired: bool) -> Self {
         Self {
             state: Arc::new(Mutex::new(Tokens {
@@ -836,12 +951,14 @@ impl TokenManager {
                 refresh_token: "refresh".into(),
                 expires_at: if expired { 0 } else { now() + 3600 },
                 account_id: String::new(),
+                identity: None,
             })),
             client: http_client().unwrap(),
             client_id: "test-client".into(),
             endpoint,
             persist: false,
             streaming: false,
+            read_only: false,
             cooldown: Arc::new(Mutex::new(None)),
         }
     }

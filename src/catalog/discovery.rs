@@ -144,75 +144,76 @@ impl Catalog {
             }
         }
         candidates = unique_tracks(candidates);
-        if albums_allowed && candidates.len() < 20 {
-            if let Some(id) = artist.artist_ids.first().filter(|id| valid_id(id)) {
-                if profile.albums.is_none() {
-                    let value = self
-                        .get(
-                            &format!("/artists/{id}/albums"),
-                            &[
-                                ("include_groups", "album,single".into()),
-                                ("limit", "10".into()),
-                            ],
-                        )
-                        .await?;
-                    let mut titles = HashSet::new();
-                    let mut albums: Vec<_> = value["items"]
+        if albums_allowed
+            && candidates.len() < 20
+            && let Some(id) = artist.artist_ids.first().filter(|id| valid_id(id))
+        {
+            if profile.albums.is_none() {
+                let value = self
+                    .get(
+                        &format!("/artists/{id}/albums"),
+                        &[
+                            ("include_groups", "album,single".into()),
+                            ("limit", "10".into()),
+                        ],
+                    )
+                    .await?;
+                let mut titles = HashSet::new();
+                let mut albums: Vec<_> = value["items"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter(|album| album["id"].as_str().is_some_and(valid_id))
+                    .filter(|album| {
+                        titles.insert(album["name"].as_str().unwrap_or("").to_lowercase())
+                    })
+                    .cloned()
+                    .collect();
+                // Full albums before singles. Tracks on soundtracks must
+                // still have the actual searched artist in their credits.
+                albums.sort_by_key(|album| album["album_type"].as_str() != Some("album"));
+                profile.albums = Some(albums);
+            }
+            for _ in 0..3 {
+                let Some(album) = profile
+                    .albums
+                    .as_ref()
+                    .and_then(|albums| albums.get(profile.next_album))
+                else {
+                    break;
+                };
+                let id = album["id"].as_str().expect("validated album ID");
+                let value = self
+                    .get(
+                        &format!("/albums/{id}/tracks"),
+                        &[("limit", "50".into()), ("offset", "0".into())],
+                    )
+                    .await?;
+                profile.next_album += 1;
+                candidates.extend(
+                    value["items"]
                         .as_array()
                         .into_iter()
                         .flatten()
-                        .filter(|album| album["id"].as_str().is_some_and(valid_id))
-                        .filter(|album| {
-                            titles.insert(album["name"].as_str().unwrap_or("").to_lowercase())
+                        .filter_map(|item| {
+                            let mut item = item.clone();
+                            item["album"] = album.clone();
+                            parse_track(&item)
                         })
-                        .cloned()
-                        .collect();
-                    // Full albums before singles. Tracks on soundtracks must
-                    // still have the actual searched artist in their credits.
-                    albums.sort_by_key(|album| album["album_type"].as_str() != Some("album"));
-                    profile.albums = Some(albums);
-                }
-                for _ in 0..3 {
-                    let Some(album) = profile
-                        .albums
-                        .as_ref()
-                        .and_then(|albums| albums.get(profile.next_album))
-                    else {
-                        break;
-                    };
-                    let id = album["id"].as_str().expect("validated album ID");
-                    let value = self
-                        .get(
-                            &format!("/albums/{id}/tracks"),
-                            &[("limit", "50".into()), ("offset", "0".into())],
-                        )
-                        .await?;
-                    profile.next_album += 1;
-                    candidates.extend(
-                        value["items"]
-                            .as_array()
-                            .into_iter()
-                            .flatten()
-                            .filter_map(|item| {
-                                let mut item = item.clone();
-                                item["album"] = album.clone();
-                                parse_track(&item)
-                            })
-                            .filter(|track| same_artist(artist, track)),
-                    );
-                    candidates = unique_tracks(candidates);
-                    if candidates.len() >= 20 {
-                        break;
-                    }
+                        .filter(|track| same_artist(artist, track)),
+                );
+                candidates = unique_tracks(candidates);
+                if candidates.len() >= 20 {
+                    break;
                 }
             }
         }
         // Preserve unselected recordings for the next refill.
-        if round > 0 {
-            if let Some(previous) = profile.batches.get(&(round - 1)) {
-                candidates.extend(previous.clone());
-                candidates = unique_tracks(candidates);
-            }
+        if round > 0
+            && let Some(previous) = profile.batches.get(&(round - 1))
+        {
+            candidates.extend(previous.clone());
+            candidates = unique_tracks(candidates);
         }
         if profile.batches.len() >= 2 {
             profile.batches.clear();

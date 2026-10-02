@@ -1,5 +1,9 @@
 use std::sync::Mutex;
 
+pub(crate) mod doctor;
+pub(crate) mod history;
+pub(crate) mod support;
+
 static LAST: Mutex<Option<String>> = Mutex::new(None);
 struct Diagnostics;
 impl log::Log for Diagnostics {
@@ -29,10 +33,10 @@ impl log::Log for Diagnostics {
             } else {
                 return;
             };
-            if let Ok(mut last) = LAST.lock() {
-                if last.is_none() {
-                    *last = Some(cause.into());
-                }
+            if let Ok(mut last) = LAST.lock()
+                && last.is_none()
+            {
+                *last = Some(cause.into());
             }
         }
     }

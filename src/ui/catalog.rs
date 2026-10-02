@@ -3,10 +3,14 @@ use super::*;
 pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, area: Rect) {
     let theme = Theme::from_str(&app.config.theme);
     let palette = theme.palette();
-    let body = if app.catalog.view == View::Search {
+    let mut body = if app.catalog.view == View::Search {
         let split = Layout::vertical([
             Constraint::Length(1),
             Constraint::Length(3),
+            Constraint::Length(u16::from(
+                app.catalog.search_scope == SearchScope::Library
+                    && !app.catalog.library_skipped.is_empty(),
+            )),
             Constraint::Min(1),
         ])
         .split(area);
@@ -77,7 +81,7 @@ pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
         frame.render_widget(
             Paragraph::new(prompt_line).block(block_themed(
                 if app.catalog.editing {
-                    " SEARCH  ·  Enter submit  ·  Esc cancel "
+                    " SEARCH · Enter search · ↑/↓ recent "
                 } else {
                     app.catalog.search_scope.label()
                 },
@@ -87,7 +91,18 @@ pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
             split[1],
         );
         hit(render, split[1], MouseTarget::Prompt);
-        split[2]
+        if split[2].height > 0 {
+            frame.render_widget(
+                Paragraph::new(format!(
+                    "Partial coverage: {} skipped · F4 details",
+                    app.catalog.library_skipped.len()
+                ))
+                .style(Style::default().fg(palette.primary)),
+                split[2],
+            );
+            hit(render, split[2], MouseTarget::LibraryCoverage);
+        }
+        split[3]
     } else if (app.catalog.view == View::Liked || app.catalog.view == View::Playlists)
         && (app.catalog.filtering || !app.catalog.filter.is_empty())
     {
@@ -144,6 +159,17 @@ pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
         || matches!(app.catalog.browse, crate::catalog::Browse::Album(_));
     let is_artist = app.catalog.view == View::Artist
         || matches!(app.catalog.browse, crate::catalog::Browse::Artist(_));
+    let artist_search = is_artist
+        && app.catalog.artist_source == Some(crate::catalog::ArtistResultSource::ArtistSearch);
+    if artist_search {
+        let parts = Layout::vertical([Constraint::Length(1), Constraint::Min(0)]).split(body);
+        frame.render_widget(
+            Paragraph::new("Artist Search · verified matches · search order")
+                .style(Style::default().fg(palette.text_muted)),
+            parts[0],
+        );
+        body = parts[1];
+    }
 
     let status_suffix = if app.catalog.busy {
         " • Loading..."
@@ -203,7 +229,23 @@ pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
                 } else if is_album {
                     "\n\n  No tracks found in this album.\n\n  Esc  Go back to previous view"
                 } else if is_artist {
-                    "\n\n  No top tracks found for this artist.\n\n  Esc  Go back to previous view"
+                    match app.catalog.artist_source {
+                        Some(crate::catalog::ArtistResultSource::TopTracks) => {
+                            "\n\n  No top tracks found for this artist.\n\n  Esc  Go back to previous view"
+                        }
+                        Some(crate::catalog::ArtistResultSource::ArtistSearch)
+                            if app.catalog.next.is_some() =>
+                        {
+                            "\n  No verified artist matches in the loaded search pages.\n\n  PgDn  Continue Artist Search\n  Esc  Go back"
+                        }
+                        Some(crate::catalog::ArtistResultSource::ArtistSearch) => {
+                            "\n  No verified Artist Search matches found.\n\n  Esc  Go back to previous view"
+                        }
+                        Some(crate::catalog::ArtistResultSource::Demo) => {
+                            "\n  No demo tracks found for this artist.\n\n  Esc  Go back"
+                        }
+                        None => "\n  Artist tracks unavailable.\n\n  F5  Retry\n  Esc  Go back",
+                    }
                 } else {
                     "\n\n  Nothing here yet.\n\n  /  Search songs or paste a Spotify link\n  2  Browse playlists\n  3  Open liked songs"
                 };
@@ -321,7 +363,11 @@ pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
                 };
                 let third_header = if is_artist { "ALBUM" } else { "ARTIST" };
                 let header = Row::new(vec![
-                    Cell::from("   #    "),
+                    Cell::from(if artist_search {
+                        "  ROW   "
+                    } else {
+                        "   #    "
+                    }),
                     Cell::from("TITLE"),
                     Cell::from(third_header),
                     Cell::from(" TIME"),

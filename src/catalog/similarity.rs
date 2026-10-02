@@ -1,6 +1,7 @@
 use super::*;
+use crate::service::{FailureKind, Provider, ServiceFailure};
 use std::collections::{HashMap, HashSet};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use unicode_normalization::{UnicodeNormalization, char::is_combining_mark};
 
 #[cfg(test)]
@@ -238,6 +239,9 @@ mod tests {
                 .await
                 .unwrap_err();
             assert!(format!("{error:#}").contains("rate limit"));
+            let failure = error.downcast_ref::<ServiceFailure>().unwrap();
+            assert_eq!(failure.kind, FailureKind::RateLimited);
+            assert_eq!(failure.provider, Provider::SimilarArtists);
         }
         assert_eq!(external.received_requests().await.unwrap().len(), 1);
         assert!(spotify.received_requests().await.unwrap().is_empty());
@@ -437,9 +441,31 @@ pub(super) struct Similarity {
 
 #[derive(Default)]
 struct SimilarityState {
-    cache: HashMap<String, (Instant, std::result::Result<Vec<String>, String>)>,
+    cache: HashMap<String, (Instant, std::result::Result<Vec<String>, CachedFailure>)>,
     next_request: Option<Instant>,
-    cooldown: Option<Instant>,
+    cooldown: Option<ServiceFailure>,
+}
+
+#[derive(Clone)]
+enum CachedFailure {
+    Service(ServiceFailure),
+    Lookup(String),
+}
+
+impl CachedFailure {
+    fn from_error(error: &anyhow::Error) -> Self {
+        match error.downcast_ref::<ServiceFailure>() {
+            Some(failure) => Self::Service(*failure),
+            None => Self::Lookup(error.to_string()),
+        }
+    }
+
+    fn into_error(self) -> anyhow::Error {
+        match self {
+            Self::Service(failure) => failure.into(),
+            Self::Lookup(message) => anyhow::Error::msg(message),
+        }
+    }
 }
 
 fn name_key(name: &str) -> String {
@@ -505,8 +531,8 @@ impl Similarity {
         path: &str,
         query: &[(&str, String)],
     ) -> Result<Value> {
-        if state.cooldown.is_some_and(|until| until > Instant::now()) {
-            bail!("Similar-artist service is cooling down; retry later");
+        if let Some(failure) = state.cooldown.filter(|failure| failure.active()) {
+            return Err(failure.into());
         }
         if let Some(next) = state.next_request {
             tokio::time::sleep(next.saturating_duration_since(Instant::now())).await;
@@ -517,25 +543,27 @@ impl Similarity {
             .get(format!("{}{path}", self.base))
             .query(query)
             .send()
-            .await?;
-        if response.status().as_u16() == 429 {
-            let wait = retry_delay(
-                response
-                    .headers()
-                    .get("retry-after")
-                    .and_then(|v| v.to_str().ok()),
-            );
-            state.cooldown = Instant::now().checked_add(wait);
-            bail!(
-                "Similar-artist service rate limit; wait {} seconds",
-                wait.as_secs()
-            );
+            .await
+            .map_err(|_| ServiceFailure::new(Provider::SimilarArtists, FailureKind::Transport))?;
+        if !response.status().is_success() {
+            let failure = ServiceFailure::from_response(response, Provider::SimilarArtists).await;
+            if failure.throttled() {
+                state.cooldown = Some(failure);
+            }
+            return Err(failure.into());
         }
-        let value: Value = response.error_for_status()?.json().await?;
+        let value: Value = response.json().await.map_err(|_| {
+            ServiceFailure::new(Provider::SimilarArtists, FailureKind::InvalidResponse)
+        })?;
         if value.get("error").is_some() {
             // Deezer also reports quota/service errors inside HTTP 200 responses.
-            state.cooldown = Some(Instant::now() + Duration::from_secs(60));
-            bail!("Similar-artist service returned an error");
+            let mut failure = ServiceFailure::new(Provider::SimilarArtists, FailureKind::Server);
+            // Preserve the existing pause for HTTP-200 provider errors without
+            // inventing a quota classification for an unknown provider code.
+            failure.retry_at = Some(Instant::now() + Duration::from_secs(60));
+            failure.status = Some(200);
+            state.cooldown = Some(failure);
+            return Err(failure.into());
         }
         Ok(value)
     }
@@ -552,16 +580,16 @@ impl Similarity {
             .unwrap_or_else(|| normalize_title(&seed.name));
         let key = format!("{}:{identity}", name_key(name));
         let mut state = self.state.lock().await;
-        if let Some((until, result)) = state.cache.get(&key) {
-            if *until > Instant::now() {
-                return result.clone().map_err(anyhow::Error::msg);
-            }
+        if let Some((until, result)) = state.cache.get(&key)
+            && *until > Instant::now()
+        {
+            return result.clone().map_err(CachedFailure::into_error);
         }
         let result = self.lookup(&mut state, name, &seed.name).await;
         let cached = result
             .as_ref()
             .map(Clone::clone)
-            .map_err(ToString::to_string);
+            .map_err(CachedFailure::from_error);
         let ttl = if cached.is_ok() { 1800 } else { 60 };
         if state.cache.len() >= 64 {
             state.cache.clear();
@@ -776,10 +804,10 @@ impl Catalog {
             .filter_map(parse_track)
             .filter(|track| track.artist_ids.iter().any(|id| artist_ids.contains(id)))
             .collect();
-        if round > 0 {
-            if let Some(previous) = profile.batches.get(&(round - 1)) {
-                candidates.extend(previous.clone());
-            }
+        if round > 0
+            && let Some(previous) = profile.batches.get(&(round - 1))
+        {
+            candidates.extend(previous.clone());
         }
         candidates = discovery::unique_tracks(candidates);
         if profile.batches.len() >= 2 {

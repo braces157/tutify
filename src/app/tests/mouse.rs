@@ -1015,7 +1015,7 @@ async fn right_click_context_menu_catalog_track_displays_view_album_and_artist_a
         app.catalog.browse,
         Browse::Artist("0000000000000000000500".into())
     );
-    assert_eq!(app.catalog.title, "Test Artist • Top Tracks");
+    assert_eq!(app.catalog.title, "Test Artist");
     assert!(app.context_menu.is_none());
 }
 
@@ -1119,7 +1119,7 @@ async fn right_click_context_menu_queue_track_displays_view_album_and_artist_and
         app.catalog.browse,
         Browse::Artist("0000000000000000000501".into())
     );
-    assert_eq!(app.catalog.title, "Artist Alpha • Top Tracks");
+    assert_eq!(app.catalog.title, "Artist Alpha");
 
     // Pop back to Queue
     assert!(app.pop_navigation());
@@ -1562,7 +1562,7 @@ async fn adversarial_context_menu_filtered_vs_unfiltered_and_stale_rejection() {
         app.catalog.browse,
         Browse::Artist("0000000000000000000502".into())
     );
-    assert_eq!(app.catalog.title, "Jazz Quartet • Top Tracks");
+    assert_eq!(app.catalog.title, "Jazz Quartet");
 
     assert!(app.pop_navigation());
     assert_eq!(app.catalog.view, View::Liked);

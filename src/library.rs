@@ -8,6 +8,7 @@
 use crate::{
     catalog::{Browse, Catalog, Rows},
     model::Track,
+    service::FailureKind,
 };
 use anyhow::{Context, Result, anyhow, bail};
 use std::{collections::HashSet, time::Duration};
@@ -34,13 +35,35 @@ const PAGE_DELAY: Duration = Duration::ZERO;
 /// `tracks` contains only matches discovered since the previous progress
 /// message.  `scanned` is cumulative and counts valid track rows, including
 /// rows whose IDs were already seen in another liked-song or playlist page.
-/// The final successful message has an empty `tracks` vector and
-/// `complete == true`.
+/// `skipped` contains newly inaccessible playlists. A successful traversal
+/// is only complete when no playlist sources were skipped.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LibraryProgress {
     pub tracks: Vec<Track>,
     pub scanned: usize,
     pub complete: bool,
+    pub skipped: Vec<SkippedPlaylist>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PlaylistSkipReason {
+    Restricted,
+    Missing,
+}
+impl PlaylistSkipReason {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Restricted => "Access restricted",
+            Self::Missing => "Not found / inaccessible",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SkippedPlaylist {
+    pub id: String,
+    pub name: String,
+    pub reason: PlaylistSkipReason,
 }
 
 /// Search all liked songs and all saved playlists for `query`.
@@ -72,6 +95,7 @@ struct Scanner {
     scanned: usize,
     page_requests: usize,
     first_request: bool,
+    skipped_count: usize,
 }
 
 impl Scanner {
@@ -84,6 +108,7 @@ impl Scanner {
             scanned: 0,
             page_requests: 0,
             first_request: true,
+            skipped_count: 0,
         }
     }
 
@@ -104,7 +129,6 @@ impl Scanner {
             let page = catalog.page(&browse, offset).await.with_context(|| {
                 format!("Saved library search failed at {browse:?} offset {offset}")
             })?;
-            self.page_requests += 1;
 
             let next = page.next;
             let Rows::Tracks(tracks) = page.rows else {
@@ -138,7 +162,6 @@ impl Scanner {
                         "Saved library search failed while listing playlists at offset {offset}"
                     )
                 })?;
-            self.page_requests += 1;
 
             let next = page.next;
             let Rows::Playlists(playlists) = page.rows else {
@@ -155,8 +178,37 @@ impl Scanner {
                     );
                 }
                 self.seen_playlists.insert(playlist.id.clone());
-                self.scan_track_pages(catalog, Browse::Playlist(playlist.id))
-                    .await?;
+                if let Err(error) = self
+                    .scan_track_pages(catalog, Browse::Playlist(playlist.id.clone()))
+                    .await
+                {
+                    let reason = match Catalog::inaccessible_playlist(&error) {
+                        Some(FailureKind::AccessRestricted) => PlaylistSkipReason::Restricted,
+                        Some(FailureKind::MissingItem) => PlaylistSkipReason::Missing,
+                        _ => return Err(error),
+                    };
+                    self.skipped_count += 1;
+                    self.tx
+                        .send(LibraryProgress {
+                            tracks: Vec::new(),
+                            scanned: self.scanned,
+                            complete: false,
+                            skipped: vec![SkippedPlaylist {
+                                id: playlist.id,
+                                name: playlist
+                                    .name
+                                    .chars()
+                                    .filter(|c| !c.is_control())
+                                    .take(256)
+                                    .collect(),
+                                reason,
+                            }],
+                        })
+                        .await
+                        .map_err(|_| {
+                            anyhow!("Saved library search cancelled: progress receiver closed")
+                        })?;
+                }
             }
 
             // Playlist-list pages do not contribute track rows, but emitting
@@ -214,6 +266,8 @@ impl Scanner {
             tokio::time::sleep(PAGE_DELAY).await;
         }
         self.first_request = false;
+        // Failed requests also consume the traversal budget.
+        self.page_requests += 1;
         Ok(())
     }
 
@@ -222,7 +276,8 @@ impl Scanner {
             .send(LibraryProgress {
                 tracks,
                 scanned: self.scanned,
-                complete,
+                complete: complete && self.skipped_count == 0,
+                skipped: Vec::new(),
             })
             .await
             .map_err(|_| anyhow!("Saved library search cancelled: progress receiver closed"))
@@ -256,6 +311,199 @@ mod tests {
     const ID2: &str = "0000000000000000000002";
     const ID3: &str = "0000000000000000000003";
     const PLAYLIST: &str = "0000000000000000000011";
+    const LATER: &str = "0000000000000000000012";
+
+    async fn library_sources(server: &MockServer, later_requests: u64) {
+        Mock::given(path("/me/tracks"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(liked_page(vec![track(ID1, "Target liked", "Artist")], None)),
+            )
+            .expect(1)
+            .mount(server)
+            .await;
+        Mock::given(path("/me/playlists"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(playlist_page(vec![
+                json!({"id": PLAYLIST, "name":"Restricted 日本語", "owner":{"display_name":"Me"}}),
+                json!({"id": LATER, "name":"Accessible", "owner":{"display_name":"Me"}}),
+                // Duplicate index entries must not inflate skipped coverage.
+                json!({"id": PLAYLIST, "name":"Duplicate", "owner":{"display_name":"Me"}}),
+            ], None)))
+            .expect(1).mount(server).await;
+        Mock::given(path(format!("/playlists/{LATER}/items")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "items":[{"item":track(ID2, "Target later", "Artist")}], "next":null
+            })))
+            .expect(later_requests)
+            .mount(server)
+            .await;
+    }
+
+    async fn collect_search(catalog: Catalog) -> (Result<()>, Vec<LibraryProgress>) {
+        let (tx, mut rx) = mpsc::channel(16);
+        let result = search(catalog, "target".into(), tx).await;
+        let mut updates = Vec::new();
+        while let Some(update) = rx.recv().await {
+            updates.push(update);
+        }
+        (result, updates)
+    }
+
+    #[tokio::test]
+    async fn inaccessible_playlists_keep_liked_matches_continue_later_sources_and_report_partial_coverage()
+     {
+        for (response, reason) in [
+            (ResponseTemplate::new(403), PlaylistSkipReason::Restricted),
+            (ResponseTemplate::new(404), PlaylistSkipReason::Missing),
+            (
+                ResponseTemplate::new(200)
+                    .set_body_json(json!({"id":PLAYLIST,"type":"playlist","name":"Metadata only"})),
+                PlaylistSkipReason::Restricted,
+            ),
+        ] {
+            let (server, catalog) = catalog().await;
+            library_sources(&server, 1).await;
+            Mock::given(path(format!("/playlists/{PLAYLIST}/items")))
+                .respond_with(response)
+                .expect(1)
+                .mount(&server)
+                .await;
+            let (result, updates) = collect_search(catalog).await;
+            result.unwrap();
+            let found: Vec<_> = updates
+                .iter()
+                .flat_map(|u| u.tracks.iter().map(|t| t.id.as_str()))
+                .collect();
+            assert_eq!(found, [ID1, ID2]);
+            let skipped: Vec<_> = updates.iter().flat_map(|u| &u.skipped).collect();
+            assert_eq!(skipped.len(), 1);
+            assert_eq!(skipped[0].id, PLAYLIST);
+            assert_eq!(skipped[0].name, "Restricted 日本語");
+            assert_eq!(skipped[0].reason, reason);
+            assert_eq!(updates.last().unwrap().scanned, 2);
+            assert!(!updates.last().unwrap().complete);
+        }
+    }
+
+    #[tokio::test]
+    async fn auth_throttle_server_and_invalid_responses_stop_without_skipping_sources() {
+        for (response, kind) in [
+            (ResponseTemplate::new(400), FailureKind::RequestRejected),
+            (
+                ResponseTemplate::new(401),
+                FailureKind::AuthenticationRequired,
+            ),
+            (
+                ResponseTemplate::new(429).insert_header("Retry-After", "60"),
+                FailureKind::RateLimited,
+            ),
+            (
+                ResponseTemplate::new(429)
+                    .set_body_json(json!({"error":{"reason":"QUOTA_EXCEEDED"}})),
+                FailureKind::QuotaExceeded,
+            ),
+            (ResponseTemplate::new(503), FailureKind::Server),
+            (
+                ResponseTemplate::new(200).set_body_json(json!({"name":"Malformed"})),
+                FailureKind::InvalidResponse,
+            ),
+        ] {
+            let (server, catalog) = catalog().await;
+            library_sources(&server, 0).await;
+            Mock::given(path(format!("/playlists/{PLAYLIST}/items")))
+                .respond_with(response)
+                .mount(&server)
+                .await;
+            Mock::given(path("/token"))
+                .respond_with(
+                    ResponseTemplate::new(200)
+                        .set_body_json(json!({"access_token":"refreshed", "expires_in":3600})),
+                )
+                .mount(&server)
+                .await;
+            let (result, updates) = collect_search(catalog).await;
+            let error = result.unwrap_err();
+            assert!(
+                crate::service::ServiceFailure::is(&error, kind),
+                "{kind:?}: {error:#}"
+            );
+            assert!(Catalog::inaccessible_playlist(&error).is_none());
+            assert_eq!(updates.iter().map(|u| u.tracks.len()).sum::<usize>(), 1);
+            assert!(updates.iter().all(|u| u.skipped.is_empty() && !u.complete));
+        }
+    }
+
+    #[tokio::test]
+    async fn token_service_403_and_404_are_not_skippable_playlist_failures() {
+        for status in [403, 404] {
+            let (server, catalog) = catalog().await;
+            library_sources(&server, 0).await;
+            Mock::given(path(format!("/playlists/{PLAYLIST}/items")))
+                .respond_with(ResponseTemplate::new(401))
+                .expect(1)
+                .mount(&server)
+                .await;
+            Mock::given(path("/token"))
+                .respond_with(ResponseTemplate::new(status))
+                .expect(1)
+                .mount(&server)
+                .await;
+            let (result, updates) = collect_search(catalog).await;
+            let error = result.unwrap_err();
+            assert!(Catalog::inaccessible_playlist(&error).is_none());
+            assert!(updates.iter().all(|u| u.skipped.is_empty()));
+        }
+    }
+
+    #[tokio::test]
+    async fn access_lost_on_later_playlist_page_keeps_earlier_matches() {
+        let (server, catalog) = catalog().await;
+        library_sources(&server, 1).await;
+        Mock::given(path(format!("/playlists/{PLAYLIST}/items")))
+            .and(query_param("offset", "0"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "items":[{"item":track(ID3,"Target before restriction","Artist")}], "next":"next"
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(path(format!("/playlists/{PLAYLIST}/items")))
+            .and(query_param("offset", "50"))
+            .respond_with(ResponseTemplate::new(403))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let (result, updates) = collect_search(catalog).await;
+        result.unwrap();
+        let found: Vec<_> = updates
+            .iter()
+            .flat_map(|u| u.tracks.iter().map(|t| t.id.as_str()))
+            .collect();
+        assert_eq!(found, [ID1, ID3, ID2]);
+        assert_eq!(updates.iter().map(|u| u.skipped.len()).sum::<usize>(), 1);
+        assert!(!updates.last().unwrap().complete);
+    }
+
+    #[tokio::test]
+    async fn failed_requests_consume_the_bounded_traversal_budget() {
+        let (server, catalog) = catalog().await;
+        Mock::given(path(format!("/playlists/{PLAYLIST}/items")))
+            .respond_with(ResponseTemplate::new(403))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let (tx, _rx) = mpsc::channel(2);
+        let mut scanner = Scanner::new(String::new(), tx);
+        scanner.page_requests = MAX_PAGE_REQUESTS - 1;
+        assert!(
+            scanner
+                .scan_track_pages(&catalog, Browse::Playlist(PLAYLIST.into()))
+                .await
+                .is_err()
+        );
+        assert_eq!(scanner.page_requests, MAX_PAGE_REQUESTS);
+        assert!(scanner.before_page().await.is_err());
+    }
 
     async fn catalog() -> (MockServer, Catalog) {
         let server = MockServer::start().await;

@@ -9,22 +9,58 @@ permissions:
 
 jobs:
   rust:
+    name: Rust stable formatting, tests and linting
     runs-on: windows-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust checks
-        run: rustup component add rustfmt clippy
+        run: rustup toolchain install stable --profile minimal --component rustfmt --component clippy --no-self-update
       - uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: rust-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'Cargo.toml') }}
-      - run: cargo fmt --check
-      - run: cargo test --locked
-      - run: cargo clippy --all-targets --locked -- -D warnings
-      - run: cargo build --release --locked
+          key: rust-stable-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'Cargo.toml') }}
+      - run: cargo +stable fmt --check
+      - run: cargo +stable test --locked
+      - run: cargo +stable clippy --all-targets --locked -- -D warnings
+      - run: cargo +stable build --release --locked
+      - name: Verify fresh packages and artifact manifests
+        shell: pwsh
+        run: ./scripts/test-release.ps1
+
+  minimum-rust:
+    name: Declared minimum Rust on Windows x64
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read minimum from the application manifest
+        id: minimum
+        shell: pwsh
+        run: |
+          $metadataText = cargo metadata --locked --no-deps --format-version 1
+          if ($LASTEXITCODE -ne 0) { throw 'Could not read Cargo manifest' }
+          $metadata = $metadataText | ConvertFrom-Json
+          $minimum = ($metadata.packages | Where-Object name -eq 'tuitify').rust_version
+          if ($minimum -notmatch '^\d+\.\d+(\.\d+)?$') { throw 'Invalid or missing rust-version' }
+          $toolchain = if ($minimum.Split('.').Count -eq 2) { "$minimum.0" } else { $minimum }
+          "toolchain=$toolchain" >> $env:GITHUB_OUTPUT
+      - name: Install the declared minimum
+        run: rustup toolchain install ${{ steps.minimum.outputs.toolchain }} --profile minimal --no-self-update
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/msrv
+          key: rust-minimum-${{ steps.minimum.outputs.toolchain }}-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'Cargo.toml') }}
+      - name: Test the locked graph at the minimum
+        run: cargo +${{ steps.minimum.outputs.toolchain }} test --locked --all-targets --target x86_64-pc-windows-msvc --target-dir target/msrv
+      - name: Build the release at the minimum
+        run: cargo +${{ steps.minimum.outputs.toolchain }} build --release --locked --target x86_64-pc-windows-msvc --target-dir target/msrv
 
   website:
     runs-on: windows-latest

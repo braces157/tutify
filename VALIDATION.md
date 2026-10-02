@@ -1,5 +1,53 @@
 # Validation record
 
+## v0.4.0 feature batch and release — 2026-10-02
+
+Windows x64, stable Rust 1.95.0. This batch adds typed service failures,
+session-scoped catalog observations, partial library coverage, artist-source
+labels, identity safeguards, backups and targeted recovery, offline diagnostics,
+redacted support reports, queue filtering, and listening tools. Build identity
+and fresh packaging are included; installer rollback hardening remains pending.
+
+Completed local release checks:
+
+- `cargo fmt --check`: passed.
+- `cargo test --locked`: **517 passed, 0 failed, 16 ignored** (510 unit tests
+  and seven build-identity integration tests). Ignored live, hardware, terminal,
+  and benchmark tests remain explicit opt-ins.
+- `cargo clippy --all-targets --locked -- -D warnings`: passed.
+- `cargo build --release --locked`: passed.
+- `npm ci`, compiled CSS verification, and Microsoft Edge browser checks:
+  **24 passed**. Executable/ZIP download links and source-install tags agree
+  with Cargo and npm version 0.4.0.
+- Five packaging regressions passed: same-version deleted assets disappear,
+  missing/escaping local links are rejected, stale compiled source is rejected,
+  and reparse-point payloads are rejected. Every extracted payload file and
+  installer hash agrees with its manifest; failed packaging preserves outputs.
+- Nine bounded release-CLI cases passed for report redaction, exact executable
+  identity, non-clobbering export, invalid/future state, interrupted journals,
+  and unchanged saved files. The fixtures use isolated data and no live service.
+- The same application source previously passed the locked suite and release
+  build with minimum Rust 1.88.0. Hosted CI independently tests the versioned
+  source on stable and the minimum declared by Cargo.toml.
+
+Published checks are available in
+[GitHub Actions](https://github.com/braces157/tutify/actions/workflows/ci.yml).
+Release assets carry source/compiler identity, per-file manifests, and SHA-256
+sidecars. Disk hashes identify the distributed bytes; compiler identity is
+embedded in the process and does not change when a running executable is replaced.
+
+Offline and mock-provider checks exercise failure propagation, bounded retries,
+partial results, account mismatch preservation, restore confirmation and rollback,
+future-version preservation, report redaction and export, and compact UI layouts.
+Earlier isolated native demo walkthroughs for queue filtering and listening tools
+are documented in [Queue filtering](docs/queue-filter-validation.md) and
+[Listening tools](docs/listening-tools-validation.md).
+
+Live Spotify playback, live account migration, physical audio-device changes,
+ARM64 hardware, and new production endpoint availability were not verified for
+this release. These limits remain explicit; automated fixtures are not substitutes
+for service/account or physical-device acceptance.
+
 ## v0.3.1 review, Unicode matching, and release — 2026-09-30
 
 Windows x64, Rust 1.95.0. The application review repaired persistence startup

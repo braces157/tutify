@@ -131,15 +131,14 @@ impl SongStats {
         } else {
             if self.tracks.len() >= MAX_STATS_ENTRIES {
                 self.trim();
-                if self.tracks.len() >= MAX_STATS_ENTRIES {
-                    if let Some(id_to_remove) = self
+                if self.tracks.len() >= MAX_STATS_ENTRIES
+                    && let Some(id_to_remove) = self
                         .tracks
                         .iter()
                         .min_by_key(|(id, s)| (s.play_count, s.listened_ms, (*id).as_str()))
                         .map(|(k, _)| k.clone())
-                    {
-                        self.tracks.remove(&id_to_remove);
-                    }
+                {
+                    self.tracks.remove(&id_to_remove);
                 }
             }
             let name = if fallback_name.is_empty() {
@@ -182,15 +181,14 @@ impl SongStats {
         } else {
             if self.tracks.len() >= MAX_STATS_ENTRIES {
                 self.trim();
-                if self.tracks.len() >= MAX_STATS_ENTRIES {
-                    if let Some(id_to_remove) = self
+                if self.tracks.len() >= MAX_STATS_ENTRIES
+                    && let Some(id_to_remove) = self
                         .tracks
                         .iter()
                         .min_by_key(|(id, s)| (s.play_count, s.listened_ms, (*id).as_str()))
                         .map(|(k, _)| k.clone())
-                    {
-                        self.tracks.remove(&id_to_remove);
-                    }
+                {
+                    self.tracks.remove(&id_to_remove);
                 }
             }
             let name = if fallback_name.is_empty() {
