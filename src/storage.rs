@@ -1,11 +1,16 @@
 use crate::{model::Repeat, queue::Queue};
-use anyhow::{Context, Result, bail};
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
 use std::{
     fs,
     io::{BufWriter, Write},
     path::{Path, PathBuf},
 };
+
+mod backup;
+mod recovery;
+pub(crate) use backup::confirmation_token;
+pub(crate) use recovery::StateFile;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -57,40 +62,40 @@ impl Storage {
             .create(true)
             .truncate(false)
             .open(self.root.join("instance.lock"))?;
-        fs2::FileExt::try_lock_exclusive(&file).context("Tuitify is already running; close it before opening another player, logging in, or logging out")?;
+        fs2::FileExt::try_lock_exclusive(&file).context("Tuitify is already running; close it before opening another player or changing saved state")?;
+        backup::recover_pending(self)?;
         Ok(file)
     }
     pub fn local() -> Result<Self> {
+        let store = Self::local_read_only()?;
+        fs::create_dir_all(&store.root)?;
+        Ok(store)
+    }
+    /// Resolve the normal data root without creating it or recovering a journal.
+    pub(crate) fn local_read_only() -> Result<Self> {
         let root = PathBuf::from(
             std::env::var_os("LOCALAPPDATA").context("LOCALAPPDATA is not set; run on Windows")?,
         )
         .join("Tuitify");
-        fs::create_dir_all(&root)?;
         Ok(Self { root })
     }
     pub fn config(&self) -> Result<Config> {
-        let c: Config = read_or_default(&self.root.join("config.json"))?;
-        if c.version != 1 {
-            bail!(
-                "Unsupported config version {}; preserve config.json and update Tuitify",
-                c.version
-            );
-        }
-        Ok(Config {
-            volume: c.volume.min(100),
-            background_dim: c.background_dim.min(85),
-            ..c
-        })
+        let c: Config = recovery::load(self, StateFile::Config)?;
+        recovery::validate_config(&c)
+            .map_err(|error| recovery::invariant(StateFile::Config, error.to_string()))?;
+        Ok(c)
     }
     pub fn queue(&self) -> Result<Queue> {
-        let q: Queue = read_or_default(&self.root.join("queue.json"))?;
-        q.validate()?;
+        let q: Queue = recovery::load(self, StateFile::Queue)?;
+        q.validate()
+            .map_err(|error| recovery::invariant(StateFile::Queue, error.to_string()))?;
         Ok(q)
     }
     pub fn cache(&self) -> Result<crate::cache::MetadataCache> {
-        let mut cache: crate::cache::MetadataCache =
-            read_or_default(&self.root.join("cache.json"))?;
-        cache.validate()?;
+        let mut cache: crate::cache::MetadataCache = recovery::load(self, StateFile::Cache)?;
+        cache
+            .validate()
+            .map_err(|error| recovery::invariant(StateFile::Cache, error.to_string()))?;
         Ok(cache)
     }
     #[cfg(test)]
@@ -100,9 +105,11 @@ impl Storage {
     }
     pub fn save_queue(&self, queue: &Queue) -> Result<()> {
         queue.validate()?;
+        recovery::protect_future_version(self, StateFile::Queue)?;
         atomic_json(&self.root.join("queue.json"), queue)
     }
     pub fn save_cache(&self, cache: &crate::cache::MetadataCache) -> Result<()> {
+        recovery::protect_future_version(self, StateFile::Cache)?;
         atomic_json(&self.root.join("cache.json"), cache)
     }
     pub fn clear_cache(&self) -> Result<()> {
@@ -113,6 +120,7 @@ impl Storage {
         }
     }
     pub fn save_config(&self, config: &Config) -> Result<()> {
+        recovery::protect_future_version(self, StateFile::Config)?;
         atomic_json(&self.root.join("config.json"), config)
     }
     pub fn clear_queue(&self) -> Result<()> {
@@ -123,21 +131,26 @@ impl Storage {
         }
     }
     pub fn stats(&self) -> Result<crate::stats::SongStats> {
-        let stats: crate::stats::SongStats = read_or_default(&self.root.join("stats.json"))?;
-        stats.validate()?;
+        let stats: crate::stats::SongStats = recovery::load(self, StateFile::Stats)?;
+        recovery::validate_stats(&stats)
+            .map_err(|error| recovery::invariant(StateFile::Stats, error.to_string()))?;
         Ok(stats)
     }
     pub fn save_stats(&self, stats: &crate::stats::SongStats) -> Result<()> {
         stats.validate()?;
+        recovery::protect_future_version(self, StateFile::Stats)?;
         atomic_json(&self.root.join("stats.json"), stats)
     }
     pub fn mix_recipes(&self) -> Result<crate::mix::MixRecipes> {
-        let recipes: crate::mix::MixRecipes = read_or_default(&self.root.join("mix-recipes.json"))?;
-        recipes.validate()?;
+        let recipes: crate::mix::MixRecipes = recovery::load(self, StateFile::Recipes)?;
+        recipes
+            .validate()
+            .map_err(|error| recovery::invariant(StateFile::Recipes, error.to_string()))?;
         Ok(recipes)
     }
     pub fn save_mix_recipes(&self, recipes: &crate::mix::MixRecipes) -> Result<()> {
         recipes.validate()?;
+        recovery::protect_future_version(self, StateFile::Recipes)?;
         atomic_json(&self.root.join("mix-recipes.json"), recipes)
     }
     pub fn clear_stats(&self) -> Result<()> {
@@ -146,19 +159,6 @@ impl Storage {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
             Err(e) => Err(e.into()),
         }
-    }
-}
-
-fn read_or_default<T: DeserializeOwned + Default>(path: &Path) -> Result<T> {
-    match fs::read(path) {
-        Ok(bytes) => serde_json::from_slice(&bytes).with_context(|| {
-            format!(
-                "Cannot read {}; move this file aside to reset it (it has been preserved)",
-                path.display()
-            )
-        }),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(T::default()),
-        Err(e) => Err(e.into()),
     }
 }
 

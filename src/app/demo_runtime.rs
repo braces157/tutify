@@ -14,6 +14,7 @@ pub async fn run_demo(glass: bool) -> Result<()> {
     let mut tick = tokio::time::interval(Duration::from_secs(1));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
+        app.check_sleep(Instant::now(), &commands);
         tasks.sync_queue_epoch(app.queue.epoch);
         tasks.refill_radio(&app);
         tasks.refill_smart_shuffle(&app);

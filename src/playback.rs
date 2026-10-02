@@ -168,6 +168,9 @@ async fn connect(
             "Spotify streaming connection failed. Check network and Premium membership; retry with Space. If it persists, run tuitify auth --streaming --force. Librespot may be incompatible with Spotify's current service."
         );
     }
+    tokens
+        .verify_streaming_username(&session.username())
+        .await?;
     let mixer = SoftMixer::open(MixerConfig::default())?;
     mixer.set_volume(((volume as u32 * 65535) / 100) as u16);
     let player = Player::new(
@@ -253,11 +256,10 @@ where
                         }
                     },
                     Command::Preload { id } => {
-                        if let Some(e) = &engine {
-                            if let Ok(uri) = SpotifyUri::from_uri(&format!("spotify:track:{id}")) {
+                        if let Some(e) = &engine
+                            && let Ok(uri) = SpotifyUri::from_uri(&format!("spotify:track:{id}")) {
                                 e.player.preload(uri);
                             }
-                        }
                     },
                     Command::Volume(v) => { volume = v.min(100); if let Some(e) = &engine { e.mixer.set_volume((volume as u32 * 65535 / 100) as u16); } let _ = tx.send(Event::Volume(volume)); },
                     Command::Stop => { connecting = None; desired = None; active = None; loading_since = None; playing = false; pending.clear(); engine = None; },
@@ -413,7 +415,7 @@ impl SincResampler {
             self.pos = pad as f64;
         }
         self.history.reserve(num_frames);
-        for chunk in samples.chunks_exact(2) {
+        for chunk in samples.as_chunks::<2>().0 {
             self.history.push([chunk[0], chunk[1]]);
         }
         self.process_history(num_frames)
@@ -540,14 +542,12 @@ impl WindowsAudio {
                 .find_map(|c| c.try_with_sample_rate(rodio::cpal::SampleRate(44_100)))
         });
 
-        if let Some(config) = preferred_config {
-            if let Ok((stream, handle)) =
+        if let Some(config) = preferred_config
+            && let Ok((stream, handle)) =
                 rodio::OutputStream::try_from_device_config(device, config)
-            {
-                if let Ok(sink) = rodio::Sink::try_new(&handle) {
-                    return Ok((sink, stream, 44_100));
-                }
-            }
+            && let Ok(sink) = rodio::Sink::try_new(&handle)
+        {
+            return Ok((sink, stream, 44_100));
         }
 
         // 2. Try default config on the default device
@@ -555,10 +555,9 @@ impl WindowsAudio {
             let rate = default_config.sample_rate().0;
             if let Ok((stream, handle)) =
                 rodio::OutputStream::try_from_device_config(device, default_config)
+                && let Ok(sink) = rodio::Sink::try_new(&handle)
             {
-                if let Ok(sink) = rodio::Sink::try_new(&handle) {
-                    return Ok((sink, stream, rate));
-                }
+                return Ok((sink, stream, rate));
             }
         }
 

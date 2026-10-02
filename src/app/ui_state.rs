@@ -9,6 +9,9 @@ pub enum Overlay {
     Visualizer,
     Stats,
     MixBuilder,
+    ListeningTools,
+    LibraryCoverage,
+    Diagnostics,
 }
 
 #[derive(Default)]
@@ -16,6 +19,11 @@ pub struct UiState {
     pub overlay: Overlay,
     pub render: RefCell<RenderState>,
     pub stats: RefCell<StatsView>,
+    pub queue: super::queue_filter::QueueFilter,
+    pub listening: super::listening::ListeningTools,
+    pub search_history: super::search_history::SearchHistory,
+    pub coverage_selected: usize,
+    pub(crate) diagnostics: crate::diagnostics::support::View,
 }
 
 impl UiState {
@@ -136,6 +144,12 @@ pub struct RenderState {
     pub catalog_scroll: usize,
     pub stats_scroll: usize,
     pub queue_scroll: usize,
+    pub tools_scroll: usize,
+    pub coverage_scroll: usize,
+    pub diagnostics_scroll: usize,
+    pub diagnostics_length: usize,
+    /// Original queue position retained while F5 refreshes filtered metadata.
+    pub queue_filter_metadata_start: Option<usize>,
     pub queue_height: usize,
     pub terminal_size: (u16, u16),
     pub help_length: usize,
@@ -149,6 +163,11 @@ impl Default for RenderState {
             catalog_scroll: 0,
             stats_scroll: 0,
             queue_scroll: 0,
+            tools_scroll: 0,
+            coverage_scroll: 0,
+            diagnostics_scroll: 0,
+            diagnostics_length: 1,
+            queue_filter_metadata_start: None,
             queue_height: 40,
             terminal_size: (120, 35),
             help_length: 1,

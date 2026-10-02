@@ -131,11 +131,11 @@ fn background_cache_key(source: &Path, dim: u8) -> Result<String> {
     hasher.update(b"glass-color-matched-v4:");
     hasher.update(source.to_string_lossy().as_bytes());
     hasher.update(meta.len().to_le_bytes());
-    if let Ok(mtime) = meta.modified() {
-        if let Ok(dur) = mtime.duration_since(std::time::UNIX_EPOCH) {
-            hasher.update(dur.as_secs().to_le_bytes());
-            hasher.update(dur.subsec_nanos().to_le_bytes());
-        }
+    if let Ok(mtime) = meta.modified()
+        && let Ok(dur) = mtime.duration_since(std::time::UNIX_EPOCH)
+    {
+        hasher.update(dur.as_secs().to_le_bytes());
+        hasher.update(dur.subsec_nanos().to_le_bytes());
     }
     if let Ok(mut file) = fs::File::open(source) {
         let mut buf = [0u8; 8192];

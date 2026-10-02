@@ -1,6 +1,51 @@
 use super::*;
 
 #[tokio::test]
+async fn f5_rechecks_remembered_playlist_access_without_a_playback_command() {
+    use wiremock::{Mock, MockServer, ResponseTemplate, matchers::path};
+    let server = MockServer::start().await;
+    let id = "0000000000000000000011";
+    let endpoint = format!("/playlists/{id}/items");
+    Mock::given(path(&endpoint))
+        .respond_with(ResponseTemplate::new(403))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let catalog = Catalog::mock(&server.uri());
+    assert!(catalog.page(&Browse::Playlist(id.into()), 0).await.is_err());
+    server.reset().await;
+    Mock::given(path(&endpoint))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(serde_json::json!({"items":[], "next":null})),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    assert!(catalog.page(&Browse::Playlist(id.into()), 0).await.is_err());
+    let (sender, mut receiver) = mpsc::unbounded_channel();
+    let mut tasks = Tasks::new(catalog, sender).unwrap();
+    let mut app = App::new(Config::default(), Queue::default());
+    app.catalog.view = View::Playlists;
+    app.catalog.browse = Browse::Playlist(id.into());
+    let (commands, mut command_receiver) = mpsc::unbounded_channel();
+    key(
+        &mut app,
+        KeyEvent::new(KeyCode::F(5), KeyModifiers::NONE),
+        &mut tasks,
+        &commands,
+    );
+    let event = tokio::time::timeout(Duration::from_secs(2), receiver.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(matches!(&event, Background::Page(_, Ok(_))));
+    background(&mut app, &mut tasks, event);
+    assert!(!app.catalog.busy);
+    assert!(app.status.contains("0 loaded"));
+    assert!(command_receiver.try_recv().is_err());
+}
+
+#[tokio::test]
 async fn radio_error_survives_playback_updates_and_is_cleared_on_restart() {
     let mut app = App::new(Config::default(), Queue::default());
     let (mut tasks, _) = tasks();
@@ -246,7 +291,14 @@ async fn missing_track_does_not_block_other_metadata() {
     background(
         &mut app,
         &mut tasks,
-        Background::Metadata(0, id.clone(), Err(crate::catalog::MissingItem.into())),
+        Background::Metadata(
+            0,
+            id.clone(),
+            Err(
+                crate::service::ServiceFailure::spotify(crate::service::FailureKind::MissingItem)
+                    .into(),
+            ),
+        ),
     );
     assert!(!tasks.metadata_blocked);
     assert!(!app.cache.get(&id).unwrap().playable);
@@ -328,6 +380,7 @@ async fn library_progress_keeps_partial_matches_and_ignores_results_after_cancel
             crate::library::LibraryProgress {
                 tracks: vec![test_track(1)],
                 scanned: 150,
+                skipped: Vec::new(),
                 complete: false,
             },
         ),
@@ -352,6 +405,7 @@ async fn library_progress_keeps_partial_matches_and_ignores_results_after_cancel
             crate::library::LibraryProgress {
                 tracks: vec![test_track(2)],
                 scanned: 200,
+                skipped: Vec::new(),
                 complete: true,
             },
         ),

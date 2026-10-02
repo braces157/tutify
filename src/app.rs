@@ -2,12 +2,16 @@ mod actions;
 mod browsing;
 mod controls;
 mod demo_runtime;
+mod diagnostics;
 mod input;
 mod jobs;
+pub(crate) mod listening;
 mod lyrics_state;
 mod mouse;
 mod persistence;
+mod queue_filter;
 mod runtime;
+mod search_history;
 mod smart_shuffle;
 pub(crate) mod ui_state;
 
@@ -15,6 +19,7 @@ pub(crate) use actions::Action;
 use browsing::BrowseState;
 use controls::{Control, Seek};
 pub use demo_runtime::run_demo;
+use diagnostics::diagnostics_key;
 use input::{key, route_input};
 use jobs::*;
 use lyrics_state::LyricsState;
@@ -23,6 +28,7 @@ use persistence::*;
 pub use runtime::run;
 pub use ui_state::{Overlay, RenderState, UiState};
 
+use crate::diagnostics::history::Subsystem;
 use crate::{
     auth::TokenManager,
     catalog::{Browse, Catalog, Page, Recommendations, Rows},
@@ -117,6 +123,18 @@ pub enum MouseTarget {
     Catalog(usize),
     Queue(usize),
     Prompt,
+    QueueFilter,
+    QueueFilterClear,
+    ListeningTools,
+    ListeningRow(usize),
+    ListeningApply,
+    ListeningClose,
+    LibraryCoverage,
+    CoverageRow(usize),
+    DiagnosticKey(KeyCode),
+    DiagnosticRow(usize),
+    CoverageClose,
+    CoverageRecheck,
     CatalogScroll,
     QueueScroll,
     StatsRow(usize),
@@ -607,19 +625,19 @@ impl App {
         }
     }
     fn interpolate_position(&mut self) {
-        if self.state == State::Playing {
-            if let Some((at, position)) = self.position_anchor {
-                let duration = self.current_track().map_or(u32::MAX, |t| {
-                    if t.duration_ms == 0 {
-                        u32::MAX
-                    } else {
-                        t.duration_ms
-                    }
-                });
-                self.queue.position_ms = position
-                    .saturating_add(at.elapsed().as_millis().min(u32::MAX as u128) as u32)
-                    .min(duration);
-            }
+        if self.state == State::Playing
+            && let Some((at, position)) = self.position_anchor
+        {
+            let duration = self.current_track().map_or(u32::MAX, |t| {
+                if t.duration_ms == 0 {
+                    u32::MAX
+                } else {
+                    t.duration_ms
+                }
+            });
+            self.queue.position_ms = position
+                .saturating_add(at.elapsed().as_millis().min(u32::MAX as u128) as u32)
+                .min(duration);
         }
     }
     fn anchor_position(&mut self) {
@@ -635,10 +653,10 @@ impl App {
             return;
         };
         let track = self.cache.get(&track_id);
-        if let Some(track) = track {
-            if track.duration_ms > 0 {
-                self.accounting.duration_ms = track.duration_ms;
-            }
+        if let Some(track) = track
+            && track.duration_ms > 0
+        {
+            self.accounting.duration_ms = track.duration_ms;
         }
         let fallback_name = track.map_or("", |t| t.name.as_str());
         let fallback_artists = track.map_or("", |t| t.artists.as_str());
@@ -665,7 +683,7 @@ impl App {
         } else if self.catalog.view == View::Help {
             self.ui.render.borrow().help_length
         } else if self.catalog.view == View::Queue {
-            self.queue.order.len()
+            self.queue_rows().len()
         } else if self.is_filtered() {
             self.filtered_indices().len()
         } else {
@@ -675,7 +693,7 @@ impl App {
     #[allow(dead_code)]
     pub fn selection(&self) -> usize {
         if self.catalog.view == View::Queue {
-            self.queue.selected
+            self.selected_queue_index().unwrap_or(self.queue.selected)
         } else {
             self.catalog.selected
         }
@@ -725,7 +743,7 @@ impl App {
         if self.catalog.view == View::Queue {
             self.queue
                 .order
-                .get(self.queue.selected)
+                .get(self.selected_queue_index()?)
                 .map(|i| &self.queue.ids[*i])
                 .map(|id| {
                     self.cache
@@ -746,6 +764,10 @@ impl App {
     }
     fn send(&mut self, tx: &mpsc::UnboundedSender<Command>, command: Command) {
         if tx.send(command).is_err() {
+            self.ui
+                .diagnostics
+                .history
+                .record_text(Subsystem::Playback, "Playback worker stopped");
             self.state = State::Failed;
             self.status = "Playback worker stopped; restart Tuitify. Queue remains saved.".into();
         }
@@ -833,6 +855,8 @@ impl App {
         }
     }
     pub fn playback_event(&mut self, event: Event, tx: &mpsc::UnboundedSender<Command>) {
+        // Expiry wins over a simultaneous completion or delayed playback event.
+        self.check_sleep(Instant::now(), tx);
         match event {
             Event::Playing {
                 generation,
@@ -895,6 +919,9 @@ impl App {
                         &mut self.stats,
                     );
                 }
+                if self.finish_track_sleep(tx) {
+                    return;
+                }
                 if self.queue.advance(self.config.repeat, true) {
                     self.load(tx);
                 } else {
@@ -904,6 +931,10 @@ impl App {
                 }
             }
             Event::Error(message) => {
+                self.ui
+                    .diagnostics
+                    .history
+                    .record_text(Subsystem::Playback, &message);
                 self.finalize_playback_accounting();
                 self.stop(tx);
                 self.state = State::Failed;

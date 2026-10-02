@@ -1,5 +1,97 @@
 # Changelog
 
+## Unreleased
+
+## 0.4.0 — 2026-10-02
+
+- Future plan 110/112: embed source, commit/dirty status, compiler/target/settings
+  and build IDs in detailed version, doctor and redacted support output. Generate
+  per-file and external artifact manifests, reject stale builds, package from a
+  fresh bounded workspace and verify extracted payload hashes and local links.
+
+- Future plan 101: raise the declared Rust minimum to 1.88 because the application
+  and locked `wiremock` tests use let chains. Add a separate Windows x64 CI job
+  that reads the minimum from the manifest, tests the locked graph and builds the
+  release; keep stable formatting and strict Clippy independent.
+
+- Future plan 010: keep up to 64 classified session errors independently of the
+  status line and add an F7 panel with a redacted JSON report preview. Export
+  exactly the reviewed snapshot to a new external file; never overwrite files,
+  save the journal with listening data, or upload reports automatically. Add an
+  offline `support` command for startup diagnostics and summarize per-session
+  catalog observations without resource IDs. Exclude secrets, raw payloads,
+  personal paths, device names, searches and song history by construction.
+
+- Future plan 009: add offline-by-default `doctor` diagnostics for exact build
+  hashes and launch paths, terminal/data/state health, saved credential expiry
+  and account mapping, and output devices. Explicit network probes are bounded
+  GETs with no login, refresh, streaming handshake, discovery fallback or writes.
+  Preserve interrupted restore journals, report scoped capabilities and actionable
+  failures, and offer structured local JSON output.
+
+- Future plan 008: add `state inspect`, component backup, and previewed per-file
+  reset/restore commands. Report file/version/invariant failures without raw
+  values, preserve damaged/future snapshots in exact-byte component backups,
+  recover recipes without touching queues or credentials, and keep unsupported
+  formats intact during ordinary writes and whole-state restore. Archive originals
+  before confirmed changes and reuse journal recovery for single files and cache.
+
+- Future plan 007: separate stable Web API account identity, legacy user IDs,
+  and streaming usernames in versioned credential metadata. Verify account
+  mappings, preserve queue/cache/statistics through same-account alias changes,
+  reject mismatched or ambiguous replacements without clearing saved files, and
+  retain metadata during token refresh. Check the authenticated playback username
+  before audio starts; restore prior credential metadata after failed writes.
+
+- Future plan 006: add versioned, credential-free saved-state backups and a
+  validated restore preview with confirmation bound to the backup, destination,
+  and current files. Preserve duplicate queue occurrences, recipe settings, and
+  existing aggregates; exclude cache and runtime state. Stage replacements before
+  publishing and recover interrupted restores under the instance lock.
+
+- Future plan 004: label artist results by their actual source: Top Tracks,
+  verified Artist Search, or fictional Demo Tracks. Keep Artist Search pagination
+  on its established source, distinguish empty/error states, retain provenance in
+  navigation history, and recheck Top Tracks on F5 without relabeling retained rows.
+
+- Future plan 003: continue saved-library searches past inaccessible playlists,
+  retaining earlier matches and each skipped source's name and reason. Report
+  partial coverage even when traversal finishes; F4 opens a scrollable source
+  list and F5 rechecks access. Keep authentication, quota, outage, and malformed
+  responses fatal; preserve skipped sources through cancellation and navigation.
+
+- Future plan 002/005: remember catalog access results within the current
+  client/account session, with bounded expiry and per-item scopes. Avoid
+  repeated denied requests; F5 and Mix Retry recheck access without bypassing
+  service waits. Distinguish playlist metadata-only access from malformed
+  responses, keep token-refresh quota failures visible, and preserve fallback
+  errors. Empty successful recommendation pools remain empty Spotify results.
+
+- Future plan 001: classify catalog/login/provider failures and distinguish
+  exhausted Spotify quota from temporary rate limits. Preserve retry deadlines
+  and safe failure causes across cooldowns and cached similar-artist lookups.
+  Keep authentication/quota/outage errors visible through discovery fallbacks,
+  bound error-body parsing, and omit upstream URLs/payloads from diagnostics.
+
+- Add an F6 Listening Tools menu with 15/30/45/60-minute sleep timers,
+  stop-after-current-track, cancellation, and a visible countdown. Expiry keeps
+  the queue and pauses playback; end-track mode overrides repeat and cancels
+  when playback switches tracks.
+- Add undoable full-queue cleanup of played entries, duplicate upcoming track
+  IDs, and known unavailable tracks, preserving the current occurrence and
+  playback position. Bulk edits remap shuffle/suggestion indices in one pass.
+- Add Ctrl+Enter Play Next across track views. Queue promotes the existing
+  occurrence without copying it. Recall 20 recent searches with Up/Down during
+  search entry and recover the last cleared queue filter with Ctrl+R.
+
+- Add instant Queue filtering by title, artist, and album with Unicode case
+  matching, match counts, original queue positions, and clickable edit/clear
+  controls that fit a 32 × 10 terminal. Matches update as metadata loads.
+- Keep filtered playback, reorder, remove, context menus, and undo tied to the
+  correct queue occurrence, including duplicates and shuffled queues. Prevent
+  hidden-track actions on empty results and require clearing a filter before
+  clearing the entire queue. `.` clears the filter and reveals the current track.
+
 ## 0.3.1 — 2026-09-30
 
 - Fix Vietnamese Radio lookup when catalogs differ in Latin accents. Confirm

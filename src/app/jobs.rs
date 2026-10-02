@@ -300,10 +300,12 @@ impl Tasks {
             let mut stream = catalog.tracks(ids);
             let mut batch = Vec::with_capacity(100);
             while let Some((id, result)) = stream.next().await {
-                let systemic_failure = result
-                    .as_ref()
-                    .err()
-                    .is_some_and(|error| !error.is::<crate::catalog::MissingItem>());
+                let systemic_failure = result.as_ref().err().is_some_and(|error| {
+                    !crate::service::ServiceFailure::is(
+                        error,
+                        crate::service::FailureKind::MissingItem,
+                    )
+                });
                 batch.push((id, result.map_err(|error| format!("{error:#}"))));
                 if systemic_failure {
                     // Dropping the bounded stream cancels outstanding requests and,
@@ -327,6 +329,7 @@ impl Tasks {
     }
 
     pub(super) fn retry_mix_source(&mut self, app: &mut App) {
+        self.catalog.refresh_capabilities();
         let Some(source) = app.mix.source.clone() else {
             return;
         };
@@ -678,6 +681,20 @@ impl Tasks {
         }));
     }
     pub(super) fn request(&mut self, app: &mut App, offset: usize) {
+        if app.catalog.view == View::Artist && offset == 0 {
+            // Retained rows keep their original provenance during an F5 probe.
+            // A newly opened artist has already cleared rows and provenance.
+            if app.catalog.artist_source.is_none() {
+                app.catalog.title = app.catalog.artist_label.clone();
+            }
+        }
+        if app.catalog.view == View::Search && offset == 0 {
+            app.catalog.library_scanned = 0;
+            app.catalog.library_skipped = Arc::new(Vec::new());
+            app.ui.coverage_selected = 0;
+            app.ui.render.borrow_mut().coverage_scroll = 0;
+            app.ui.close(Overlay::LibraryCoverage);
+        }
         if let Some(task) = self.browse.take() {
             task.abort();
         }
@@ -732,8 +749,11 @@ impl Tasks {
             }));
             return;
         }
+        let artist_source = app.catalog.artist_source;
         self.browse = Some(tokio::spawn(async move {
-            let result = catalog.page(&browse, offset).await;
+            let result = catalog
+                .page_with_artist_source(&browse, offset, artist_source)
+                .await;
             let _ = tx.send(Background::Page(request, result));
         }));
     }
@@ -746,7 +766,7 @@ impl Tasks {
             ids.push(id.to_owned());
         }
         let start = if app.catalog.view == View::Queue {
-            app.ui.render.borrow().queue_scroll
+            app.queue_metadata_start()
         } else {
             app.queue.cursor.unwrap_or(0)
         };
@@ -768,7 +788,12 @@ impl Tasks {
                 let result = crate::demo::all_tracks()
                     .into_iter()
                     .find(|track| track.id == id)
-                    .ok_or_else(|| crate::catalog::MissingItem.into());
+                    .ok_or_else(|| {
+                        crate::service::ServiceFailure::spotify(
+                            crate::service::FailureKind::MissingItem,
+                        )
+                        .into()
+                    });
                 let _ = self.tx.send(Background::Metadata(request, id, result));
             }
             let _ = self.tx.send(Background::MetadataDone(request));
@@ -780,9 +805,9 @@ impl Tasks {
         self.metadata = Some(tokio::spawn(async move {
             let mut stream = catalog.tracks(ids);
             while let Some((id, result)) = stream.next().await {
-                let failed = result
-                    .as_ref()
-                    .is_err_and(|e| !e.is::<crate::catalog::MissingItem>());
+                let failed = result.as_ref().is_err_and(|e| {
+                    !crate::service::ServiceFailure::is(e, crate::service::FailureKind::MissingItem)
+                });
                 if tx.send(Background::Metadata(request, id, result)).is_err() {
                     return;
                 }
@@ -794,6 +819,7 @@ impl Tasks {
         }));
     }
     pub(super) fn retry_metadata(&mut self, app: &mut App) {
+        self.catalog.refresh_capabilities();
         self.metadata_request += 1;
         if let Some(t) = self.metadata.take() {
             t.abort();
@@ -826,7 +852,7 @@ impl Tasks {
             app.queue
                 .order
                 .iter()
-                .skip(app.ui.render.borrow().queue_scroll)
+                .skip(app.queue_metadata_start())
                 .take(app.ui.render.borrow().queue_height.clamp(10, 200) + 8)
                 .map(|i| app.queue.ids[*i].clone()),
         );
@@ -851,6 +877,7 @@ impl Tasks {
         app.catalog.editing = false;
         app.catalog.filter.clear();
         app.catalog.filtering = false;
+        app.ui.queue.editing = false;
         app.catalog.request += 1;
         app.catalog.busy = false;
         if let Some(task) = self.browse.take() {
@@ -908,7 +935,7 @@ pub(super) fn background(app: &mut App, tasks: &mut Tasks, event: Background) ->
             }
             app.mix.source_pages += 1;
             app.mix.loading_source = !done;
-            if done || app.mix.source_pages == 1 || app.mix.source_pages % 10 == 0 {
+            if done || app.mix.source_pages == 1 || app.mix.source_pages.is_multiple_of(10) {
                 app.mix.refresh();
             }
             if done {
@@ -926,6 +953,10 @@ pub(super) fn background(app: &mut App, tasks: &mut Tasks, event: Background) ->
             }
         }
         Background::MixPlaylistError(request, error) if request == app.mix.request => {
+            app.ui
+                .diagnostics
+                .history
+                .record_text(Subsystem::Mix, &error);
             tasks.mix = None;
             app.mix.loading_source = false;
             app.mix.source_partial = true;
@@ -959,6 +990,10 @@ pub(super) fn background(app: &mut App, tasks: &mut Tasks, event: Background) ->
                     }
                     Err(error) => {
                         error_count += 1;
+                        app.ui
+                            .diagnostics
+                            .history
+                            .record_text(Subsystem::Metadata, &error);
                         first_error.get_or_insert_with(|| format!("{id}: {error}"));
                     }
                 }
@@ -992,6 +1027,12 @@ pub(super) fn background(app: &mut App, tasks: &mut Tasks, event: Background) ->
             if request == app.mix.recommendation_request =>
         {
             tasks.mix_recommendations = None;
+            if let Some(error) = &error {
+                app.ui
+                    .diagnostics
+                    .history
+                    .record_text(Subsystem::Recommendations, error);
+            }
             app.mix.loading_recommendations = false;
             app.mix.recommendation_candidates = candidates;
             app.mix.recommendation_error = error;
@@ -1007,19 +1048,36 @@ pub(super) fn background(app: &mut App, tasks: &mut Tasks, event: Background) ->
             };
         }
         Background::LibraryProgress(id, progress) if id == app.catalog.request => {
+            for skipped in &progress.skipped {
+                let kind = match skipped.reason {
+                    crate::library::PlaylistSkipReason::Missing => {
+                        crate::service::FailureKind::MissingItem
+                    }
+                    _ => crate::service::FailureKind::AccessRestricted,
+                };
+                app.ui.diagnostics.history.record(
+                    Subsystem::Library,
+                    &crate::service::ServiceFailure::spotify(kind).into(),
+                );
+            }
             app.catalog.library_scanned = progress.scanned;
             app.catalog.append_tracks(progress.tracks);
-            app.catalog.title = if progress.complete {
-                "Saved library — complete"
-            } else {
-                "Saved library — scanning"
+            if !progress.skipped.is_empty() {
+                Arc::make_mut(&mut app.catalog.library_skipped).extend(progress.skipped);
             }
-            .into();
+            let skipped = app.catalog.library_skipped.len();
+            app.catalog.title = if skipped > 0 {
+                format!("Saved library — scanning · {skipped} skipped")
+            } else if progress.complete {
+                "Saved library — complete".into()
+            } else {
+                "Saved library — scanning".into()
+            };
             app.status = format!(
-                "{} matches; {} saved tracks scanned. {}",
+                "{} matches; {} saved tracks scanned; {skipped} playlists skipped. {}",
                 app.raw_len(),
                 app.catalog.library_scanned,
-                if progress.complete {
+                if progress.complete && skipped == 0 {
                     "Search complete."
                 } else {
                     "Partial results; Esc cancels."
@@ -1031,18 +1089,34 @@ pub(super) fn background(app: &mut App, tasks: &mut Tasks, event: Background) ->
             tasks.browse = None;
             match result {
                 Ok(()) => {
-                    app.catalog.title = "Saved library — complete".into();
-                    app.status = format!(
-                        "{} matches across {} saved tracks. F2 searches Spotify; / edits the query.",
-                        app.raw_len(),
-                        app.catalog.library_scanned
-                    );
+                    let skipped = app.catalog.library_skipped.len();
+                    if skipped == 0 {
+                        app.catalog.title = "Saved library — complete".into();
+                        app.status = format!(
+                            "{} matches across {} saved tracks. F2 searches Spotify; / edits the query.",
+                            app.raw_len(),
+                            app.catalog.library_scanned
+                        );
+                    } else {
+                        app.catalog.title =
+                            format!("Saved library — partial coverage · {skipped} skipped");
+                        app.status = format!(
+                            "Scan finished: {} matches across {} saved tracks. Partial coverage: {skipped} playlists skipped; F4 lists sources; F5 rechecks access.",
+                            app.raw_len(),
+                            app.catalog.library_scanned
+                        );
+                    }
                 }
                 Err(error) => {
                     app.catalog.title = "Saved library — partial results".into();
+                    app.ui
+                        .diagnostics
+                        .history
+                        .record(Subsystem::Library, &error);
                     app.status = format!(
-                        "Library search stopped: {error:#}. {} partial matches retained; F5 restarts.",
-                        app.raw_len()
+                        "Library search stopped: {error:#}. {} partial matches retained; {} playlists skipped; F4 details; F5 restarts.",
+                        app.raw_len(),
+                        app.catalog.library_skipped.len()
                     );
                 }
             }
@@ -1060,8 +1134,12 @@ pub(super) fn background(app: &mut App, tasks: &mut Tasks, event: Background) ->
                         app.ui.render.borrow_mut().catalog_scroll = 0;
                     }
                     app.catalog.apply_page(page);
+                    let source = app
+                        .catalog
+                        .artist_source
+                        .map_or(String::new(), |source| format!("{} | ", source.label()));
                     app.status = format!(
-                        "{} loaded | Enter play/open | e enqueue{}",
+                        "{source}{} loaded | Enter play/open | e enqueue{}",
                         app.len(),
                         if app.catalog.next.is_some() {
                             " | PgDn loads more"
@@ -1070,7 +1148,10 @@ pub(super) fn background(app: &mut App, tasks: &mut Tasks, event: Background) ->
                         }
                     );
                 }
-                Err(e) => app.status = format!("{e:#}"),
+                Err(e) => {
+                    app.ui.diagnostics.history.record(Subsystem::Catalog, &e);
+                    app.status = format!("{e:#}");
+                }
             }
         }
         Background::Metadata(request, id, result) if request == tasks.metadata_request => {
@@ -1081,7 +1162,13 @@ pub(super) fn background(app: &mut App, tasks: &mut Tasks, event: Background) ->
                     app.cache.insert(track.id.clone(), track.clone());
                     app.update_queue_mix_track(track);
                 }
-                Err(e) if e.is::<crate::catalog::MissingItem>() => {
+                Err(e)
+                    if crate::service::ServiceFailure::is(
+                        &e,
+                        crate::service::FailureKind::MissingItem,
+                    ) =>
+                {
+                    app.ui.diagnostics.history.record(Subsystem::Metadata, &e);
                     app.cache.insert(
                         id.clone(),
                         Track {
@@ -1094,6 +1181,7 @@ pub(super) fn background(app: &mut App, tasks: &mut Tasks, event: Background) ->
                 }
                 Err(e) => {
                     tasks.metadata_blocked = true;
+                    app.ui.diagnostics.history.record(Subsystem::Metadata, &e);
                     let message = format!("Queue metadata: {e:#}. Press F5 to retry.");
                     app.metadata_error = Some(message.clone());
                     app.status = message;
@@ -1112,6 +1200,7 @@ pub(super) fn background(app: &mut App, tasks: &mut Tasks, event: Background) ->
                     app.lyrics.error = Some("No lyrics found for this track. F5 retries.".into())
                 }
                 Err(e) => {
+                    app.ui.diagnostics.history.record(Subsystem::Lyrics, &e);
                     app.lyrics.error = Some(format!("Lyrics request failed: {e:#}. F5 retries."))
                 }
             }
@@ -1145,6 +1234,10 @@ pub(super) fn background(app: &mut App, tasks: &mut Tasks, event: Background) ->
             if epoch == app.queue.epoch && request == tasks.playlist_request =>
         {
             tasks.playlist = None;
+            app.ui
+                .diagnostics
+                .history
+                .record_text(Subsystem::Catalog, &error);
             app.status = format!(
                 "Playlist stopped after {} additions: {error}. Added tracks remain queued.",
                 tasks.playlist_added
@@ -1203,6 +1296,10 @@ pub(super) fn background(app: &mut App, tasks: &mut Tasks, event: Background) ->
                 }
                 Err(e) => {
                     tasks.radio_active = false;
+                    app.ui
+                        .diagnostics
+                        .history
+                        .record(Subsystem::Recommendations, &e);
                     app.status =
                         format!("Track Radio failed: {e:#}. Press R to start Radio again.");
                     app.radio_error = Some(format!("{e:#}"));
@@ -1210,6 +1307,10 @@ pub(super) fn background(app: &mut App, tasks: &mut Tasks, event: Background) ->
             }
         }
         Background::SaveError(error) => {
+            app.ui
+                .diagnostics
+                .history
+                .record_text(Subsystem::Storage, &error);
             app.status = error;
             return true;
         }

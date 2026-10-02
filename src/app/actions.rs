@@ -22,29 +22,43 @@ pub(super) fn apply(
     tasks: &mut Tasks,
     tx: &mpsc::UnboundedSender<Command>,
 ) {
+    if app.catalog.view == View::Queue {
+        if action == Action::ClearQueue && !app.ui.queue.query.is_empty() {
+            app.status = "Press Esc to clear the filter before clearing the entire queue.".into();
+            return;
+        }
+        if !matches!(action, Action::Undo | Action::ClearQueue) {
+            let Some(at) = app.selected_queue_index() else {
+                app.status =
+                    "No matching queue tracks. Press / to edit or Esc to clear the filter.".into();
+                return;
+            };
+            app.queue.selected = at;
+        }
+    }
     match action {
         Action::Undo => perform_undo(app, tasks, tx),
         Action::PlaySelected if app.catalog.view != View::Help => {
-            if let Rows::Playlists(rows) = &app.catalog.rows {
-                if app.catalog.view == View::Playlists {
-                    let actual_idx = if app.is_filtered() {
-                        app.filtered_indices().get(app.catalog.selected).copied()
-                    } else {
-                        Some(app.catalog.selected)
-                    };
-                    if let Some(idx) = actual_idx {
-                        if let Some(p) = rows.get(idx).cloned() {
-                            app.catalog.browse = Browse::Playlist(p.id);
-                            app.catalog.title = p.name;
-                            app.reset_rows();
-                            app.catalog.selected = 0;
-                            app.catalog.filter.clear();
-                            app.catalog.filtering = false;
-                            tasks.request(app, 0);
-                        }
-                    }
-                    return;
+            if let Rows::Playlists(rows) = &app.catalog.rows
+                && app.catalog.view == View::Playlists
+            {
+                let actual_idx = if app.is_filtered() {
+                    app.filtered_indices().get(app.catalog.selected).copied()
+                } else {
+                    Some(app.catalog.selected)
+                };
+                if let Some(idx) = actual_idx
+                    && let Some(p) = rows.get(idx).cloned()
+                {
+                    app.catalog.browse = Browse::Playlist(p.id);
+                    app.catalog.title = p.name;
+                    app.reset_rows();
+                    app.catalog.selected = 0;
+                    app.catalog.filter.clear();
+                    app.catalog.filtering = false;
+                    tasks.request(app, 0);
                 }
+                return;
             }
             if let Some(track) = app.selected_track() {
                 if !track.playable {
@@ -102,19 +116,19 @@ pub(super) fn apply(
             }
         }
         Action::EnqueueSelected if app.catalog.view != View::Help => {
-            if let Rows::Playlists(playlists) = &app.catalog.rows {
-                if app.catalog.view == View::Playlists {
-                    let actual_idx = if app.is_filtered() {
-                        app.filtered_indices().get(app.catalog.selected).copied()
-                    } else {
-                        Some(app.catalog.selected)
-                    };
-                    if let Some(idx) = actual_idx {
-                        if let Some(p) = playlists.get(idx).cloned() {
-                            tasks.enqueue_playlist(app, p.id, p.name);
-                            return;
-                        }
-                    }
+            if let Rows::Playlists(playlists) = &app.catalog.rows
+                && app.catalog.view == View::Playlists
+            {
+                let actual_idx = if app.is_filtered() {
+                    app.filtered_indices().get(app.catalog.selected).copied()
+                } else {
+                    Some(app.catalog.selected)
+                };
+                if let Some(idx) = actual_idx
+                    && let Some(p) = playlists.get(idx).cloned()
+                {
+                    tasks.enqueue_playlist(app, p.id, p.name);
+                    return;
                 }
             }
             if let Some(track) = app.selected_track() {
@@ -136,6 +150,27 @@ pub(super) fn apply(
         Action::PlayNext if app.catalog.view != View::Help => {
             if let Some(track) = app.selected_track() {
                 if track.playable {
+                    if app.catalog.view == View::Queue {
+                        let from = app.queue.selected;
+                        if app.queue.cursor == Some(from) {
+                            app.status = "This queue entry is already playing.".into();
+                            return;
+                        }
+                        let to = match app.queue.cursor {
+                            Some(current) if from < current => current,
+                            Some(current) => current + 1,
+                            None => 0,
+                        };
+                        if from != to {
+                            app.remember_queue();
+                            app.queue.move_item(from, to);
+                            tasks.cancel_smart_shuffle();
+                            app.check_preload(tx);
+                        }
+                        app.status =
+                            format!("Playing next: {}. Press u to undo a move.", track.name);
+                        return;
+                    }
                     if app.queue.ids.len() < crate::queue::MAX_TRACKS {
                         app.remember_queue();
                     }
@@ -278,11 +313,12 @@ pub(super) fn apply(
                     app.push_navigation(label);
                     app.catalog.view = View::Artist;
                     app.catalog.browse = Browse::Artist(artist_id);
-                    app.catalog.title = if track.artists.is_empty() {
-                        "Artist • Top Tracks".into()
+                    app.catalog.artist_label = if track.artists.is_empty() {
+                        "Artist".into()
                     } else {
-                        format!("{} • Top Tracks", track.artists)
+                        track.artists.clone()
                     };
+                    app.catalog.title = app.catalog.artist_label.clone();
                     app.reset_rows();
                     app.catalog.selected = 0;
                     app.ui.render.borrow_mut().catalog_scroll = 0;

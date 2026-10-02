@@ -238,6 +238,42 @@ impl Queue {
         self.selected = to;
         true
     }
+
+    /// Bulk edits remap original indices once, preserving shuffle, suggestions,
+    /// current occurrence, selection, and playback position. Never remove current.
+    pub fn remove_originals(&mut self, removed: &std::collections::HashSet<usize>) -> usize {
+        let current = self.cursor.and_then(|at| self.order.get(at)).copied();
+        let selected = self.order.get(self.selected).copied();
+        let mut remap = vec![None; self.ids.len()];
+        let mut next = 0;
+        for (original, entry) in remap.iter_mut().enumerate() {
+            if !removed.contains(&original) || current == Some(original) {
+                *entry = Some(next);
+                next += 1;
+            }
+        }
+        let count = self.ids.len() - next;
+        if count == 0 {
+            return 0;
+        }
+        let mut original = 0;
+        self.ids.retain(|_| {
+            let keep = remap[original].is_some();
+            original += 1;
+            keep
+        });
+        self.order = self.order.iter().filter_map(|&i| remap[i]).collect();
+        self.suggestions = self.suggestions.iter().filter_map(|&i| remap[i]).collect();
+        self.cursor = current
+            .and_then(|i| remap[i])
+            .and_then(|i| self.order.iter().position(|&x| x == i));
+        self.selected = selected
+            .and_then(|i| remap[i])
+            .and_then(|i| self.order.iter().position(|&x| x == i))
+            .unwrap_or_else(|| self.selected.min(self.order.len().saturating_sub(1)));
+        self.revision += 1;
+        count
+    }
 }
 
 fn validate_ids(ids: &[String]) -> Result<()> {

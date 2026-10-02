@@ -29,13 +29,46 @@ is a separate demonstration, not the player's frontend.
 | `src/auth.rs` | PKCE, credentials and serialized token refresh |
 | `src/catalog.rs`, `library.rs`, `lyrics.rs` | Remote catalog, saved-library traversal and lyrics parsing/fetching |
 | `src/catalog/similarity.rs`, `discovery.rs` | Related-artist identity checks, bounded candidate pages, original-seed discovery |
+| `src/catalog/capabilities.rs` | Bounded client/account session observations, per-resource denial expiry, refresh and identical-probe serialization |
+| `src/service.rs` | Classified, redacted service failures and retry deadlines |
+| `src/diagnostics/doctor.rs`, `doctor/installation.rs`, `src/auth/doctor.rs` | Read-only local diagnostics, saved/process PATH hashes, and explicitly opted-in GET probes without credential refresh |
+| `src/diagnostics/history.rs`, `support.rs`, `src/app/diagnostics.rs`, `src/ui/diagnostics.rs` | Bounded typed session errors, redacted report snapshots, preview/export controls and F7 rendering |
 | `src/playback.rs`, `visualizer.rs` | Streaming engine, audio output and spectrum analysis |
 | `src/queue.rs`, `stats.rs`, `cache.rs`, `storage.rs` | Domain data and persistence |
+| `src/storage/backup.rs` | Versioned saved-state backup, preview confirmation, staged restore and journal recovery |
 | `src/model.rs` | Shared track/repeat/playback-state types |
 | `src/mix.rs`, `src/ui/mix_builder.rs` | Deterministic Mix Builder domain model and overlay |
 | `src/media_controls.rs`, `discord.rs` | Windows media controls and Discord presence |
 
 ## Boundaries to preserve
+
+- The error journal belongs to `UiState`, holds at most 64 typed records, and is
+  separate from the transient status string and every persistence snapshot.
+  Record current-generation background/playback/storage failures at application
+  boundaries; stale background results remain ignored. Typed service errors retain
+  provider/kind/status/minimum retry wait; compatibility strings retain only
+  classified static phrases, never their original contents.
+  Support reports serialize allowlisted build/check/capability/error fields rather
+  than attempting to redact arbitrary strings. Doctor detail/action text, names,
+  paths, identifiers, searches, queue and listening data are never copied into
+  reports. Catalog summaries contain only endpoint labels and counts of current
+  observations; pending/expired slots are unknown, and snapshots cannot block on
+  in-flight async probes. F7 report previews are immutable snapshots; explicit export
+  publishes the reviewed bytes outside saved data with non-clobbering publication.
+  The standalone offline support command has its own empty session journal and
+  does not recover another process's errors. No report is uploaded automatically.
+
+- Doctor branches before storage creation, instance locking, journal recovery,
+  terminal entry, and auth setup. It inspects state through the existing strict
+  version/invariant readers, reads credentials without publishing changes, and
+  queries CPAL devices/configurations without creating an output stream. Its
+  credential manager disables persistence and refresh (including rejected-token
+  refresh), so network diagnostics make only catalog GETs. Probe timeouts include
+  body decoding; systemic failures skip remaining probes. Resource capabilities
+  remain account/resource/session observations, and untested writes stay unknown.
+  Native registry reads compare saved Machine/User PATH separately from process
+  PATH. SHA-256 comparisons detect copies with the same version but different
+  bytes. Local JSON contains paths and is not a shareable redacted support report.
 
 - Input routers decide which commands a mode permits. Shared actions execute
   intent without synthesizing keyboard events. New playback shortcuts should use
@@ -57,6 +90,12 @@ is a separate demonstration, not the player's frontend.
   request IDs, queue epochs, and playback generations when changing jobs. A
   cancelled job may already have queued a result. Library/playlist failures retain
   usable partial results.
+- Library traversal skips only classified playlist-items restrictions/missing
+  items carrying catalog-denial provenance. Token-service errors, throttle gates,
+  outages, and invalid responses stop traversal. Progress streams skipped-source
+  deltas; navigation retains the source list through `Arc`. Finishing traversal
+  does not imply complete coverage when any source was skipped. F4 reads the list
+  independently of transient status; F5 starts a new scan with fresh access probes.
 - Mix source paging and recommendations have a request identity independent of
   the live queue epoch. They may update only the current preview; applying a mix
   is the sole boundary that snapshots and mutates the queue. Recommendation
@@ -71,11 +110,58 @@ is a separate demonstration, not the player's frontend.
   catalog clones. A volume/status message cannot clear it. Successful catalog
   access clears it; an unrelated network failure does not. Renderers must not
   infer service state by searching human-readable status text.
+- Credential identity metadata has its own version and distinguishes immutable
+  Web API account IDs, legacy user IDs, and streaming usernames. The old token
+  `account_id` remains a compatibility alias with role-specific interpretation.
+  Stable-ID conflicts cannot be overridden by alias equality. Alias migration
+  can verify the previous credential with its original client without persisting
+  refresh changes. A streaming bridge uses a fresh catalog legacy handle matching
+  the authenticated AP username, a previously verified mapping with a fresh stable
+  profile, or matching /me profiles for catalog and streaming tokens. Stable IDs
+  are never compared to usernames. Catalog tokens lack streaming scope and are
+  never used for AP authentication. Playback checks its authenticated username
+  before constructing the audio player. Reauthentication never resets account
+  files: ambiguous/conflicting identity requires recovery or deliberate logout.
+  Unknown credential schemas and damaged credentials are preserved. Config-write
+  failures restore the previous catalog credential; streaming-write failures
+  restore the prior catalog metadata. Rollback failures are reported explicitly;
+  this is retryable multi-store coordination, not a power-loss atomic transaction.
+- Catalog capabilities belong to an immutable client/account session and its
+  clones. A bare item denial never establishes a global endpoint removal. Only
+  a denial from the requested catalog endpoint may populate capability state or
+  trigger fallback; OAuth failures cannot. Support requires the expected response
+  shape. Expired observations are unknown, and F5/Mix Retry detaches old slots
+  without clearing quota/rate gates. Different resources remain independent.
+  Empty successful recommendation pools stay with their actual provider.
+- Artist pages carry typed result provenance from catalog/demo through jobs and
+  navigation snapshots. Artist Search continuations retain their source even when
+  access observations expire or are refreshed. Offset-zero refresh can establish a
+  new source and replaces the previous rows; pending/error refreshes preserve the
+  provenance of retained rows. Search row positions are not Top Tracks rankings.
 - Keep disk writes off the event loop. Writers coalesce snapshots, report failure,
   retry on later checkpoints, and flush their final value on shutdown. Preserve
   atomic JSON replacement and existing persisted formats. Checkpoints share
   immutable snapshots through `Arc`; buffered JSON is flushed before file sync.
   Unreadable or unsupported statistics/recipes stop startup before workers begin.
+- Backup/restore runs under the instance lock before authentication or playback.
+  It includes only config, queue, recipes, and aggregate stats, with explicit saved
+  or missing snapshots and per-file validation. Credentials/cache are not read or
+  restored. Confirmation binds the backup bytes, canonical destination, and current
+  file bytes/presence. All replacements are staged and synced before publishing.
+  The restore journal records original bytes for exact rollback, including invalid
+  old state. Locked startup recovers an uncommitted journal or cleans up a committed
+  one before loading state; unexpected edits or malformed journals stay preserved.
+- Per-file recovery is whitelisted to config, queue, recipes, stats, and cache.
+  Inspection and startup reads classify file, version, JSON/schema, and invariant
+  failures without echoing raw JSON or user-supplied field values. Component
+  backups preserve exact bytes even for invalid/future schemas. Targeted restore
+  accepts a checked component envelope or one whole-backup snapshot and validates
+  incoming state; unrelated current files are never loaded or replaced. Preview
+  confirmation binds selected bytes, root, operation, source, and archive path.
+  Applying first publishes a non-clobbering external original-file backup, then
+  uses the shared staged/journaled restore transaction for one file, including
+  cache. Ordinary writers and whole-state restore cannot overwrite recognizable
+  future versions. Explicit targeted recovery preserves those originals externally.
 - Statistics cache normalized titles once, filter borrowed rows, and sort once.
   All-time totals remain independent of the filter. Metadata hydration updates
   only the corresponding saved statistics entry.

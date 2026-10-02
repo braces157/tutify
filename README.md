@@ -52,7 +52,7 @@ workflow inside Windows Terminal—no Electron shell and no background service.
 
 > These captures document the v0.3.0 Glass interface; the visualizer and lyrics
 > views were captured before its version label advanced from v0.2.9. The current
-> v0.3.1 release keeps this appearance and adds the fixes listed below.
+> v0.4.0 release keeps this appearance and adds the fixes listed below.
 
 ## Highlights
 
@@ -60,7 +60,10 @@ workflow inside Windows Terminal—no Electron shell and no background service.
 - **Library and catalog browsing** for playlists, Liked Songs, complete album
   tracklists, and artist top tracks, plus track/album/artist search and link navigation.
 - **Powerful queue tools** including play next, reorder, remove, undo, shuffle,
-  repeat, and Track Radio.
+  repeat, Track Radio, and undoable cleanup of played entries, upcoming duplicates,
+  and known unavailable tracks.
+- **Sleep timers** for 15, 30, 45, or 60 minutes, or the end of the current track,
+  with a visible countdown and paused playback when finished.
 - **A responsive terminal UI** with keyboard and mouse support, six color themes,
   a semantic color system, restrained selection/focus states, a real-time FFT
   audio visualizer, and a wallpaper-backed Glass theme. On Windows Terminal,
@@ -77,15 +80,16 @@ workflow inside Windows Terminal—no Electron shell and no background service.
 
 ### Current release
 
-The latest published download is **v0.3.1**. It improves Vietnamese artist
-matching for Track Radio, lyrics for songs with multiple credited artists,
-mouse controls in Statistics and Mix Builder, and performance when saving large
-queues or refreshing statistics. Invalid statistics and recipe files now stop
-startup with an error so the original data is preserved. The spectrum uses the
-actual audio-device sample rate, and idle Glass redraw scheduling is corrected.
+The current release is **v0.4.0**. It adds queue filtering, sleep timers, Play
+Next, recent-search recall, offline diagnostics and redacted support reports.
+Saved-state backups and previewed recovery preserve damaged files and require
+explicit confirmation before replacement. Catalog failures retain actionable
+causes, partial library results explain inaccessible sources, and artist lists
+identify their actual source. Detailed version output and release manifests
+identify the compiled source and verify packaged file hashes.
 
 The wallpaper-backed Glass theme supports both a portable Unicode renderer and a
-full-resolution Windows Terminal profile. See the [release notes](docs/releases/v0.3.1.md)
+full-resolution Windows Terminal profile. See the [release notes](docs/releases/v0.4.0.md)
 and [changelog](CHANGELOG.md) for the complete update.
 
 ## Requirements
@@ -106,8 +110,8 @@ The native demo needs no Spotify account or audio device.
 
 ## Install
 
-1. Download `Tuitify-0.3.1-windows-x86_64.zip` from
-   [release v0.3.1](https://github.com/braces157/tutify/releases/tag/v0.3.1).
+1. Download `Tuitify-0.4.0-windows-x86_64.zip` from
+   [release v0.4.0](https://github.com/braces157/tutify/releases/tag/v0.4.0).
 2. Extract the archive.
 3. Open Windows Terminal in the extracted folder and run:
 
@@ -182,8 +186,27 @@ the account may need to be explicitly allow-listed in your Developer Dashboard.
 To replace a revoked login, use `auth --force`. To replace only the streaming
 authorization, use `auth --streaming --force` and select the same account.
 Close the player before running authentication or maintenance commands. Signing
-back into the same verified catalog account preserves queue, cache, and statistics;
-a different account or unknown prior identity clears those files. Both callbacks
+back into the same verified catalog account preserves queue, cache, and statistics.
+Tuitify stores Spotify's stable Web API account ID separately from the legacy
+user ID and the authenticated streaming username. Older credentials remain
+readable; reauthentication verifies and upgrades their identity metadata. A
+changed legacy user ID does not imply a changed account when the stable account
+ID still matches. See [Spotify's account ID update](https://developer.spotify.com/documentation/web-api/references/changes/may-2026).
+
+Different or unverifiable accounts stop authentication and preserve local files.
+To deliberately switch accounts or recover an unidentifiable previous login,
+first create a backup with `tuitify backup FILE`, then use `tuitify logout` and
+authenticate again. Logout deliberately removes credentials, queue, cache, and
+statistics; recipes and settings remain. Streaming verification starts no audio.
+A current legacy user ID matching the authenticated streaming username, or a
+previous mapping with a freshly verified stable account ID, avoids an extra
+streaming-client profile request. Otherwise, Tuitify checks the profile belonging
+to the streaming token against the catalog profile. If Spotify denies or throttles
+that check, setup reports the actual failure and preserves saved state. Existing
+matching credentials still open without a network identity check; a verified
+mapping is established on reauthentication.
+
+Both callbacks
 listen only on `127.0.0.1:8989`; the shared client uses `/login`, while a personal
 catalog app uses `/callback`.
 
@@ -208,8 +231,11 @@ text; finish text entry before using playback commands.
 | `s` | Cycle shuffle off → shuffle → Smart Shuffle |
 | `r` | Cycle repeat off → queue → track |
 | `a` | View album tracklist for selected track |
-| `A` (`Shift+A`) | View artist top tracks for selected track |
+| `A` (`Shift+A`) | View artist tracks for selected track |
 | `e` | Add selected track to queue |
+| `Ctrl+Enter` | Play selected track next; in Queue, move its existing occurrence |
+| `F6` | Open sleep timers and queue cleanup |
+| `Ctrl+R` | Restore the last cleared Queue filter |
 | `Esc` | Back to previous view / exit overlay / quit |
 | `K` / `J` | Move the selected queue item up / down |
 | `u` or `Ctrl+Z` | Undo the last queue edit |
@@ -217,13 +243,57 @@ text; finish text entry before using playback commands.
 | `M` (`Shift+M`) | Open Mix Builder from Queue or an active/selected playlist |
 | `l` / `v` / `S` | Toggle lyrics / visualizer / statistics |
 | `t` | Cycle color themes |
-| `/` or `f` | Filter loaded Liked Songs/playlist rows; `/` opens search from other views |
+| `/` or `f` | Filter Queue or loaded Liked Songs/playlist rows; `/` opens search from other views |
 | `F2` / `F3` | Search Spotify / search your saved library |
+| `F4` | Inspect skipped sources in saved-library search |
 | `F5` | Refresh catalog data, retry metadata, or retry lyrics in the lyrics view |
 | `Home` / `End` | Seek to the start / end of the track |
 | `[` / `]` | Adjust volume by 1% outside Mix Builder |
 | `C` / `Delete` | Clear the queue / remove its selected entry |
 | `q` or `Ctrl+C` | Save and quit |
+
+### Find a song in your queue
+
+Open Queue with `4`, then press `/` or `f` and type words from a song title,
+artist, or album. Matching ignores letter case and accepts words across those
+fields. The counter shows matches out of the full queue, and row numbers keep
+their original queue positions. Filtering uses loaded metadata; tracks without
+information are counted, and new matches appear as metadata arrives.
+
+Press `Enter` to finish typing, then use the usual playback, reorder, remove,
+Radio, and album/artist actions on the selected match. Reordering moves one
+position in the full queue; duplicate songs remain separate entries. `Esc` or
+the clickable **Esc Clear** control restores all rows without quitting, and `.`
+clears the filter and jumps to the current track. Whole-queue clearing requires
+clearing the filter first. Undo remains available for queue edits.
+
+Press `Ctrl+R` outside text entry to restore the last cleared queue filter.
+
+### Sleep timers and queue cleanup
+
+Press `F6`, or click the Now Playing title, to open **Listening Tools**. Choose
+with the arrow keys or mouse, then press Enter or click **Enter Apply**. Esc
+closes the menu without applying the selected option.
+
+- **Sleep timers:** Pick 15, 30, 45, or 60 minutes, or **Stop after current track**.
+  The countdown appears in Now Playing and the tools menu. Timed sleep uses wall
+  time and continues while playback is paused. On expiry, playback pauses and
+  retains the queue and position; Space resumes. End-of-track mode requires a
+  loaded track and overrides Repeat; switching or restarting a track cancels
+  that mode. Timers are session-only. **Cancel sleep timer** leaves playback and
+  volume unchanged.
+- **Queue cleanup:** Remove entries before the current track, duplicate upcoming
+  track IDs, or tracks whose loaded metadata says they are unavailable. Cleanup
+  applies to the full queue, preserving the current occurrence, playback position,
+  and shuffle order. Unknown availability is kept. Upcoming deduplication keeps
+  the earliest upcoming occurrence and excludes another copy of the current
+  track; played history stays. Press `u` or `Ctrl+Z` afterward to undo, paused.
+- **Play Next:** Press `Ctrl+Enter` on a track outside text entry. Catalog views
+  add it next; Queue moves the selected occurrence next without adding a copy.
+
+While typing a search, Up recalls earlier submitted queries and Down moves toward
+the newest query, then restores your unsent draft. The last 20 unique queries stay
+in memory for this session; recalling them does not submit a network search.
 
 ### Wallpaper / Glass background
 
@@ -286,10 +356,13 @@ Tuitify includes native in-terminal browsing for albums and artists:
   tracklist showing ordered track numbers, song titles, artist credits, durations,
   and playability indicators. Press `Enter` to play, `e` to enqueue, or `p` to
   play next.
-- **Artist top tracks:** Select any track and press `Shift+A` (or `A`), or
-  right-click to choose **View Artist**. This displays the artist's top 10 popular
-  tracks ranked 1 through 10 with album names, durations, and full playback/queue
-  actions.
+- **Artist tracks:** Select any track and press `Shift+A` (or `A`), or
+  right-click to choose **View Artist**. Results from Spotify's Top Tracks endpoint
+  are labeled **Top Tracks**. When access is restricted, verified artist-ID search
+  matches are labeled **Artist Search**; row numbers follow search order. PgDn
+  continues that search, including pages with no verified matches; F5 rechecks
+  Top Tracks access. Both sources show album names, durations, and playback/queue
+  actions. The native offline demo labels fictional results **Demo Tracks**.
 - **Breadcrumb navigation & history stack:** Navigating into albums and artists
   pushes your viewing context onto an in-memory navigation stack and displays a
   dynamic breadcrumb trail in the catalog header (e.g. `Search › OK Computer › Thom Yorke`).
@@ -346,7 +419,11 @@ updated when you save it again. Replacement pauses playback; appending preserves
   the selected result and starts Track Radio in the background.
 - **Saved-library search:** F3 scans saved Liked Songs and accessible saved
   playlist tracks across pages. It needs network access and can take time.
-  Esc cancels while retaining partial matches; F5 starts a fresh scan.
+  Inaccessible playlists are skipped while later playlists continue; their names
+  and reasons are available with F4. A finished scan with skipped sources shows
+  partial coverage. Authentication failures, service waits, outages, and invalid
+  responses stop the scan and retain matches. Esc cancels while retaining partial
+  matches and skipped sources; F5 starts a fresh scan and rechecks access.
 
 Playing from Liked Songs or a playlist replaces the queue with the loaded rows
 (or filtered loaded rows). Load more pages before playing to include them, or
@@ -414,7 +491,69 @@ tokens, account identifiers, playlists and listening statistics are not sent to
 Deezer. Similarity results are cached in memory, not written as a listening profile.
 Settings and queue changes are checkpointed asynchronously and restored paused.
 
+Close the player before backing up or restoring so the saved files form a
+consistent snapshot. Create a new backup file outside the live data directory:
+
+```powershell
+tuitify backup "saved-state.json"
+tuitify restore "saved-state.json"
+```
+
+The second command validates the backup and previews each file's create,
+replace, remove, or unchanged action. It prints a complete command with
+`--confirm` and a token to apply that exact preview. If the backup, destination,
+or current files change, generate a new preview before applying it. Backups
+preserve duplicate queue occurrences, queue order/position, settings, Mix recipes,
+and existing aggregate statistics. Missing snapshots explicitly restore the
+default state by removing that saved file; they do not merge with current state.
+Existing backup files are never overwritten.
+
+Credentials, replaceable cache, runtime state, and image files are excluded;
+background image paths remain settings. Backup and restore do not log in, start
+music, or contact Spotify. Inputs and combined saved state are bounded to 64 MiB.
+An interrupted restore is rolled back before the next locked command loads state.
+Malformed recovery journals or unexpected external edits stop recovery and retain
+the journal and files for inspection. Completed restores only clean up their journal.
+
 Useful maintenance commands:
+
+To recover just one state file, use `state`. Select `config`, `queue`, `recipes`,
+`stats`, or `cache` (the corresponding JSON filenames are accepted too):
+
+```powershell
+tuitify state inspect
+tuitify state inspect recipes
+tuitify state backup recipes "recipes-original.json"
+tuitify state reset recipes
+tuitify state restore recipes "saved-state.json"
+```
+
+Inspection reports the filename, unsupported version, or failed invariant without
+printing song history or raw JSON. Missing files use defaults. It returns a failing
+exit code when a selected file is invalid. Component backups retain exact bytes
+even when a file is damaged or from a newer Tuitify version. They never overwrite
+an existing backup and must stay outside the live data directory. Unlike a
+whole-state backup, a component backup can include replaceable cache.
+
+Reset and targeted restore default to a preview and print the complete command
+with `--confirm TOKEN`. Before applying, they preserve the original selected file
+in a component backup beside the live data directory; use `--backup FILE` to choose
+another external destination. Confirmation binds the file's current bytes,
+destination, operation, restore source, and original-file backup path. Other state
+files and Windows credentials are left unchanged. If the recovery write fails,
+the shared restore journal recovers the exact original. An existing different
+backup at the archive path stops recovery instead of being overwritten.
+
+Targeted restore accepts either a component backup for that same file or the
+selected snapshot from a whole-state backup. Restore validates the incoming
+version and invariants; a damaged or future-version component can be backed up
+but cannot be loaded by this build. Supported component snapshots retain their
+exact bytes, including unknown fields. Normal reads/writers and whole-state
+restore preserve unsupported future versions; a deliberately confirmed targeted
+reset/restore keeps their original bytes in the external component backup.
+State inputs are bounded to 64 MiB and encoded component backups to 90 MiB.
+
+For disposable cache or deliberate logout:
 
 ```powershell
 # Remove cached metadata while keeping login and queue data
@@ -426,9 +565,101 @@ Useful maintenance commands:
 
 Logout retains device settings, the public client ID, and `mix-recipes.json`,
 including saved playlist names and IDs.
-Remove that file manually with the player closed if you want to clear recipes.
+Use `tuitify state reset recipes` with the player closed to preview clearing only
+recipes while keeping an original-file backup.
 
 ## Troubleshooting
+
+Start with read-only diagnostics:
+
+```powershell
+tuitify doctor
+tuitify doctor --json
+# Explicitly opt into bounded Spotify GET checks (10 seconds per probe)
+tuitify doctor --network
+# Optional resource-specific checks use 22-character Spotify IDs
+tuitify doctor --network --artist ARTIST_ID --playlist PLAYLIST_ID --seed-track TRACK_ID
+```
+
+Doctor checks the exact on-disk executable hash, current and saved Windows PATH,
+terminal size, data directory, all five state files, credential presence/expiry
+and local account mapping, and Windows output-device configuration. It works
+without starting music, opening a login browser, creating the data directory,
+acquiring the instance lock, or recovering/removing a restore journal. Run it with
+the player closed for a stable file snapshot. Failures include recovery actions
+and produce a nonzero exit code; warnings and unknown checks need further review.
+
+Offline is the default. `--network` uses only an existing unexpired catalog token
+for profile, liked-song and playlist-list GETs. Optional artist/playlist/seed
+checks observe only that account and resource, without discovery fallback or
+library writes. Doctor never refreshes tokens, including after HTTP 401; normal
+player startup can refresh expired saved logins. Systemic failures stop later
+probes, and rate limits/quota exhaustion retain their distinct recovery guidance.
+Use `--timeout 1` through `--timeout 30` to adjust each network probe's deadline.
+
+Device enumeration does not prove audible playback, and untested catalog
+capabilities remain unknown. `--json` is local diagnostic output and includes
+installation/data paths; inspect it before sharing. It omits token values,
+account IDs, song titles, and upstream payloads.
+
+Press **F7** in the player to inspect the last 64 classified session errors.
+Volume changes and later successful status messages keep these records intact.
+Use arrows, Page Up/Down, Home/End or the mouse wheel to navigate; Esc/F7 closes
+the panel. Text-entry modes keep their existing shortcuts. The journal belongs to
+this player session and is not saved with the queue or listening statistics.
+
+In F7, press **r** to inspect a redacted support-report snapshot. Scroll through
+the JSON before pressing **e** to save exactly that snapshot to a new
+`tuitify-support-*.json` file in the launch directory. Later errors still enter the
+session journal; they do not silently change the report you reviewed. Press r
+twice to return to errors and capture a fresh snapshot. Existing files are never
+overwritten, and exports are kept outside the live data directory.
+
+For startup troubleshooting, preview or explicitly save a separate local report:
+
+```powershell
+tuitify support
+tuitify support --output "support-report.json"
+```
+
+Support reports include compiled source/build identity, OS/architecture, the on-disk executable
+hash at preview creation, classified failing subsystems, HTTP/retry information
+when available, and aggregate catalog capability observations. A standalone
+`support` command runs offline read-only doctor checks and exports their allowlisted
+result codes; it cannot read another player's session error journal. Zero capability
+observations mean unknown. Reports omit tokens, callback URLs, raw errors/payloads,
+account/resource IDs, personal paths, device names, search queries, queue contents
+and song history. Nothing is uploaded automatically; inspect the file before
+sharing it. This differs from `doctor --json`, which includes local paths.
+
+Inspect the exact compiled build without loading saved state or authentication:
+
+```powershell
+tuitify version
+tuitify version --json
+```
+
+`--version` still prints the short package version. Detailed output embeds the
+commit when available, whether compiled source was dirty, a source SHA-256,
+target, profile, compiler, settings digest and build ID. Source archives without
+Git metadata report an unavailable commit and unknown dirty status while still
+embedding their source digest. The source digest covers the exact file bytes and
+relative names in `src`, `Cargo.toml`, `Cargo.lock`, `build.rs` and
+`build_support.rs`. It excludes documentation, local listening state and paths.
+Build IDs distinguish source/compiler/settings variants of the same version;
+they are provenance identifiers, not signatures or a promise of reproducible
+linker bytes. The separately named on-disk executable hash describes the file
+currently at the launch path; replacing it does not change a running process.
+
+`scripts/release.ps1` runs the checks and release build before packaging. It
+rejects stale executables by comparing the embedded source digest with the
+current source, stages into a new directory, checks local documentation/resource
+links, extracts the ZIP and verifies every payload file's size and SHA-256.
+The ZIP's `release-manifest.json` lists the payload, while the external
+`Tuitify-VERSION-windows-x86_64.manifest.json` hashes the executable, ZIP, and
+internal manifest. This avoids a circular manifest self-hash. Failed validation
+does not publish a new package. The packaging-only helper records that it did
+not run build/test checks and is intended for package regression checks.
 
 - **Expired/revoked login:** exit and run `tuitify auth --force`, or
   `tuitify auth --streaming --force` for a streaming-only problem.
@@ -438,6 +669,9 @@ Remove that file manually with the player closed if you want to clear recipes.
   429, wait for the reported cooldown instead of repeating authentication.
 - **Restricted playlist:** Spotify may allow listing a playlist but restrict its
   contents to owners or collaborators in development mode.
+  Tuitify remembers item-specific access restrictions for up to five minutes;
+  F5 rechecks access immediately while keeping service cooldown/quota waits.
+  These session observations reset when the catalog client/account changes.
 - **Radio unavailable:** press `R` to start a fresh Radio session. Available
   suggestions depend on the provider's artist coverage; a restored queue does
   not rerun discovery after an update.
@@ -450,9 +684,12 @@ Remove that file manually with the player closed if you want to clear recipes.
 ## Build from source
 
 Install stable Rust for `x86_64-pc-windows-msvc`, Visual Studio 2022 Build Tools
-with **Desktop development with C++**, and the Windows SDK. Use current stable
-Rust; this checkout was verified with Rust 1.95.0. The manifest declares 1.85,
-but that minimum toolchain has not been verified in this review.
+with **Desktop development with C++**, and the Windows SDK. The minimum supported
+Rust version is **1.88.0** for Windows x64, including the locked test dependencies.
+The application and `wiremock` use let chains, which require Rust 1.88; Rust 1.85
+fails to compile the locked test graph. CI reads `rust-version` from `Cargo.toml`
+and tests all targets and builds the release at that minimum on
+`x86_64-pc-windows-msvc`. Formatting and strict Clippy run separately on stable.
 
 ```powershell
 git clone https://github.com/braces157/tutify.git
@@ -461,6 +698,18 @@ cargo build --release --locked
 ```
 
 The executable is written to `target\release\tuitify.exe`.
+
+To reproduce the minimum-toolchain checks without changing your default compiler:
+
+```powershell
+rustup toolchain install 1.88.0 --profile minimal --no-self-update
+cargo +1.88.0 test --locked --all-targets --target x86_64-pc-windows-msvc --target-dir target/msrv
+cargo +1.88.0 build --release --locked --target x86_64-pc-windows-msvc --target-dir target/msrv
+```
+
+Minimum-toolchain artifacts stay under `target/msrv`, separate from the usual
+release executable used by the installer. ARM64 support remains subject to the
+dedicated build and hardware validation in the future plan.
 
 Before contributing, run the same checks used by CI:
 

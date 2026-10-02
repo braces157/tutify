@@ -24,7 +24,34 @@ pub(super) fn route_input(
     }
 }
 
+pub(super) fn coverage_key(app: &mut App, code: KeyCode, tasks: &mut Tasks) {
+    let last = app.catalog.library_skipped.len().saturating_sub(1);
+    match code {
+        KeyCode::Esc | KeyCode::F(4) | KeyCode::Char('q') => app.ui.close(Overlay::LibraryCoverage),
+        KeyCode::Up => app.ui.coverage_selected = app.ui.coverage_selected.saturating_sub(1),
+        KeyCode::Down => app.ui.coverage_selected = (app.ui.coverage_selected + 1).min(last),
+        KeyCode::PageUp => app.ui.coverage_selected = app.ui.coverage_selected.saturating_sub(10),
+        KeyCode::PageDown => {
+            app.ui.coverage_selected = app.ui.coverage_selected.saturating_add(10).min(last)
+        }
+        KeyCode::Home => app.ui.coverage_selected = 0,
+        KeyCode::End => app.ui.coverage_selected = last,
+        KeyCode::F(5) => {
+            app.ui.close(Overlay::LibraryCoverage);
+            tasks.retry_metadata(app);
+            tasks.request(app, 0);
+        }
+        _ => (),
+    }
+}
+
 fn paste(app: &mut App, text: &str) -> bool {
+    if app.ui.overlay == Overlay::Diagnostics {
+        return true;
+    }
+    if app.ui.overlay == Overlay::LibraryCoverage {
+        return true;
+    }
     if app.ui.overlay == Overlay::MixBuilder {
         if app.mix.naming {
             let remaining = 80usize.saturating_sub(app.mix.recipe_name.chars().count());
@@ -44,8 +71,18 @@ fn paste(app: &mut App, text: &str) -> bool {
         app.ui.render.borrow_mut().stats_scroll = 0;
         return true;
     }
+    if app.catalog.view == View::Queue && app.ui.overlay == Overlay::None && app.ui.queue.editing {
+        let remaining = 100usize.saturating_sub(app.ui.queue.query.chars().count());
+        app.ui
+            .queue
+            .query
+            .extend(text.chars().filter(|c| !c.is_control()).take(remaining));
+        app.reset_queue_filter_selection();
+        return true;
+    }
     if app.catalog.editing {
         let remaining = 500usize.saturating_sub(app.catalog.query.chars().count());
+        app.ui.search_history.detach();
         app.catalog
             .query
             .extend(text.chars().filter(|c| !c.is_control()).take(remaining));
@@ -73,6 +110,58 @@ pub(super) fn key(
     }
     if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
         app.quit = true;
+        return;
+    }
+    if app.ui.overlay == Overlay::Diagnostics {
+        diagnostics_key(app, key.code, tasks);
+        return;
+    }
+    if key.code == KeyCode::F(7)
+        && app.ui.overlay != Overlay::MixBuilder
+        && !app.catalog.editing
+        && !app.catalog.filtering
+        && !app.ui.queue.editing
+        && !app.ui.stats.borrow().editing
+    {
+        app.context_menu = None;
+        app.ui.diagnostics.preview = None;
+        app.ui.diagnostics.preview_json.clear();
+        app.ui.diagnostics.selected = 0;
+        app.ui.diagnostics.scroll = 0;
+        app.ui.diagnostics.notice = "";
+        app.ui.overlay = Overlay::Diagnostics;
+        return;
+    }
+    if app.ui.overlay == Overlay::LibraryCoverage {
+        coverage_key(app, key.code, tasks);
+        return;
+    }
+    if key.code == KeyCode::F(4)
+        && app.catalog.view == View::Search
+        && app.catalog.search_scope == SearchScope::Library
+        && app.ui.overlay == Overlay::None
+        && !app.catalog.editing
+    {
+        app.context_menu = None;
+        app.ui.overlay = Overlay::LibraryCoverage;
+        return;
+    }
+    if key.code == KeyCode::F(6)
+        && app.ui.overlay != Overlay::MixBuilder
+        && !app.catalog.editing
+        && !app.catalog.filtering
+        && !app.ui.queue.editing
+        && !app.ui.stats.borrow().editing
+    {
+        if app.ui.overlay == Overlay::ListeningTools {
+            app.ui.close(Overlay::ListeningTools);
+        } else {
+            app.open_listening_tools();
+        }
+        return;
+    }
+    if app.ui.overlay == Overlay::ListeningTools {
+        app.listening_key(key.code, tasks, tx);
         return;
     }
     if app.ui.overlay == Overlay::Stats {
@@ -115,11 +204,28 @@ pub(super) fn key(
         }
         return;
     }
+    if app.catalog.view == View::Queue && app.ui.overlay == Overlay::None && app.ui.queue.editing {
+        queue_filter_key(app, key);
+        return;
+    }
     if app.catalog.editing {
+        if matches!(key.code, KeyCode::Up | KeyCode::Down) {
+            if let Some(query) = app
+                .ui
+                .search_history
+                .recall(&app.catalog.query, key.code == KeyCode::Up)
+            {
+                app.catalog.query = query;
+                app.status =
+                    "Recent search recalled. Enter searches; Down restores your draft.".into();
+            }
+            return;
+        }
         match key.code {
             KeyCode::Esc => app.catalog.editing = false,
             KeyCode::Enter => {
                 app.catalog.editing = false;
+                app.ui.search_history.record(&app.catalog.query);
                 let query = app.catalog.query.trim();
                 if let Some(id) = crate::model::album_id(query) {
                     if app.catalog.view == View::Album
@@ -145,7 +251,8 @@ pub(super) fn key(
                     app.push_navigation(query.to_string());
                     app.catalog.view = View::Artist;
                     app.catalog.browse = Browse::Artist(id);
-                    app.catalog.title = "Artist • Top Tracks".to_string();
+                    app.catalog.artist_label = "Artist".into();
+                    app.catalog.title = "Artist".into();
                     app.catalog.selected = 0;
                     app.reset_rows();
                     tasks.request(app, 0);
@@ -157,9 +264,11 @@ pub(super) fn key(
                 }
             }
             KeyCode::Backspace => {
+                app.ui.search_history.detach();
                 app.catalog.query.pop();
             }
             KeyCode::Char(c) if !c.is_control() && app.catalog.query.chars().count() < 500 => {
+                app.ui.search_history.detach();
                 app.catalog.query.push(c)
             }
             _ => (),
@@ -200,6 +309,17 @@ pub(super) fn key(
             }
             _ => return,
         }
+    }
+    if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Enter {
+        actions::apply(app, Action::PlayNext, tasks, tx);
+        return;
+    }
+    if key.modifiers.contains(KeyModifiers::CONTROL)
+        && key.code == KeyCode::Char('r')
+        && app.catalog.view == View::Queue
+    {
+        app.restore_queue_filter();
+        return;
     }
     if app.ui.overlay == Overlay::Lyrics
         && app
@@ -245,8 +365,9 @@ pub(super) fn key(
             app.catalog.busy = false;
             app.catalog.title = "Saved library — partial results".into();
             app.status = format!(
-                "Library search cancelled after {} tracks. Partial results retained; F5 restarts.",
-                app.catalog.library_scanned
+                "Library search cancelled after {} tracks. Partial results retained; {} playlists skipped; F4 details; F5 restarts.",
+                app.catalog.library_scanned,
+                app.catalog.library_skipped.len()
             );
         }
         KeyCode::Esc if app.ui.overlay == Overlay::Lyrics => {
@@ -256,6 +377,10 @@ pub(super) fn key(
         KeyCode::Esc if app.ui.overlay == Overlay::Visualizer => {
             app.ui.close(Overlay::Visualizer);
             app.status = "Exited visualizer".into();
+        }
+        KeyCode::Esc if app.catalog.view == View::Queue && !app.ui.queue.query.is_empty() => {
+            app.clear_queue_filter();
+            app.status = "Queue filter cleared; all tracks visible.".into();
         }
         KeyCode::Esc if !app.catalog.filter.is_empty() => {
             app.catalog.filter.clear();
@@ -280,7 +405,9 @@ pub(super) fn key(
             tasks.view(app, View::PRIMARY_TABS[c as usize - '1' as usize]);
         }
         KeyCode::Char('/') => {
-            if matches!(app.catalog.view, View::Liked | View::Playlists) {
+            if app.catalog.view == View::Queue {
+                app.start_queue_filter();
+            } else if matches!(app.catalog.view, View::Liked | View::Playlists) {
                 app.catalog.filter.clear();
                 app.catalog.filtering = true;
                 app.catalog.selected = 0;
@@ -289,6 +416,7 @@ pub(super) fn key(
                 app.catalog.editing = true;
             }
         }
+        KeyCode::Char('f') if app.catalog.view == View::Queue => app.start_queue_filter(),
         KeyCode::Char('f') if matches!(app.catalog.view, View::Liked | View::Playlists) => {
             app.catalog.filter.clear();
             app.catalog.filtering = true;
@@ -298,7 +426,7 @@ pub(super) fn key(
             if app.catalog.sidebar {
                 app.catalog.nav = app.catalog.nav.saturating_sub(1);
             } else if app.catalog.view == View::Queue {
-                app.queue.selected = app.queue.selected.saturating_sub(1);
+                app.move_queue_selection(-1);
             } else {
                 app.catalog.selected = app.catalog.selected.saturating_sub(1);
             }
@@ -307,8 +435,7 @@ pub(super) fn key(
             if app.catalog.sidebar {
                 app.catalog.nav = (app.catalog.nav + 1).min(4);
             } else if app.catalog.view == View::Queue {
-                app.queue.selected =
-                    (app.queue.selected + 1).min(app.queue.ids.len().saturating_sub(1));
+                app.move_queue_selection(1);
             } else {
                 let at = (app.catalog.selected + 1).min(app.len().saturating_sub(1));
                 app.catalog.selected = at;
@@ -316,10 +443,9 @@ pub(super) fn key(
                     && !app.catalog.busy
                     && !app.is_filtered()
                     && at + 5 >= app.len()
+                    && let Some(offset) = app.catalog.next
                 {
-                    if let Some(offset) = app.catalog.next {
-                        tasks.request(app, offset);
-                    }
+                    tasks.request(app, offset);
                 }
             }
         }
@@ -327,7 +453,7 @@ pub(super) fn key(
             if app.catalog.sidebar {
                 app.catalog.nav = 0;
             } else if app.catalog.view == View::Queue {
-                app.queue.selected = app.queue.selected.saturating_sub(15);
+                app.move_queue_selection(-15);
             } else {
                 app.catalog.selected = app.catalog.selected.saturating_sub(15);
             }
@@ -336,14 +462,14 @@ pub(super) fn key(
             if app.catalog.sidebar {
                 app.catalog.nav = 4;
             } else if app.catalog.view == View::Queue {
-                app.queue.selected =
-                    (app.queue.selected + 15).min(app.queue.ids.len().saturating_sub(1));
+                app.move_queue_selection(15);
             } else {
                 app.catalog.selected = (app.catalog.selected + 15).min(app.len().saturating_sub(1));
-                if !app.catalog.busy && !app.is_filtered() {
-                    if let Some(offset) = app.catalog.next {
-                        tasks.request(app, offset);
-                    }
+                if !app.catalog.busy
+                    && !app.is_filtered()
+                    && let Some(offset) = app.catalog.next
+                {
+                    tasks.request(app, offset);
                 }
             }
         }
@@ -436,18 +562,15 @@ pub(super) fn key(
         KeyCode::Char('C') if app.catalog.view == View::Queue => {
             actions::apply(app, Action::ClearQueue, tasks, tx)
         }
-        KeyCode::Char('K') if app.catalog.view == View::Queue && app.queue.selected > 0 => {
+        KeyCode::Char('K') if app.catalog.view == View::Queue => {
             actions::apply(app, Action::MoveUp, tasks, tx)
         }
-        KeyCode::Char('J')
-            if app.catalog.view == View::Queue
-                && !app.queue.ids.is_empty()
-                && app.queue.selected + 1 < app.queue.ids.len() =>
-        {
+        KeyCode::Char('J') if app.catalog.view == View::Queue => {
             actions::apply(app, Action::MoveDown, tasks, tx)
         }
         KeyCode::Char('.') | KeyCode::Char('c') if app.catalog.view == View::Queue => {
             if let Some(c) = app.queue.cursor {
+                app.clear_queue_filter();
                 app.queue.selected = c;
                 app.status = "Jumped to currently playing track.".into();
             }
@@ -456,6 +579,32 @@ pub(super) fn key(
             if app.catalog.view == View::Queue =>
         {
             actions::apply(app, Action::RemoveSelected, tasks, tx)
+        }
+        _ => (),
+    }
+}
+
+fn queue_filter_key(app: &mut App, key: KeyEvent) {
+    match key.code {
+        KeyCode::Esc => app.clear_queue_filter(),
+        KeyCode::Enter | KeyCode::Tab => app.ui.queue.editing = false,
+        KeyCode::Up | KeyCode::Down => {
+            app.ui.queue.editing = false;
+            app.move_queue_selection(if key.code == KeyCode::Up { -1 } else { 1 });
+        }
+        KeyCode::Backspace => {
+            app.ui.queue.query.pop();
+            app.reset_queue_filter_selection();
+        }
+        KeyCode::Char(c)
+            if !key
+                .modifiers
+                .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+                && !c.is_control()
+                && app.ui.queue.query.chars().count() < 100 =>
+        {
+            app.ui.queue.query.push(c);
+            app.reset_queue_filter_selection();
         }
         _ => (),
     }

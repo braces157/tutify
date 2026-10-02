@@ -1,6 +1,9 @@
 use super::*;
 use crate::{model::Track, queue::Queue, storage::Config};
 use ratatui::backend::TestBackend;
+mod diagnostics;
+mod listening;
+mod queue_filter;
 #[test]
 fn help_and_plain_lyrics_can_scroll_to_last_line_in_small_terminal() {
     let mut app = App::new(Config::default(), Queue::default());
@@ -1255,6 +1258,7 @@ fn test_artist_top_tracks_ui_rendering() {
     let mut app = App::new(Config::default(), Queue::default());
     app.catalog.view = View::Artist;
     app.catalog.title = "Radiohead • Top Tracks".into();
+    app.catalog.artist_source = Some(crate::catalog::ArtistResultSource::TopTracks);
 
     let t1 = Track {
         id: "1".repeat(22),
@@ -1383,6 +1387,7 @@ fn test_breadcrumb_ui_header_rendering() {
     app.push_navigation("OK Computer".into());
     app.catalog.view = View::Artist;
     app.catalog.title = "Radiohead • Top Tracks".into();
+    app.catalog.artist_source = Some(crate::catalog::ArtistResultSource::TopTracks);
 
     terminal
         .draw(|f| draw(f, &app, &mut app.ui.render.borrow_mut()))
@@ -1441,7 +1446,7 @@ fn test_help_shortcuts_documented() {
         "Missing 'a' shortcut: {text}"
     );
     assert!(
-        text.contains("View artist top tracks"),
+        text.contains("View artist tracks"),
         "Missing 'Shift+A / A' shortcut: {text}"
     );
     assert!(
@@ -1510,6 +1515,7 @@ fn test_center_delegates_album_and_artist() {
     // Artist view
     app.catalog.view = View::Artist;
     app.catalog.title = "Radiohead • Top Tracks".into();
+    app.catalog.artist_source = Some(crate::catalog::ArtistResultSource::TopTracks);
     app.catalog.rows = Rows::Tracks(vec![Track {
         id: "2".repeat(22),
         name: "Karma Police".into(),
@@ -1761,6 +1767,7 @@ fn test_adversarial_artist_top_tracks_rendering() {
     let mut app = App::new(Config::default(), Queue::default());
     app.catalog.view = View::Artist;
     app.catalog.title = "Radiohead • Top Tracks".into();
+    app.catalog.artist_source = Some(crate::catalog::ArtistResultSource::TopTracks);
 
     // 1. 0 tracks (empty state)
     app.catalog.rows = Rows::Tracks(vec![]);
@@ -1902,6 +1909,7 @@ fn test_adversarial_width_scaling_and_alignment() {
     let mut app = App::new(Config::default(), Queue::default());
     app.catalog.view = View::Artist;
     app.catalog.title = "David Bowie • Top Tracks".into();
+    app.catalog.artist_source = Some(crate::catalog::ArtistResultSource::TopTracks);
 
     let tracks = vec![
         Track {

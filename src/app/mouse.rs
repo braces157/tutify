@@ -44,7 +44,7 @@ pub(super) fn activate_menu(
     if app.catalog.view != menu.view
         || app.selection() != menu.row
         || revision != menu.revision
-        || app.catalog.filter != menu.filter
+        || app.active_filter() != menu.filter
     {
         app.status = "List changed; right-click the track again.".into();
         return;
@@ -60,6 +60,94 @@ pub(super) fn mouse(
     tasks: &mut Tasks,
     tx: &mpsc::UnboundedSender<Command>,
 ) -> bool {
+    if app.ui.overlay == Overlay::Diagnostics {
+        let target = app
+            .ui
+            .render
+            .borrow()
+            .mouse_hits
+            .iter()
+            .rev()
+            .find_map(|(area, target)| {
+                area.contains((event.column, event.row).into())
+                    .then_some(*target)
+            });
+        match event.kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                if let Some(MouseTarget::DiagnosticRow(index)) = target
+                    && index < app.ui.diagnostics.history.records().len()
+                {
+                    app.ui.diagnostics.selected = index;
+                }
+                if let Some(MouseTarget::DiagnosticKey(code)) = target {
+                    diagnostics_key(app, code, tasks);
+                }
+            }
+            MouseEventKind::ScrollUp => diagnostics_key(app, KeyCode::Up, tasks),
+            MouseEventKind::ScrollDown => diagnostics_key(app, KeyCode::Down, tasks),
+            _ => (),
+        }
+        return true;
+    }
+    if app.ui.overlay == Overlay::LibraryCoverage {
+        let target = app
+            .ui
+            .render
+            .borrow()
+            .mouse_hits
+            .iter()
+            .rev()
+            .find_map(|(area, target)| {
+                area.contains((event.column, event.row).into())
+                    .then_some(*target)
+            });
+        match event.kind {
+            MouseEventKind::Down(MouseButton::Left) => match target {
+                Some(MouseTarget::CoverageRow(index))
+                    if index < app.catalog.library_skipped.len() =>
+                {
+                    app.ui.coverage_selected = index;
+                }
+                Some(MouseTarget::CoverageClose) => app.ui.close(Overlay::LibraryCoverage),
+                Some(MouseTarget::CoverageRecheck) => {
+                    input::coverage_key(app, KeyCode::F(5), tasks)
+                }
+                _ => (),
+            },
+            MouseEventKind::ScrollUp => input::coverage_key(app, KeyCode::Up, tasks),
+            MouseEventKind::ScrollDown => input::coverage_key(app, KeyCode::Down, tasks),
+            _ => (),
+        }
+        return true;
+    }
+    if app.ui.overlay == Overlay::ListeningTools {
+        let target = app
+            .ui
+            .render
+            .borrow()
+            .mouse_hits
+            .iter()
+            .rev()
+            .find_map(|(area, target)| {
+                area.contains((event.column, event.row).into())
+                    .then_some(*target)
+            });
+        match event.kind {
+            MouseEventKind::Down(MouseButton::Left) => match target {
+                Some(MouseTarget::ListeningRow(index)) if index < listening::TOOL_LABELS.len() => {
+                    app.ui.listening.selected = index;
+                    app.status = listening::TOOL_DETAILS[index].into();
+                }
+                Some(MouseTarget::ListeningApply) => app.listening_key(KeyCode::Enter, tasks, tx),
+                Some(MouseTarget::ListeningClose) => app.listening_key(KeyCode::Esc, tasks, tx),
+                _ => (),
+            },
+            MouseEventKind::ScrollUp => app.listening_key(KeyCode::Up, tasks, tx),
+            MouseEventKind::ScrollDown => app.listening_key(KeyCode::Down, tasks, tx),
+            _ => (),
+        }
+        return true;
+    }
     if app.ui.overlay == Overlay::MixBuilder {
         // Only the overlay's own visible preview controls can receive clicks.
         // Applying a mix remains an explicit keyboard action.
@@ -193,11 +281,11 @@ pub(super) fn mouse(
         return true;
     }
     if app.context_menu.is_some() {
-        if event.kind == MouseEventKind::Down(MouseButton::Left) {
-            if let Some((_, MouseTarget::Menu(index))) = hit {
-                activate_menu(app, index, tasks, tx);
-                return true;
-            }
+        if event.kind == MouseEventKind::Down(MouseButton::Left)
+            && let Some((_, MouseTarget::Menu(index))) = hit
+        {
+            activate_menu(app, index, tasks, tx);
+            return true;
         }
         app.context_menu = None;
         return true;
@@ -228,11 +316,13 @@ pub(super) fn mouse(
         if matches!(target, MouseTarget::Queue(_) | MouseTarget::QueueScroll)
             && app.catalog.view != View::Queue
         {
+            app.clear_queue_filter();
             tasks.view(app, View::Queue);
             app.ui.overlay = Overlay::None;
         }
         app.catalog.editing = false;
         app.catalog.filtering = false;
+        app.ui.queue.editing = false;
         app.catalog.sidebar = false;
         let code = if event.kind == MouseEventKind::ScrollUp {
             KeyCode::Up
@@ -246,6 +336,12 @@ pub(super) fn mouse(
     }
     let right = event.kind == MouseEventKind::Down(MouseButton::Right);
     match target {
+        MouseTarget::LibraryCoverage if !right => {
+            app.context_menu = None;
+            app.catalog.editing = false;
+            app.ui.overlay = Overlay::LibraryCoverage;
+        }
+        MouseTarget::ListeningTools if !right => app.open_listening_tools(),
         MouseTarget::SearchMode(scope) if !right => choose_search(app, scope, tasks),
         MouseTarget::Navigation(view) if !right => {
             app.catalog.history.clear();
@@ -254,6 +350,7 @@ pub(super) fn mouse(
         }
         MouseTarget::QueueScroll if right && app.can_undo() => {
             if app.catalog.view != View::Queue {
+                app.clear_queue_filter();
                 tasks.view(app, View::Queue);
             }
             app.catalog.sidebar = false;
@@ -267,7 +364,7 @@ pub(super) fn mouse(
                 view: app.catalog.view,
                 row: app.selection(),
                 revision: app.queue.revision,
-                filter: app.catalog.filter.clone(),
+                filter: app.active_filter().to_owned(),
             });
         }
         MouseTarget::Prompt if !right => {
@@ -278,9 +375,15 @@ pub(super) fn mouse(
                 app.catalog.filtering = true;
             }
         }
+        MouseTarget::QueueFilter if !right => app.start_queue_filter(),
+        MouseTarget::QueueFilterClear if !right => {
+            app.clear_queue_filter();
+            app.status = "Queue filter cleared; all tracks visible.".into();
+        }
         MouseTarget::Catalog(index) | MouseTarget::Queue(index) => {
             if matches!(target, MouseTarget::Queue(_)) {
                 if app.catalog.view != View::Queue {
+                    app.clear_queue_filter();
                     tasks.view(app, View::Queue);
                 }
                 app.ui.overlay = Overlay::None;
@@ -290,6 +393,7 @@ pub(super) fn mouse(
             }
             app.catalog.editing = false;
             app.catalog.filtering = false;
+            app.ui.queue.editing = false;
             app.catalog.sidebar = false;
             if right {
                 let playlist = app.catalog.view == View::Playlists
@@ -328,7 +432,7 @@ pub(super) fn mouse(
                     actions,
                     view: app.catalog.view,
                     row: app.selection(),
-                    filter: app.catalog.filter.clone(),
+                    filter: app.active_filter().to_owned(),
                     revision: if app.catalog.view == View::Queue {
                         app.queue.revision
                     } else {
@@ -342,6 +446,7 @@ pub(super) fn mouse(
         MouseTarget::PlayPause if !right => {
             app.catalog.editing = false;
             app.catalog.filtering = false;
+            app.ui.queue.editing = false;
             app.control(Control::Media(MediaAction::Toggle), tx);
         }
         MouseTarget::Seek if !right && app.loaded => {

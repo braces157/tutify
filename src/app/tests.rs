@@ -1,7 +1,11 @@
 use super::*;
 
+mod artist_provenance;
+mod diagnostics;
 mod input_events;
 mod jobs;
+mod library_coverage;
+mod listening;
 mod live_radio;
 mod mix_builder;
 mod mouse;
@@ -9,8 +13,10 @@ mod navigation;
 mod overlays;
 mod persistence;
 mod queue;
+mod queue_filter;
 mod radio_discovery;
 mod refactor;
+mod search_history;
 mod smart_shuffle;
 mod state;
 

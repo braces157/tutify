@@ -28,6 +28,12 @@ mod playback;
 use playback::*;
 mod mix_builder;
 use mix_builder::*;
+mod listening;
+use listening::listening_tools;
+mod library_coverage;
+use library_coverage::library_coverage;
+mod diagnostics;
+use diagnostics::diagnostics;
 
 use crate::{
     app::{App, MouseTarget, Overlay, RenderState, SearchScope, State, View},
@@ -84,7 +90,14 @@ pub fn draw(frame: &mut Frame<'_>, app: &App, render: &mut RenderState) {
         return;
     }
     let compact = area.height < 18;
-    if app.ui.overlay == Overlay::MixBuilder && area.height < 12 {
+    if matches!(
+        app.ui.overlay,
+        Overlay::MixBuilder
+            | Overlay::ListeningTools
+            | Overlay::LibraryCoverage
+            | Overlay::Diagnostics
+    ) && area.height < 12
+    {
         let vertical = Layout::vertical([
             Constraint::Length(1),
             Constraint::Min(5),
@@ -122,6 +135,9 @@ fn center(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, area: Rect
         Overlay::Lyrics => lyrics(frame, app, render, area),
         Overlay::Stats => stats(frame, app, render, area),
         Overlay::MixBuilder => mix_builder(frame, app, render, area),
+        Overlay::ListeningTools => listening_tools(frame, app, render, area),
+        Overlay::LibraryCoverage => library_coverage(frame, app, render, area),
+        Overlay::Diagnostics => diagnostics(frame, app, render, area),
         Overlay::None => match app.catalog.view {
             View::Help => help(frame, app, render, area),
             View::Queue => queue(frame, app, render, area, true),

@@ -132,7 +132,7 @@ async fn test_multi_level_navigation_stack_unwinding() {
     // Transition Level 1 -> Level 2: View::Artist
     actions::apply(&mut app, Action::ViewArtist, &mut tasks, &commands);
     assert_eq!(app.catalog.view, View::Artist);
-    assert_eq!(app.catalog.title, "Pink Floyd • Top Tracks");
+    assert_eq!(app.catalog.title, "Pink Floyd");
     assert_eq!(app.catalog.history.len(), 2);
     assert_eq!(app.catalog.history[0].breadcrumb, "Search");
     assert_eq!(app.catalog.history[1].breadcrumb, "The Wall");
@@ -288,7 +288,7 @@ async fn test_key_routing_a_shift_a_e_p() {
         KeyModifiers::SHIFT,
     );
     assert_eq!(app.catalog.view, View::Artist);
-    assert_eq!(app.catalog.title, "Test Artist • Top Tracks");
+    assert_eq!(app.catalog.title, "Test Artist");
 
     // Pop back to Search
     app.pop_navigation();
@@ -302,7 +302,7 @@ async fn test_key_routing_a_shift_a_e_p() {
         KeyModifiers::SHIFT,
     );
     assert_eq!(app.catalog.view, View::Artist);
-    assert_eq!(app.catalog.title, "Test Artist • Top Tracks");
+    assert_eq!(app.catalog.title, "Test Artist");
 
     // Pop back to Search
     app.pop_navigation();
@@ -538,7 +538,7 @@ async fn test_adversarial_key_shift_a_metadata_variations() {
     );
     assert_eq!(app.catalog.view, View::Artist);
     assert_eq!(app.catalog.browse, Browse::Artist("art_floyd".into()));
-    assert_eq!(app.catalog.title, "Pink Floyd • Top Tracks");
+    assert_eq!(app.catalog.title, "Pink Floyd");
     assert_eq!(app.catalog.history.len(), 1);
 
     // Pop back to Search
@@ -932,7 +932,7 @@ async fn test_adversarial_rapid_esc_unwinding_back_to_root() {
     // Level 2: View Artist (Radiohead)
     actions::apply(&mut app, Action::ViewArtist, &mut tasks, &commands);
     assert_eq!(app.catalog.view, View::Artist);
-    assert_eq!(app.catalog.title, "Radiohead • Top Tracks");
+    assert_eq!(app.catalog.title, "Radiohead");
     app.catalog.rows = Rows::Tracks(vec![sample_album_track(1, "In Rainbows", "alb_rainbows")]);
     app.catalog.selected = 0;
     app.ui.render.borrow_mut().catalog_scroll = 8;
@@ -947,7 +947,7 @@ async fn test_adversarial_rapid_esc_unwinding_back_to_root() {
     // Esc 1 -> unwinds to Level 2 (Artist Radiohead)
     route_key(&mut app, &mut tasks, KeyCode::Esc, KeyModifiers::NONE);
     assert_eq!(app.catalog.view, View::Artist);
-    assert_eq!(app.catalog.title, "Radiohead • Top Tracks");
+    assert_eq!(app.catalog.title, "Radiohead");
     assert_eq!(app.catalog.selected, 0);
     assert_eq!(app.ui.render.borrow().catalog_scroll, 8);
     assert_eq!(app.catalog.history.len(), 2);
@@ -1270,7 +1270,7 @@ async fn test_empirical_challenger_m5_2_adversarial_integration_stress_harness()
         );
         assert_eq!(app.catalog.view, View::Artist);
         assert_eq!(app.catalog.browse, Browse::Artist("art_floyd".into()));
-        assert_eq!(app.catalog.title, "Pink Floyd • Top Tracks");
+        assert_eq!(app.catalog.title, "Pink Floyd");
         assert_eq!(app.catalog.selected, 0);
         assert_eq!(app.ui.render.borrow().catalog_scroll, 0);
         assert_eq!(app.catalog.history.len(), 2);

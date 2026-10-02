@@ -3,10 +3,24 @@ use super::*;
 pub(super) fn playback(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, area: Rect) {
     let theme = Theme::from_str(&app.config.theme);
     let palette = theme.palette();
-    let outer = block_themed(" NOW PLAYING ", false, theme)
+    let title = app
+        .ui
+        .listening
+        .sleep
+        .label(std::time::Instant::now())
+        .map_or_else(
+            || " NOW PLAYING ".into(),
+            |timer| format!(" NOW PLAYING · {timer} "),
+        );
+    let outer = block_themed(title, false, theme)
         .style(Style::default().fg(palette.text).bg(palette.surface_alt));
     let inner = outer.inner(area);
     frame.render_widget(outer, area);
+    hit(
+        render,
+        Rect::new(area.x + 1, area.y, area.width.saturating_sub(2), 1),
+        MouseTarget::ListeningTools,
+    );
     let parts = Layout::vertical([
         Constraint::Length(1),
         Constraint::Length(1),

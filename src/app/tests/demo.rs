@@ -92,7 +92,7 @@ async fn search_input_resolves_artist_uri_and_url_directly_to_artist_view() {
         app.catalog.browse,
         Browse::Artist("0000000000000000000500".into())
     );
-    assert_eq!(app.catalog.title, "Artist • Top Tracks");
+    assert_eq!(app.catalog.title, "Artist");
     assert_eq!(app.catalog.selected, 0);
 
     // Pop back to initial view

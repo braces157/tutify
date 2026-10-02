@@ -71,17 +71,15 @@ pub fn spotify_id(input: &str, entity_type: &str) -> Option<String> {
     if let Some((scheme_and_type, rest)) = input
         .split_once(':')
         .and_then(|(s, r)| r.split_once(':').map(|(t, id)| ((s, t), id)))
+        && scheme_and_type.0.eq_ignore_ascii_case("spotify")
+        && scheme_and_type.1.eq_ignore_ascii_case(entity_type)
     {
-        if scheme_and_type.0.eq_ignore_ascii_case("spotify")
-            && scheme_and_type.1.eq_ignore_ascii_case(entity_type)
-        {
-            let id = rest
-                .split(['?', '#'])
-                .next()
-                .unwrap_or("")
-                .trim_end_matches('/');
-            return valid_id(id).then(|| id.to_owned());
-        }
+        let id = rest
+            .split(['?', '#'])
+            .next()
+            .unwrap_or("")
+            .trim_end_matches('/');
+        return valid_id(id).then(|| id.to_owned());
     }
 
     // 2. Web URL format: https://open.spotify.com/[intl-<locale>/]<entity_type>/<id>[/]

@@ -258,6 +258,8 @@ pub(crate) fn page(browse: &Browse, offset: usize) -> Page {
         rows,
         offset,
         next: None,
+        artist_source: matches!(browse, Browse::Artist(_))
+            .then_some(crate::catalog::ArtistResultSource::Demo),
     }
 }
 
@@ -375,6 +377,10 @@ mod tests {
 
         let artist_page = page(&Browse::Artist(format!("{:022}", 500)), 0);
         assert!(artist_page.next.is_none());
+        assert_eq!(
+            artist_page.artist_source,
+            Some(crate::catalog::ArtistResultSource::Demo)
+        );
         if let Rows::Tracks(tracks) = artist_page.rows {
             assert_eq!(tracks.len(), 8);
         } else {
