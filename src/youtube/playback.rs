@@ -252,7 +252,9 @@ async fn decode(
             }
             ensure!(filled % 8 == 0, "FFmpeg returned incomplete stereo audio");
             let pcm = buffer[..filled]
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .map(|bytes| {
                     let sample = f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
                     if sample.is_finite() {

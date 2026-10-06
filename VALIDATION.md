@@ -29,6 +29,12 @@ The updated release website passed all **24 Microsoft Edge browser tests**,
 including download/version consistency, installation commands, phone/tablet
 layouts, native-demo simulation and motion accessibility.
 
+Hosted checks exposed a newer Clippy requirement for fixed-size PCM byte chunks
+and a Discord test that subtracted 500 seconds from the Windows monotonic clock.
+PCM conversion now uses fixed-size arrays. The timing unit test advances an
+explicit observation clock, and the pipe fixture starts from its intended
+position without subtracting from an Instant; neither depends on runner uptime.
+
 Release checks repeat locked tests, formatting, strict Clippy, a locked optimized
 build, current website browser checks, and package/manifests regressions. GitHub
 CI independently checks stable Rust and the declared minimum Rust 1.88 on Windows
