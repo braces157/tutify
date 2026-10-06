@@ -1,4 +1,4 @@
-use crate::model::{Repeat, valid_id};
+use crate::model::{Repeat, valid_track_id as valid_id};
 use anyhow::{Result, bail};
 use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};

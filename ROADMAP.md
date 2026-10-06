@@ -6,6 +6,13 @@ priorities, dependencies, implementation areas, completion criteria, and optiona
 scope expansions. The release history and explicit deferrals below remain useful
 context; the checklist does not reverse those earlier choices.
 
+V0.5.0 adds automatic Spotify Premium/free YouTube Music launch, in-app account
+connections, separate provider catalogs and queues, bounded parsed music caches,
+and idle metadata-helper release. Successful live audio acceptance remains
+unverified because the available Spotify login was expired and YouTube blocked
+the connection. Installer rollback hardening and the broader feature roadmap
+remain deferred; see [VALIDATION.md](VALIDATION.md) for the current evidence.
+
 V1 ships search, playlists, liked songs, standalone playback, local queue controls,
 and settings/queue persistence.
 

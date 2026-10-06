@@ -3,9 +3,9 @@
 
   # Tuitify
 
-  **A fast, keyboard-first Spotify player for the Windows terminal.**
+  **A fast, keyboard-first music player for the Windows terminal.**
 
-  Stream music without keeping the Spotify desktop app open. Browse your library,
+  Launch `tuitify` for Spotify Premium or free YouTube Music. Browse your library,
   manage the queue, view synchronized lyrics, and control playback from one native TUI.
 
   [![Validate](https://github.com/braces157/tutify/actions/workflows/ci.yml/badge.svg)](https://github.com/braces157/tutify/actions/workflows/ci.yml)
@@ -16,12 +16,16 @@
 
 ---
 
-Tuitify is a standalone Spotify client built with Rust, Ratatui, and librespot. It
-plays audio directly through the Windows audio stack and keeps the whole listening
+Tuitify is a standalone music client built with Rust and Ratatui, using librespot
+for Spotify and yt-dlp/FFmpeg for YouTube Music. It plays audio through the Windows
+audio stack and keeps the whole listening
 workflow inside Windows Terminal—no Electron shell and no background service.
 
 > [!IMPORTANT]
-> Spotify Premium is required for audio playback. Tuitify is an independent,
+> Spotify Premium is required for **Spotify** audio playback. YouTube Music
+> mode plays public videos without a Spotify login or subscription. Plain
+> `tuitify` selects YouTube Music for free accounts or users without a Spotify login.
+> Tuitify is an independent,
 > personal-use project and is not affiliated with or endorsed by Spotify.
 
 ## Preview
@@ -52,11 +56,15 @@ workflow inside Windows Terminal—no Electron shell and no background service.
 
 > These captures document the v0.3.0 Glass interface; the visualizer and lyrics
 > views were captured before its version label advanced from v0.2.9. The current
-> v0.4.0 release keeps this appearance and adds the fixes listed below.
+> v0.5.0 release keeps this appearance and adds the fixes listed below.
 
 ## Highlights
 
 - **Direct playback** through librespot and WASAPI; Spotify Desktop can stay closed.
+- **Automatic source selection** for Spotify Premium or free YouTube Music, with
+  account connections inside F6 Tools and no source choice required.
+- **YouTube Music** with search, video links, its own saved queue,
+  playback controls, lyrics, visualizer, and Windows media keys.
 - **Library and catalog browsing** for playlists, Liked Songs, complete album
   tracklists, and artist top tracks, plus track/album/artist search and link navigation.
 - **Powerful queue tools** including play next, reorder, remove, undo, shuffle,
@@ -80,16 +88,16 @@ workflow inside Windows Terminal—no Electron shell and no background service.
 
 ### Current release
 
-The current release is **v0.4.0**. It adds queue filtering, sleep timers, Play
-Next, recent-search recall, offline diagnostics and redacted support reports.
-Saved-state backups and previewed recovery preserve damaged files and require
-explicit confirmation before replacement. Catalog failures retain actionable
-causes, partial library results explain inaccessible sources, and artist lists
-identify their actual source. Detailed version output and release manifests
-identify the compiled source and verify packaged file hashes.
+The current release is **v0.5.0**. Just launch `tuitify`: confirmed Spotify Premium
+accounts use Spotify; free accounts and users without a Spotify login use YouTube
+Music. F6 Tools connects accounts and updates playback tools inside the app.
+The update adds public music search, albums, artists, radio, optional Google
+libraries, and independent provider queues. Bounded parsed caches and idle helper
+shutdown reduce retained memory. Existing queue tools, recovery, diagnostics,
+lyrics, Glass themes and Windows media controls remain available.
 
 The wallpaper-backed Glass theme supports both a portable Unicode renderer and a
-full-resolution Windows Terminal profile. See the [release notes](docs/releases/v0.4.0.md)
+full-resolution Windows Terminal profile. See the [release notes](docs/releases/v0.5.0.md)
 and [changelog](CHANGELOG.md) for the complete update.
 
 ## Requirements
@@ -99,6 +107,10 @@ and [changelog](CHANGELOG.md) for the complete update.
   modern color and mouse support
 - For Spotify playback: a Premium account, network connection, and working
   Windows audio output device
+- For YouTube playback: public videos, a network connection, Windows audio,
+  yt-dlp, Deno, and FFmpeg (prepared on first launch; F6 updates the tools)
+- For YouTube Music search, albums, artists and radio: Python 3.10+;
+  the isolated music adapter installs on the first player launch
 
 No Rust installation is needed when using a release build. Consolas and Cascadia
 Mono work out of the box; an icon font is not required.
@@ -110,8 +122,8 @@ The native demo needs no Spotify account or audio device.
 
 ## Install
 
-1. Download `Tuitify-0.4.0-windows-x86_64.zip` from
-   [release v0.4.0](https://github.com/braces157/tutify/releases/tag/v0.4.0).
+1. Download `Tuitify-0.5.0-windows-x86_64.zip` from
+   [release v0.5.0](https://github.com/braces157/tutify/releases/tag/v0.5.0).
 2. Extract the archive.
 3. Open Windows Terminal in the extracted folder and run:
 
@@ -119,8 +131,20 @@ The native demo needs no Spotify account or audio device.
 .\tuitify.exe
 ```
 
-Tuitify opens the browser for guided sign-in on the first launch. Later launches
-reuse the credentials stored in Windows Credential Manager.
+Just run **`tuitify`**. A connected Spotify Premium account plays Spotify; free
+accounts and users without a Spotify login get YouTube Music automatically.
+Missing playback tools and the isolated music adapter are prepared on first
+launch (Python 3.10+ for the music adapter). Public search needs no account.
+Press **F6** and choose **Connect Spotify account** or **Connect Google music
+library** for browser sign-in. The app saves your queue, connects the account,
+and returns to music automatically. No source flags or separate login commands
+are needed. Windows Credential Manager and user-encrypted Google storage keep
+subsequent launches connected.
+Plan checks are bounded to three seconds and successful results are cached for
+ten minutes for the same account. If Spotify's API omits subscription details,
+an existing streaming login can verify its entitlement without opening audio.
+An expired login, denied access or failed check shows its cause and opens free
+music. Only a confirmed Spotify membership change updates the cached plan.
 Restored queues always start paused; press Space to resume.
 
 To install the executable for your Windows user and add it to `PATH`, run:
@@ -136,6 +160,85 @@ terminal afterward and run `tuitify` from any directory.
 The release archive includes the same installer under `scripts`. You can also
 keep the archive in a permanent folder and add that folder to your user `PATH`
 manually.
+
+### Play YouTube without Spotify
+
+Free music is included in the normal launch:
+
+```powershell
+tuitify
+```
+
+Browsing, radio and playback all use the selected provider, with separate queues
+and saved libraries. Spotify playlists are not automatically mapped to YouTube.
+`tuitify --glass` uses your existing Glass appearance; use
+`tuitify --glass-window` for a dedicated Windows Terminal tab. Source selection
+stays automatic in both.
+
+Press `/` to enter a song/artist search or paste a YouTube video link. `Enter`
+plays the selected result and the loaded result list; `e` adds a result to the
+queue, and `Ctrl+Enter` plays it next. Space pauses/resumes, Left/Right seek,
+`+`/`-` adjust volume, and `n`/`p` move through the queue. Repeat, shuffle,
+queue editing/filtering, sleep timers, media keys, the visualizer, and lyric
+lookup work in YouTube mode.
+
+To connect your Google library, press F6 and choose **Connect Google music library**.
+
+Sign in in the dedicated **Chrome** window and click **Library**. Chrome is
+preferred when installed; Edge is the fallback. This automatically installs the
+optional YouTube Music adapter in an isolated environment and requires Python
+3.10 or newer. You can install it separately with `tuitify youtube music-setup`.
+The adapter uses the unofficial, read-only ytmusicapi interface, so changes to
+YouTube Music can require an adapter update.
+
+Back in the player, `2` opens your playlists, `3` opens Liked Songs,
+and `F3` searches your saved library. Paste a YouTube playlist URL into search
+to open it directly. Album and artist views use YouTube Music song metadata.
+Playing a list loads its remaining pages into the queue. `s` cycles your
+existing Shuffle and Smart Shuffle algorithms; Smart Shuffle adds YouTube Music
+radio suggestions and preserves the current track. Installing the adapter also
+enables public music search, album/artist views and radio without signing in.
+Without the adapter, Track Radio uses YouTube search suggestions.
+
+Music search returns its first 20 results promptly; scrolling loads further
+pages. The music helper reuses its connection, and recently loaded library
+pages open from memory. The player prepares the next queued stream while the
+current song plays, so normal skips avoid resolving the stream again. The first
+song and unprepared selections still need YouTube's network response. Stream
+links expire, remain in memory only, and are refreshed when needed.
+
+Read-only command-line previews return the first page (up to 50 entries):
+
+```powershell
+tuitify youtube playlists
+tuitify youtube liked
+tuitify youtube playlist "https://music.youtube.com/playlist?list=PLAYLIST_ID"
+tuitify youtube logout
+```
+
+The YouTube queue, settings, cache, statistics, and recipes live under
+`%LOCALAPPDATA%\Tuitify\youtube`; Spotify's existing data stays separate. The
+queue restores paused. The connection reads only YouTube Music session cookies
+from the new sign-in window and stores them in `music-auth.dpapi`, encrypted for
+your Windows user. Your password stays in the browser; existing browser profiles
+are not read. `youtube logout` removes the connection; restart the player to apply.
+Signing in grants library access; playback still uses public videos. Live,
+private, age/sign-in restricted, and paid videos are not supported. Tuitify does
+not store audio downloads. Lyric matches depend on the available song metadata.
+
+Check tools or validate real audio without changing saved state:
+
+```powershell
+tuitify youtube doctor
+tuitify youtube search "artist song"
+tuitify youtube probe "https://youtu.be/VIDEO_ID" --seconds 5
+```
+
+The probe is muted by default; add `--volume 30` to hear it. The setup command
+downloads SHA-256-verified official yt-dlp/Deno releases into
+`%LOCALAPPDATA%\Programs\Tuitify\tools` and installs verified FFmpeg if it is
+missing. Run setup again to update the tools when YouTube changes. Public videos
+can still be blocked by YouTube or unavailable on your connection.
 
 ### Try the native demo without Spotify
 

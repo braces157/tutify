@@ -1,6 +1,6 @@
 # Website and TUI review — 2026-09-06
 
-For the current v0.3.1 performance changes and measurements, see
+For the current v0.5.0 performance changes and measurements, see
 [BENCHMARKS.md](BENCHMARKS.md) and [VALIDATION.md](VALIDATION.md). The review
 snapshot below is retained as historical evidence.
 

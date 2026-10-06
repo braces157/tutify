@@ -38,15 +38,34 @@ pub enum Command {
 }
 #[derive(Debug)]
 pub enum Event {
+    Metadata {
+        generation: u64,
+        track: crate::model::Track,
+    },
     Ready,
-    Playing { generation: u64, position_ms: u32 },
-    Paused { generation: u64, position_ms: u32 },
-    Position { generation: u64, position_ms: u32 },
-    TimeToPreload { generation: u64 },
+    Playing {
+        generation: u64,
+        position_ms: u32,
+    },
+    Paused {
+        generation: u64,
+        position_ms: u32,
+    },
+    Position {
+        generation: u64,
+        position_ms: u32,
+    },
+    TimeToPreload {
+        generation: u64,
+    },
     Completed(u64),
     Volume(u8),
     Error(String),
-    TrackError { generation: u64, message: String },
+    PremiumRequired,
+    TrackError {
+        generation: u64,
+        message: String,
+    },
 }
 
 pub struct Playback {
@@ -56,6 +75,44 @@ pub struct Playback {
 }
 
 impl Playback {
+    pub fn spawn_youtube(
+        tools: crate::youtube::Tools,
+        volume: u8,
+        visualizer: Arc<crate::visualizer::AudioVisualizer>,
+    ) -> Self {
+        let (commands, rx) = mpsc::unbounded_channel();
+        let (tx, events) = mpsc::unbounded_channel();
+        // CPAL's output stream stays on one dedicated thread. Dropping the command
+        // sender stops the worker and its owned decoder; UI shutdown stays async.
+        let task = tokio::spawn(async move {
+            let errors = tx.clone();
+            let result = tokio::task::spawn_blocking(move || {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()?;
+                runtime.block_on(crate::youtube::playback::worker(
+                    tools, volume, rx, tx, visualizer,
+                ))
+            })
+            .await;
+            match result {
+                Ok(Ok(())) => (),
+                Ok(Err(error)) => {
+                    let _ = errors.send(Event::Error(format!("{error:#}")));
+                }
+                Err(_) => {
+                    let _ = errors.send(Event::Error(
+                        "YouTube audio worker exited unexpectedly; restart Tuitify".into(),
+                    ));
+                }
+            }
+        });
+        Self {
+            commands,
+            events,
+            task,
+        }
+    }
     pub fn spawn(tokens: TokenManager, client_id: String, volume: u8) -> Self {
         Self::spawn_with_visualizer(
             tokens,
@@ -104,6 +161,14 @@ impl Drop for Engine {
 }
 
 struct ConnectingSession(Option<Session>);
+#[derive(Debug)]
+struct PremiumRequired;
+impl std::fmt::Display for PremiumRequired {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Spotify confirms this account has no Premium subscription")
+    }
+}
+impl std::error::Error for PremiumRequired {}
 impl Drop for ConnectingSession {
     fn drop(&mut self) {
         if let Some(session) = &self.0 {
@@ -171,6 +236,12 @@ async fn connect(
     tokens
         .verify_streaming_username(&session.username())
         .await?;
+    if matches!(
+        session.get_user_attribute("type").as_deref(),
+        Some("free" | "open")
+    ) {
+        return Err(PremiumRequired.into());
+    }
     let mixer = SoftMixer::open(MixerConfig::default())?;
     mixer.set_volume(((volume as u32 * 65535) / 100) as u16);
     let player = Player::new(
@@ -287,7 +358,11 @@ where
                         }
                         engine = Some(e);
                     }
-                    Err(error) => { let _ = tx.send(Event::TrackError { generation, message: format!("{error:#}") }); }
+                    Err(error) => {
+                        let event = if error.is::<PremiumRequired>() { Event::PremiumRequired }
+                            else { Event::TrackError { generation, message: format!("{error:#}") } };
+                        let _ = tx.send(event);
+                    }
                 }
             },
             event = player_events.recv(), if engine.is_some() => {
@@ -305,7 +380,14 @@ where
                     PlayerEvent::PositionChanged { position_ms, .. } | PlayerEvent::PositionCorrection { position_ms, .. } | PlayerEvent::Seeked { position_ms, .. } => { last_progress = Instant::now(); Some(Event::Position { generation, position_ms }) },
                     PlayerEvent::TimeToPreloadNextTrack { .. } => Some(Event::TimeToPreload { generation }),
                     PlayerEvent::EndOfTrack { .. } => { active = None; playing = false; Some(Event::Completed(generation)) },
-                    PlayerEvent::Unavailable { .. } => { loading_since = None; active = None; playing = false; Some(Event::TrackError { generation, message: format!("{}. Choose another track or Space to retry; persistent errors may need tuitify auth --streaming --force or a librespot update.", crate::diagnostics::take().unwrap_or_else(|| "Track unavailable or network interrupted".into())) }) },
+                    PlayerEvent::Unavailable { .. } => {
+                        loading_since = None; active = None; playing = false;
+                        if engine.as_ref().is_some_and(|engine| matches!(engine.session.get_user_attribute("type").as_deref(), Some("free" | "open"))) {
+                            Some(Event::PremiumRequired)
+                        } else {
+                            Some(Event::TrackError { generation, message: format!("{}. Choose another track or Space to retry; F6 can reconnect Spotify.", crate::diagnostics::take().unwrap_or_else(|| "Track unavailable or network interrupted".into())) })
+                        }
+                    },
                     _ => None,
                 };
                 if let Some(out) = out { let _ = tx.send(out); }

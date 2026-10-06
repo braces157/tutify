@@ -229,6 +229,9 @@ async fn empty_artist_sources_have_distinct_labels_and_failures_do_not_invent_pr
         );
         let text = draw_text(&app, 100, 30);
         match source {
+            ArtistResultSource::YoutubeMusic => {
+                assert!(text.contains("No songs returned by YouTube Music"))
+            }
             ArtistResultSource::TopTracks => assert!(text.contains("No top tracks found")),
             ArtistResultSource::ArtistSearch => {
                 assert!(text.contains("No verified Artist Search matches"))

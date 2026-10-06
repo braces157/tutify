@@ -38,6 +38,52 @@ fn apply(app: &mut App, tasks: &mut Tasks, tx: &mpsc::UnboundedSender<Command>, 
     );
 }
 
+#[test]
+fn confirmed_premium_expiry_requests_free_music_without_clearing_spotify_queue() {
+    let mut app = fixture();
+    let queue = app.queue.ids.clone();
+    let (tx, mut commands) = mpsc::unbounded_channel();
+    app.playback_event(Event::PremiumRequired, &tx);
+    assert!(app.quit);
+    assert_eq!(app.session_request, crate::model::SessionRequest::UseFree);
+    assert_eq!(app.queue.ids, queue);
+    assert_eq!(app.state, State::Paused);
+    assert!(matches!(commands.try_recv(), Ok(Command::Stop)));
+}
+
+#[tokio::test]
+async fn account_actions_request_a_saved_session_restart_without_editing_the_queue() {
+    for (index, request) in [
+        (9, crate::model::SessionRequest::ConnectSpotify),
+        (10, crate::model::SessionRequest::ConnectGoogle),
+        (11, crate::model::SessionRequest::RepairPlayback),
+    ] {
+        let mut app = fixture();
+        let queue = serde_json::to_vec(&app.queue).unwrap();
+        let (mut tasks, _) = tasks();
+        let (tx, mut commands) = mpsc::unbounded_channel();
+        apply(&mut app, &mut tasks, &tx, index);
+        assert_eq!(app.session_request, request);
+        assert!(app.quit);
+        assert_eq!(serde_json::to_vec(&app.queue).unwrap(), queue);
+        assert!(commands.try_recv().is_err());
+    }
+}
+
+#[tokio::test]
+async fn demo_account_actions_cannot_open_browsers_or_restart_into_real_music() {
+    let mut app = fixture();
+    app.demo = true;
+    let (mut tasks, _) = tasks();
+    let (tx, _) = mpsc::unbounded_channel();
+    for index in 9..=11 {
+        apply(&mut app, &mut tasks, &tx, index);
+        assert!(!app.quit);
+        assert_eq!(app.session_request, crate::model::SessionRequest::Quit);
+        assert!(app.status.contains("offline demo"));
+    }
+}
+
 #[tokio::test]
 async fn sleep_presets_and_cancel_leave_music_and_saved_settings_unchanged() {
     let mut app = fixture();

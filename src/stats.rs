@@ -1,4 +1,4 @@
-use crate::{cache::MetadataCache, model::valid_id};
+use crate::{cache::MetadataCache, model::valid_track_id as valid_id};
 use anyhow::{Result, bail};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -491,6 +491,7 @@ mod tests {
 
         // Refresh with real metadata in cache should update
         let real_track = Track {
+            music_metadata: false,
             artist_ids: Vec::new(),
             id: id.clone(),
             name: "Updated Real Title".into(),

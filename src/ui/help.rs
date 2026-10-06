@@ -72,9 +72,21 @@ pub(super) fn help(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, a
     Troubleshooting\n\
     F7             Recent errors; r previews a redacted support report; e exports the preview\n\
     Diagnostics    `tuitify doctor` is offline; `tuitify support` previews redacted local JSON\n\
-    Login issue? Exit and run `tuitify auth --force`.\n\
-    Streaming issue? Run `tuitify auth --streaming --force`.\n\
+    Login issue? F6 > Connect Spotify account.\n\
+    Streaming issue? Reconnect Spotify from F6 Tools.\n\
     No audio? Check Windows default output device and Spotify Premium.";
+    let youtube_help;
+    let text = if app.config.source == crate::model::MusicSource::Youtube {
+        youtube_help = text.replace("Search Spotify catalog", "Search YouTube music")
+            .replace("current Spotify playlist", "current YouTube Music playlist")
+            .replace("Search all saved Liked Songs/playlist tracks", "Search connected YouTube Music library")
+            .replace("Login issue? F6 > Connect Spotify account.", "Playback tools: F6 > Update playback tools.")
+            .replace("Streaming issue? Reconnect Spotify from F6 Tools.", "Library login: F6 > Connect Google music library. Google password stays in its browser.")
+            .replace("No audio? Check Windows default output device and Spotify Premium.", "No audio? Check Windows default output. Public videos need no Spotify login.\n\n    YouTube Music\n    F6 > Connect Google music library; sign in and click Library.\n    2 opens playlists; 3 opens Liked Songs; F3 searches your connected library.\n    Paste YouTube Music playlist links into / search to open them.\n    a opens an album; A opens artist songs when music metadata is available.\n    s cycles Off, Shuffle and our Smart Shuffle with artist balancing.\n    Playlists feed the same queue, repeat, sleep timer, media keys and visualizer.\n    Private playlists need login; audio still uses public playable videos.\n    Use `tuitify youtube logout` to forget the encrypted connection.\n    Just run `tuitify`. Premium and free playback are selected automatically.");
+        youtube_help.as_str()
+    } else {
+        text
+    };
     let help_title = format!(" HELP  ·  v{} ", env!("CARGO_PKG_VERSION"));
     let outer = block_themed(help_title, !app.catalog.sidebar, theme);
     let inner = outer.inner(area);

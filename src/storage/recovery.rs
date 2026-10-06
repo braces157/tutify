@@ -233,7 +233,7 @@ pub(super) fn validate_stats(stats: &crate::stats::SongStats) -> Result<()> {
         stats
             .tracks
             .iter()
-            .all(|(key, stat)| crate::model::valid_id(key) && key == &stat.id),
+            .all(|(key, stat)| crate::model::valid_track_id(key) && key == &stat.id),
         "Statistics track keys must be valid IDs matching their entry ID"
     );
     Ok(())

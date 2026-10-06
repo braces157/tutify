@@ -22,6 +22,15 @@ pub(super) fn apply(
     tasks: &mut Tasks,
     tx: &mpsc::UnboundedSender<Command>,
 ) {
+    if app.config.source == crate::model::MusicSource::Youtube
+        && !app.config.youtube_music
+        && matches!(action, Action::ViewAlbum | Action::ViewArtist)
+    {
+        app.status =
+            "YouTube results have no Spotify album/artist links. Press / to search by artist name."
+                .into();
+        return;
+    }
     if app.catalog.view == View::Queue {
         if action == Action::ClearQueue && !app.ui.queue.query.is_empty() {
             app.status = "Press Esc to clear the filter before clearing the entire queue.".into();
@@ -65,7 +74,9 @@ pub(super) fn apply(
                     app.status = "This track is unavailable for your account or region.".into();
                     return;
                 }
-                if app.catalog.view == View::Search {
+                if app.catalog.view == View::Search
+                    && app.config.source != crate::model::MusicSource::Youtube
+                {
                     tasks.start_radio(app, track, tx);
                     return;
                 }
@@ -113,6 +124,21 @@ pub(super) fn apply(
                 }
                 app.cache.insert(track.id.clone(), track);
                 app.load(tx);
+                if app.config.youtube_music
+                    && !app.is_filtered()
+                    && matches!(
+                        app.catalog.view,
+                        View::Playlists | View::Liked | View::Album | View::Artist
+                    )
+                    && let Some(offset) = app.catalog.next
+                {
+                    tasks.enqueue_browse_from(
+                        app,
+                        app.catalog.browse.clone(),
+                        app.catalog.title.clone(),
+                        offset,
+                    );
+                }
             }
         }
         Action::EnqueueSelected if app.catalog.view != View::Help => {

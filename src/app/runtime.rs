@@ -100,8 +100,15 @@ impl GlassOrientationSync {
     }
 }
 
-pub async fn run(store: Storage, native_glass: bool, glass: bool) -> Result<()> {
+pub async fn run_session(
+    store: Storage,
+    native_glass: bool,
+    glass: bool,
+    source: crate::model::MusicSource,
+    notice: &str,
+) -> Result<crate::model::SessionRequest> {
     let mut config = store.config()?;
+    config.source = source;
     config.native_glass = native_glass;
     if native_glass || glass {
         config.theme = "glass".into();
@@ -109,13 +116,35 @@ pub async fn run(store: Storage, native_glass: bool, glass: bool) -> Result<()> 
     let queue = store.queue()?;
     let mut app = App::new(config, queue);
     load_history(&mut app, &store)?;
-    let catalog = Catalog::new(TokenManager::load(&app.config)?)?;
-    let mut playback = playback::Playback::spawn_with_visualizer(
-        TokenManager::load_streaming()?,
-        app.config.client_id.clone(),
-        app.config.volume,
-        app.visualizer.clone(),
-    );
+    let services = crate::providers::open(source, &app.config, app.visualizer.clone())?;
+    app.config.youtube_music = services.music_catalog;
+    app.config.youtube_connected =
+        source == crate::model::MusicSource::Youtube && services.library_connected;
+    if source == crate::model::MusicSource::Youtube {
+        app.catalog.search_scope = SearchScope::Youtube;
+        app.catalog.title = if services.music_catalog {
+            "YouTube Music search"
+        } else {
+            "YouTube search"
+        }
+        .into();
+        app.status =
+            "Music is ready. / searches; F6 connects accounts and repairs playback.".into();
+    }
+    let catalog = services.catalog;
+    let mut playback = services.playback;
+    if !notice.is_empty() {
+        app.status = notice.into();
+        if notice.contains("unavailable")
+            || notice.contains("timed out")
+            || notice.contains("could not confirm")
+        {
+            app.ui
+                .diagnostics
+                .history
+                .record_text(Subsystem::Catalog, notice);
+        }
+    }
     match store.cache() {
         Ok(cache) => app.cache = cache,
         Err(_) => app.status = "Metadata cache unavailable and preserved; names will reload. Use state inspect cache or clear-cache.".into(),
@@ -173,6 +202,7 @@ pub async fn run(store: Storage, native_glass: bool, glass: bool) -> Result<()> 
         app.config.discord_client_id.clone(),
     );
     let mut current_window_title = String::new();
+    let mut published_media = None;
     let mut keys = EventStream::new();
     let (orientation_tx, mut orientation_rx) = mpsc::unbounded_channel();
     let mut orientation_sync = GlassOrientationSync::default();
@@ -188,12 +218,16 @@ pub async fn run(store: Storage, native_glass: bool, glass: bool) -> Result<()> 
         loop {
             if app.check_sleep(Instant::now(), &playback.commands) { dirty = true; }
             app.catalog_health = tasks.catalog.health();
-            if let Some(controls) = &mut media_controls {
-                controls.update(media_controls::Snapshot {
-                    track: app.current_track(), state: app.state, position_ms: app.queue.position_ms,
-                });
+            let media_stamp = (app.generation, app.state, app.queue.position_ms / 1000, app.cache.revision);
+            if published_media != Some(media_stamp) {
+                if let Some(controls) = &mut media_controls {
+                    controls.update(media_controls::Snapshot {
+                        track: app.current_track(), state: app.state, position_ms: app.queue.position_ms,
+                    });
+                }
+                discord_presence.update(app.discord_snapshot());
+                published_media = Some(media_stamp);
             }
-            discord_presence.update(app.discord_snapshot());
             tasks.sync_queue_epoch(app.queue.epoch);
             tasks.refill_radio(&app);
             tasks.refill_smart_shuffle(&app);
@@ -318,6 +352,7 @@ pub async fn run(store: Storage, native_glass: bool, glass: bool) -> Result<()> 
                     dirty = true;
                 }
                 _ = save_tick.tick() => {
+                    tasks.catalog.release_idle_helpers();
                     app.interpolate_position();
                     app.account_playback_time(Instant::now());
                     if app.cache.prune_expired() { dirty = true; metadata_dirty = true; lyrics_dirty = true; }
@@ -350,7 +385,8 @@ pub async fn run(store: Storage, native_glass: bool, glass: bool) -> Result<()> 
     cache_saved??;
     stats_saved??;
     recipes_saved??;
-    result
+    result?;
+    Ok(app.session_request)
 }
 
 #[cfg(test)]

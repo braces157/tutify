@@ -5,6 +5,7 @@ use std::time::{Duration, Instant, SystemTime};
 #[serde(rename_all = "snake_case")]
 pub enum Provider {
     Spotify,
+    YoutubeMusic,
     SimilarArtists,
 }
 
@@ -138,12 +139,23 @@ impl std::fmt::Display for ServiceFailure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let provider = match self.provider {
             Provider::Spotify => "Spotify",
+            Provider::YoutubeMusic => "YouTube Music",
             Provider::SimilarArtists => "Similar-artist service",
         };
         match self.kind {
+            FailureKind::AuthenticationRequired if self.provider == Provider::YoutubeMusic => {
+                write!(
+                    f,
+                    "Google music library connection is missing or expired. F6 > Connect Google music library; public search and your queue stay available."
+                )
+            }
+            FailureKind::AccessRestricted if self.provider == Provider::YoutubeMusic => write!(
+                f,
+                "YouTube Music denied access to this item. Choose another playlist or reconnect your Google music library from F6 Tools."
+            ),
             FailureKind::AuthenticationRequired => write!(
                 f,
-                "{provider} login expired or was revoked; run tuitify auth --force"
+                "{provider} login expired or was revoked; F6 > Connect Spotify account"
             ),
             FailureKind::AccessRestricted if self.status == Some(200) => write!(
                 f,

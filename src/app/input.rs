@@ -227,6 +227,20 @@ pub(super) fn key(
                 app.catalog.editing = false;
                 app.ui.search_history.record(&app.catalog.query);
                 let query = app.catalog.query.trim();
+                if app.config.source == crate::model::MusicSource::Youtube {
+                    if let Some(id) = crate::youtube::music::playlist_id(query) {
+                        app.push_navigation(query.to_string());
+                        app.catalog.view = View::Playlists;
+                        app.catalog.browse = Browse::Playlist(id);
+                        app.catalog.title = "YouTube Music playlist".into();
+                    } else {
+                        app.catalog.browse = Browse::Search(query.into());
+                    }
+                    app.catalog.selected = 0;
+                    app.reset_rows();
+                    tasks.request(app, 0);
+                    return;
+                }
                 if let Some(id) = crate::model::album_id(query) {
                     if app.catalog.view == View::Album
                         && matches!(&app.catalog.browse, Browse::Album(curr) if curr == &id)

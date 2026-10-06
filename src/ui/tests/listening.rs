@@ -22,7 +22,7 @@ fn listening_menu_keeps_selected_action_and_apply_close_controls_visible() {
         "glass",
     ] {
         for (width, height) in [(32, 10), (40, 12), (80, 24), (120, 35)] {
-            for selected in [0, 4, 8] {
+            for selected in [0, 4, 8, 9, 10, 11] {
                 let mut app = crate::demo::app();
                 app.config.theme = theme.into();
                 app.config.native_glass = theme == "glass";

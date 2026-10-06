@@ -6,30 +6,43 @@ mod catalog;
 mod demo;
 mod diagnostics;
 mod discord;
+mod launcher;
 mod library;
 mod lyrics;
 mod media_controls;
 mod mix;
 mod model;
 mod playback;
+mod providers;
 mod queue;
 mod service;
+mod source;
 pub mod stats;
 mod storage;
 mod terminal_profile;
 mod ui;
 pub mod visualizer;
+mod youtube;
 
-use anyhow::{Result, ensure};
+use anyhow::{Context, Result, ensure};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(
     version,
-    about = "Standalone Spotify terminal player, with an offline portfolio demo"
+    about = "Spotify Premium or free YouTube Music terminal player, with automatic source selection"
 )]
 struct Cli {
+    /// Auto uses Spotify for saved Premium accounts, otherwise YouTube Music.
+    #[arg(
+        long = "source",
+        value_enum,
+        global = true,
+        default_value = "auto",
+        hide = true
+    )]
+    music_source: source::Choice,
     /// Internal marker used by the dedicated Windows Terminal Glass profile.
     #[arg(long, hide = true)]
     native_glass: bool,
@@ -45,6 +58,12 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Open the free YouTube player, or manage/test its optional tools.
+    #[command(hide = true)]
+    Youtube {
+        #[command(subcommand)]
+        command: Option<YoutubeCommand>,
+    },
     /// Show immutable source/compiler identity and the observed executable hash.
     Version {
         /// Machine-readable build identity without authentication or saved-state access.
@@ -110,6 +129,36 @@ enum Command {
     },
     /// Stream one track with a minimal interface for first-stage audio validation.
     Probe { track: String },
+}
+
+#[derive(Subcommand)]
+enum YoutubeCommand {
+    /// Install the isolated, pinned YouTube Music library adapter (Python 3.10+).
+    MusicSetup,
+    /// Connect Google in a dedicated browser; no Cloud project or password in Tuitify.
+    Login,
+    /// Forget the encrypted YouTube Music connection; keep your queue and Spotify login.
+    Logout,
+    /// List your connected YouTube Music playlists as JSON.
+    Playlists,
+    /// List your connected Liked Songs as JSON.
+    Liked,
+    /// Inspect an accessible YouTube Music playlist link as JSON.
+    Playlist { link: String },
+    /// Install/update checksum-verified yt-dlp and Deno; install FFmpeg if missing.
+    Setup,
+    /// Check the optional tool executables without signing in or playing music.
+    Doctor,
+    /// Search YouTube, or inspect a video link, as JSON without changing saved state.
+    Search { query: String },
+    /// Validate real audio decoding (muted by default) without changing saved state.
+    Probe {
+        track: String,
+        #[arg(long, default_value_t = 5, value_parser = clap::value_parser!(u8).range(1..=60))]
+        seconds: u8,
+        #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(u8).range(0..=100))]
+        volume: u8,
+    },
 }
 
 #[derive(Subcommand)]
@@ -221,7 +270,7 @@ fn recover_state(
     Ok(())
 }
 
-#[tokio::main]
+#[tokio::main(worker_threads = 2)]
 async fn main() -> Result<()> {
     diagnostics::init();
     let cli = Cli::parse();
@@ -237,23 +286,69 @@ async fn main() -> Result<()> {
     if let Some(Command::Support { output }) = cli.command {
         return diagnostics::support::run(output).await;
     }
-    let store = storage::Storage::local()?;
-    let mut instance = Some(store.lock()?);
-    if cli.command.is_none() && cli.glass_window {
-        let config = store.config()?;
-        if terminal_profile::available() {
-            terminal_profile::prepare(&config)?;
-            drop(instance.take());
-            if terminal_profile::launch()? {
+    if let Some(Command::Youtube {
+        command: Some(command),
+    }) = &cli.command
+    {
+        match command {
+            YoutubeCommand::MusicSetup => return youtube::music::setup().await,
+            YoutubeCommand::Login => {
+                if youtube::music::Client::discover()?.is_none() {
+                    youtube::music::setup().await?;
+                }
+                return youtube::music_auth::login().await;
+            }
+            YoutubeCommand::Logout => return youtube::music_auth::logout(),
+            YoutubeCommand::Playlists | YoutubeCommand::Liked | YoutubeCommand::Playlist { .. } => {
+                let music = youtube::music::Client::discover()?
+                    .context("Run 'tuitify youtube music-setup' to install the library adapter")?;
+                let browse = match command {
+                    YoutubeCommand::Playlists => catalog::Browse::Playlists,
+                    YoutubeCommand::Liked => catalog::Browse::Liked,
+                    YoutubeCommand::Playlist { link } => catalog::Browse::Playlist(
+                        youtube::music::playlist_id(link)
+                            .context("Supply a YouTube playlist URL or youtube:playlist:ID")?,
+                    ),
+                    _ => unreachable!(),
+                };
+                let page = music.page(&browse, 0).await?;
+                match page.rows {
+                    catalog::Rows::Tracks(tracks) => println!("{}", serde_json::to_string_pretty(&tracks)?),
+                    catalog::Rows::Playlists(playlists) => println!("{}", serde_json::to_string_pretty(&playlists.iter().map(|playlist| serde_json::json!({"id":playlist.id,"name":playlist.name,"owner":playlist.owner})).collect::<Vec<_>>())?),
+                }
                 return Ok(());
             }
-            instance = Some(store.lock()?);
+            YoutubeCommand::Setup => return youtube::setup().await,
+            YoutubeCommand::Doctor => return youtube::Tools::discover()?.doctor().await,
+            YoutubeCommand::Search { query } => {
+                let page = youtube::Tools::discover()?
+                    .page(&catalog::Browse::Search(query.clone()), 0)
+                    .await?;
+                let catalog::Rows::Tracks(tracks) = page.rows else {
+                    unreachable!()
+                };
+                println!("{}", serde_json::to_string_pretty(&tracks)?);
+                return Ok(());
+            }
+            YoutubeCommand::Probe {
+                track,
+                seconds,
+                volume,
+            } => return youtube::probe(track, *seconds, *volume).await,
         }
     }
-    let _instance = instance;
+    if let Some(choice) = player_source(&cli)? {
+        return launcher::run(&cli, choice).await;
+    }
+    let store = storage::Storage::local()?;
+    let _instance = store.lock()?;
     match cli.command {
         Some(
-            Command::Demo | Command::Doctor(_) | Command::Support { .. } | Command::Version { .. },
+            Command::Demo
+            | Command::Doctor(_)
+            | Command::Support { .. }
+            | Command::Version { .. }
+            | Command::Youtube { .. },
         ) => unreachable!(),
         Some(Command::Auth {
             client_id,
@@ -378,9 +473,21 @@ async fn main() -> Result<()> {
             let config = store.config()?;
             playback::probe(auth::TokenManager::load_streaming()?, config.client_id, id).await
         }
-        None => {
-            auth::setup(&store, None, false, false).await?;
-            app::run(store, cli.native_glass, cli.glass).await
+        None => unreachable!(),
+    }
+}
+
+/// Management commands keep their existing storage and never trigger detection/setup.
+fn player_source(cli: &Cli) -> Result<Option<source::Choice>> {
+    match &cli.command {
+        None => Ok(Some(cli.music_source)),
+        Some(Command::Youtube { command: None }) => Ok(Some(source::Choice::Youtube)),
+        _ => {
+            ensure!(
+                cli.music_source != source::Choice::Youtube,
+                "Use 'tuitify youtube' for the YouTube player; Spotify commands require '--source spotify'"
+            );
+            Ok(None)
         }
     }
 }
@@ -388,6 +495,79 @@ async fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn player_launch_defaults_to_auto_and_keeps_explicit_source_choices() {
+        for (args, expected) in [
+            (vec!["tuitify"], source::Choice::Auto),
+            (vec!["tuitify", "--source", "auto"], source::Choice::Auto),
+            (
+                vec!["tuitify", "--source", "spotify"],
+                source::Choice::Spotify,
+            ),
+            (
+                vec!["tuitify", "--source", "youtube"],
+                source::Choice::Youtube,
+            ),
+            (
+                vec!["tuitify", "--glass", "youtube"],
+                source::Choice::Youtube,
+            ),
+            (vec!["tuitify", "--glass-window"], source::Choice::Auto),
+        ] {
+            let cli = Cli::try_parse_from(args).unwrap();
+            assert_eq!(player_source(&cli).unwrap(), Some(expected));
+        }
+        for args in [
+            vec!["tuitify", "auth"],
+            vec!["tuitify", "state", "inspect"],
+            vec!["tuitify", "clear-cache"],
+            vec!["tuitify", "background"],
+        ] {
+            assert!(
+                player_source(&Cli::try_parse_from(args).unwrap())
+                    .unwrap()
+                    .is_none()
+            );
+        }
+        let cli = Cli::try_parse_from(["tuitify", "--source", "youtube", "logout"]).unwrap();
+        assert!(player_source(&cli).is_err());
+    }
+
+    #[test]
+    fn youtube_source_and_commands_do_not_collide_with_recovery_source() {
+        let cli = Cli::try_parse_from(["tuitify", "--source", "youtube"]).unwrap();
+        assert_eq!(cli.music_source, source::Choice::Youtube);
+        assert!(Cli::try_parse_from(["tuitify", "youtube"]).is_ok());
+        assert!(Cli::try_parse_from(["tuitify", "youtube", "setup"]).is_ok());
+        assert!(Cli::try_parse_from(["tuitify", "--glass", "youtube"]).is_ok());
+        let cli = Cli::try_parse_from(["tuitify", "youtube", "probe", "dQw4w9WgXcQ"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Command::Youtube {
+                command: Some(YoutubeCommand::Probe { volume: 0, .. })
+            })
+        ));
+        assert!(
+            Cli::try_parse_from([
+                "tuitify",
+                "youtube",
+                "probe",
+                "dQw4w9WgXcQ",
+                "--volume",
+                "101"
+            ])
+            .is_err()
+        );
+        let cli =
+            Cli::try_parse_from(["tuitify", "state", "restore", "queue", "saved.json"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Command::State {
+                command: StateCommand::Restore { .. }
+            })
+        ));
+    }
 
     #[test]
     fn cli_state_recovery_is_whitelisted_and_reset_restore_default_to_preview() {

@@ -19,6 +19,7 @@ mod refactor;
 mod search_history;
 mod smart_shuffle;
 mod state;
+mod youtube;
 
 fn tasks() -> (Tasks, mpsc::UnboundedReceiver<Background>) {
     let (tx, rx) = mpsc::unbounded_channel();

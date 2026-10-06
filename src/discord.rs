@@ -35,11 +35,14 @@ struct Update {
 }
 impl Update {
     fn current(&self) -> Snapshot {
+        self.current_at(Instant::now())
+    }
+
+    fn current_at(&self, now: Instant) -> Snapshot {
         let mut snapshot = self.snapshot.clone();
         if snapshot.state == State::Playing {
-            let elapsed = self
-                .captured
-                .elapsed()
+            let elapsed = now
+                .saturating_duration_since(self.captured)
                 .as_millis()
                 .min(u128::from(u32::MAX)) as u32;
             snapshot.position_ms = snapshot.position_ms.saturating_add(elapsed);
@@ -203,7 +206,7 @@ pub fn build_activity(
 ) -> Option<Value> {
     let track = snapshot.track.as_ref()?;
     if !matches!(snapshot.state, State::Playing | State::Paused)
-        || !crate::model::valid_id(&track.id)
+        || !crate::model::valid_track_id(&track.id)
     {
         return None;
     }
@@ -255,8 +258,8 @@ pub fn build_activity(
                 "url": "https://github.com/braces157/tutify"
             },
             {
-                "label": "Play on Spotify",
-                "url": format!("https://open.spotify.com/track/{}", track.id)
+                "label": if crate::youtube::video_key(&track.id).is_some() { "Play on YouTube" } else { "Play on Spotify" },
+                "url": crate::model::track_url(&track.id)?
             }
         ]
     });
@@ -475,20 +478,26 @@ mod tests {
 
     #[test]
     fn reconnect_position_advances_only_while_playing() {
+        let captured = Instant::now();
         let mut update = Update {
             snapshot: Snapshot {
                 track: Some(sample_track()),
                 state: State::Playing,
                 position_ms: 10_000,
             },
-            captured: Instant::now() - Duration::from_secs(20),
+            captured,
         };
-        assert!((30_000..31_000).contains(&update.current().position_ms));
+        let later = captured + Duration::from_secs(20);
+        assert_eq!(update.current_at(later).position_ms, 30_000);
         update.snapshot.state = State::Paused;
-        assert_eq!(update.current().position_ms, 10_000);
+        assert_eq!(update.current_at(later).position_ms, 10_000);
         update.snapshot.state = State::Playing;
-        update.captured = Instant::now() - Duration::from_secs(500);
-        assert_eq!(update.current().position_ms, sample_track().duration_ms);
+        assert_eq!(
+            update
+                .current_at(captured + Duration::from_secs(500))
+                .position_ms,
+            sample_track().duration_ms
+        );
     }
 
     #[test]
@@ -639,6 +648,7 @@ mod tests {
 
     fn sample_track() -> Track {
         Track {
+            music_metadata: false,
             artist_ids: Vec::new(),
             id: "4cOdK2wGLETKBW3PvgPWqT".into(),
             name: "Never Gonna Give You Up".into(),
@@ -668,9 +678,9 @@ mod tests {
             snapshot: Snapshot {
                 track: Some(sample_track()),
                 state: State::Playing,
-                position_ms: 10_000,
+                position_ms: 20_000,
             },
-            captured: Instant::now() - Duration::from_secs(10),
+            captured: Instant::now(),
         }));
         let mut task = tokio::spawn(async move {
             worker_with_connector(
