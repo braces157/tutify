@@ -1,6 +1,6 @@
 use super::*;
 
-pub const TOOL_LABELS: [&str; 9] = [
+pub const TOOL_LABELS: [&str; 12] = [
     "Sleep in 15 minutes",
     "Sleep in 30 minutes",
     "Sleep in 45 minutes",
@@ -10,9 +10,12 @@ pub const TOOL_LABELS: [&str; 9] = [
     "Remove played queue entries",
     "Remove upcoming duplicates",
     "Remove unavailable tracks",
+    "Connect Spotify account",
+    "Connect Google music library",
+    "Update playback tools",
 ];
 
-pub const TOOL_DETAILS: [&str; 9] = [
+pub const TOOL_DETAILS: [&str; 12] = [
     "Pause in 15 minutes, keeping your queue and position. Enter applies; Esc closes.",
     "Pause in 30 minutes, keeping your queue and position. Enter applies; Esc closes.",
     "Pause in 45 minutes, keeping your queue and position. Enter applies; Esc closes.",
@@ -22,6 +25,9 @@ pub const TOOL_DETAILS: [&str; 9] = [
     "Remove entries before the current track in the full queue. Current track stays; u undoes.",
     "Keep one occurrence of each upcoming track ID, excluding the current track. u undoes.",
     "Remove known unavailable entries from the full queue. Current and unknown tracks stay; u undoes.",
+    "Sign in in your browser. Premium plays Spotify; free accounts use free music automatically. Your queue is saved first.",
+    "Sign in in your browser for playlists and Liked Songs. Playback needs no paid subscription. Your queue is saved first.",
+    "Update playback dependencies, then return to your saved queue. No launch options are needed.",
 ];
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -117,6 +123,18 @@ impl App {
                 self.status = "Sleep timer cancelled; playback unchanged.".into();
             }
             at @ 6..=8 => self.clean_queue(at, tasks, tx),
+            at @ 9..=11 => {
+                if self.demo {
+                    self.status = "Account connections are unavailable in the offline demo.".into();
+                    return;
+                }
+                self.session_request = match at {
+                    9 => crate::model::SessionRequest::ConnectSpotify,
+                    10 => crate::model::SessionRequest::ConnectGoogle,
+                    _ => crate::model::SessionRequest::RepairPlayback,
+                };
+                self.quit = true;
+            }
             _ => return,
         }
         self.ui.close(Overlay::ListeningTools);

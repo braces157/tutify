@@ -12,6 +12,7 @@ fn route_key(app: &mut App, tasks: &mut Tasks, key_code: KeyCode, modifiers: Key
 
 fn sample_album_track(index: usize, album_name: &str, album_id: &str) -> Track {
     Track {
+        music_metadata: false,
         id: format!("trk_album_{index:04}"),
         name: format!("Track {index}"),
         artists: "Test Artist".into(),
@@ -27,6 +28,7 @@ fn sample_album_track(index: usize, album_name: &str, album_id: &str) -> Track {
 
 fn sample_artist_track(index: usize, artist_name: &str, artist_id: &str) -> Track {
     Track {
+        music_metadata: false,
         id: format!("trk_artist_{index:04}"),
         name: format!("Popular Hit {index}"),
         artists: artist_name.into(),
@@ -424,6 +426,7 @@ async fn test_missing_album_or_artist_id_sets_status() {
     let mut app = App::new(Config::default(), Queue::default());
 
     let track_no_album = Track {
+        music_metadata: false,
         id: "trk_no_alb".into(),
         name: "Single".into(),
         artists: "Indie Artist".into(),
@@ -444,6 +447,7 @@ async fn test_missing_album_or_artist_id_sets_status() {
     assert_eq!(app.catalog.view, View::Search); // Did not transition
 
     let track_no_artist = Track {
+        music_metadata: false,
         id: "trk_no_art".into(),
         name: "Unknown Track".into(),
         artists: "".into(),
@@ -1149,6 +1153,7 @@ async fn test_adversarial_pop_navigation_emits_zero_network_requests_wiremock() 
     app.catalog.view = View::Search;
     app.catalog.query = "test".into();
     let track = Track {
+        music_metadata: false,
         id: "trk1234567890123456789".into(),
         name: "Test Track".into(),
         artists: "Test Artist".into(),

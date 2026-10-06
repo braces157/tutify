@@ -957,7 +957,7 @@ async fn revoked_refresh_is_actionable() {
             .await
             .unwrap_err()
             .to_string()
-            .contains("tuitify auth")
+            .contains("Connect Spotify account")
     );
 }
 #[tokio::test]

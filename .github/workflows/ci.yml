@@ -14,6 +14,9 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
       - name: Install Rust checks
         run: rustup toolchain install stable --profile minimal --component rustfmt --component clippy --no-self-update
       - uses: actions/cache@v4
@@ -37,6 +40,9 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
       - name: Read minimum from the application manifest
         id: minimum
         shell: pwsh

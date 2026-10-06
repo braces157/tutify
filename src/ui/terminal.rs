@@ -18,11 +18,14 @@ pub(super) fn restore() {
 }
 impl TerminalGuard {
     pub fn enter() -> Result<Self> {
-        let previous = std::panic::take_hook();
-        std::panic::set_hook(Box::new(move |info| {
-            restore();
-            previous(info);
-        }));
+        static PANIC_HOOK: std::sync::Once = std::sync::Once::new();
+        PANIC_HOOK.call_once(|| {
+            let previous = std::panic::take_hook();
+            std::panic::set_hook(Box::new(move |info| {
+                restore();
+                previous(info);
+            }));
+        });
         enable_raw_mode()?;
         if let Err(e) = execute!(
             stdout(),

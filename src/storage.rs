@@ -15,6 +15,12 @@ pub(crate) use recovery::StateFile;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
+    #[serde(skip)]
+    pub youtube_music: bool,
+    #[serde(skip)]
+    pub youtube_connected: bool,
+    #[serde(skip)]
+    pub source: crate::model::MusicSource,
     pub version: u32,
     pub client_id: String,
     pub volume: u8,
@@ -33,6 +39,9 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            youtube_music: false,
+            youtube_connected: false,
+            source: crate::model::MusicSource::Spotify,
             version: 1,
             client_id: String::new(),
             volume: 50,
@@ -55,6 +64,19 @@ pub struct Storage {
 }
 
 impl Storage {
+    /// Separate provider data, with inherited appearance on first launch.
+    pub fn youtube(&self) -> Result<Self> {
+        let store = Self {
+            root: self.root.join("youtube"),
+        };
+        fs::create_dir_all(&store.root)?;
+        if !store.root.join("config.json").exists() {
+            let mut config = self.config()?;
+            config.client_id.clear();
+            store.save_config(&config)?;
+        }
+        Ok(store)
+    }
     pub fn lock(&self) -> Result<fs::File> {
         let file = fs::OpenOptions::new()
             .read(true)
@@ -122,6 +144,9 @@ impl Storage {
     pub fn save_config(&self, config: &Config) -> Result<()> {
         recovery::protect_future_version(self, StateFile::Config)?;
         atomic_json(&self.root.join("config.json"), config)
+    }
+    pub(crate) fn save_launch_plan<T: Serialize>(&self, plan: &T) -> Result<()> {
+        atomic_json(&self.root.join("launch-plan.json"), plan)
     }
     pub fn clear_queue(&self) -> Result<()> {
         match fs::remove_file(self.root.join("queue.json")) {

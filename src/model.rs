@@ -1,7 +1,49 @@
 use serde::{Deserialize, Serialize};
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, clap::ValueEnum)]
+pub enum MusicSource {
+    #[default]
+    Spotify,
+    Youtube,
+}
+
+impl MusicSource {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Spotify => "Spotify",
+            Self::Youtube => "YouTube",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum SessionRequest {
+    #[default]
+    Quit,
+    ConnectSpotify,
+    ConnectGoogle,
+    RepairPlayback,
+    UseFree,
+}
+
+/// Track identities are namespaced; Spotify entity IDs stay strictly validated.
+pub fn valid_track_id(id: &str) -> bool {
+    valid_id(id) || crate::youtube::video_key(id).is_some()
+}
+
+pub fn track_url(id: &str) -> Option<String> {
+    if let Some(video) = crate::youtube::video_key(id) {
+        Some(format!("https://www.youtube.com/watch?v={video}"))
+    } else {
+        valid_id(id).then(|| format!("https://open.spotify.com/track/{id}"))
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Track {
+    /// Keep music catalog metadata when playback reports generic video metadata.
+    #[serde(default)]
+    pub music_metadata: bool,
     pub id: String,
     pub name: String,
     pub artists: String,
@@ -36,6 +78,10 @@ pub struct Playlist {
     pub id: String,
     pub name: String,
     pub owner: String,
+}
+
+pub fn valid_playlist_id(id: &str) -> bool {
+    valid_id(id) || crate::youtube::music::playlist_key(id).is_some()
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

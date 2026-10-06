@@ -55,7 +55,11 @@ impl ErrorRecord {
     pub fn action(&self) -> &'static str {
         match self.cause {
             Cause::Service(FailureKind::AuthenticationRequired) => {
-                "Review login with tuitify doctor; deliberately reauthenticate if revoked."
+                if self.provider == Some(Provider::YoutubeMusic) {
+                    "F6 > Connect Google music library. Public search remains available."
+                } else {
+                    "F6 > Connect Spotify account to renew the login."
+                }
             }
             Cause::Service(FailureKind::AccessRestricted | FailureKind::MissingItem) => {
                 "Check account/resource access or choose another item; F5 rechecks scoped access."
@@ -125,11 +129,16 @@ impl History {
     pub fn record_text(&mut self, subsystem: Subsystem, text: &str) {
         let kind = if text.contains("quota exhausted (QUOTA_EXCEEDED)") {
             Some((FailureKind::QuotaExceeded, Some(429)))
-        } else if text.contains("rate limit (HTTP 429)") {
+        } else if text.contains("rate limit (HTTP 429)")
+            || text.contains("rate limiting this connection (HTTP 429)")
+        {
             Some((FailureKind::RateLimited, Some(429)))
         } else if text.contains("HTTP 403") {
             Some((FailureKind::AccessRestricted, Some(403)))
-        } else if text.contains("HTTP 401") || text.contains("login expired or was revoked") {
+        } else if text.contains("HTTP 401")
+            || text.contains("login expired or was revoked")
+            || text.contains("Google music library connection is missing or expired")
+        {
             Some((FailureKind::AuthenticationRequired, Some(401)))
         } else if text.contains("HTTP 404") {
             Some((FailureKind::MissingItem, Some(404)))
@@ -139,6 +148,8 @@ impl History {
         let failure = kind.map(|(kind, status)| ServiceFailure {
             provider: if text.contains("Similar-artist service") {
                 Provider::SimilarArtists
+            } else if text.contains("YouTube") || text.contains("Google music") {
+                Provider::YoutubeMusic
             } else {
                 Provider::Spotify
             },
@@ -159,6 +170,30 @@ impl History {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn free_music_failures_keep_their_provider_and_use_in_app_recovery() {
+        let mut history = History::default();
+        history.record_text(
+            Subsystem::Playback,
+            "YouTube is rate limiting this connection (HTTP 429). Wait before retrying.",
+        );
+        let rate = history.records().back().unwrap();
+        assert_eq!(rate.provider, Some(Provider::YoutubeMusic));
+        assert_eq!(rate.cause, Cause::Service(FailureKind::RateLimited));
+        history.record_text(
+            Subsystem::Library,
+            "Google music library connection is missing or expired. F6 connects it.",
+        );
+        let auth = history.records().back().unwrap();
+        assert_eq!(auth.provider, Some(Provider::YoutubeMusic));
+        assert_eq!(
+            auth.cause,
+            Cause::Service(FailureKind::AuthenticationRequired)
+        );
+        assert!(auth.action().contains("Connect Google music library"));
+        assert!(!auth.action().contains("tuitify youtube"));
+    }
     #[test]
     fn bounded_session_records_keep_classification_and_never_retain_context() {
         let mut history = History::default();

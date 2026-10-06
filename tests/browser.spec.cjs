@@ -360,7 +360,7 @@ test('essential content and downloads work without JavaScript', async ({ browser
   const page = await context.newPage();
   await page.goto('http://127.0.0.1:4173/docs/index.html');
   await expect(page.locator('h1')).toBeVisible();
-  await expect(page.locator('.button-primary').first()).toHaveAttribute('href', /v0.4.0\/tuitify.exe$/);
+  await expect(page.locator('.button-primary').first()).toHaveAttribute('href', /v0.5.0\/tuitify.exe$/);
   await expect(page.locator('.install-copy')).toBeVisible();
   await expect(page.locator('.questions-heading')).toHaveCSS('opacity', '1');
   await context.close();

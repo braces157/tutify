@@ -1,5 +1,40 @@
 # Validation record
 
+## v0.5.0 automatic provider launch — 2026-10-07
+
+The release adds automatic Spotify Premium/free YouTube Music selection,
+in-app account connections, separate provider services and session lifecycle,
+bounded parsed music caches, stream preparation and idle metadata-helper release.
+
+The local refactor suite passed **565 active tests** (558 unit tests and seven
+integration tests), with 20 ignored opt-ins, clean formatting and strict Clippy.
+Public catalog searches and a connected Google library succeeded against the
+live service. Source selection, account-isolated plan caches, bounded lookup,
+expired optional library credentials, provider handoffs, helper restart,
+cache offset preservation and retention limits have automated coverage.
+
+Windows ConPTY memory and latency measurements are recorded in
+[BENCHMARKS.md](BENCHMARKS.md), including the small-sample limits and the 56%
+settled idle working-set reduction with Glass. Nine saved user data files kept
+their hashes; benchmark sessions used isolated state and did not stop user music.
+
+The saved Spotify grant was expired/revoked. Live YouTube playback attempts
+reached HTTP 429/sign-in/connection-block errors, even after official tool updates.
+Successful Premium audio, successful YouTube audio, next-track latency and
+sustained playback memory were not verified. Google sign-in provides library
+access and does not unlock restricted videos. Passing diagnostics that record
+those failures are not evidence of successful playback.
+
+The updated release website passed all **24 Microsoft Edge browser tests**,
+including download/version consistency, installation commands, phone/tablet
+layouts, native-demo simulation and motion accessibility.
+
+Release checks repeat locked tests, formatting, strict Clippy, a locked optimized
+build, current website browser checks, and package/manifests regressions. GitHub
+CI independently checks stable Rust and the declared minimum Rust 1.88 on Windows
+x64. Source builds and public assets retain exact build identity and SHA-256
+manifests; all observed local launch copies must match the final release.
+
 ## v0.4.0 feature batch and release — 2026-10-02
 
 Windows x64, stable Rust 1.95.0. This batch adds typed service failures,

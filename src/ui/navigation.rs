@@ -14,8 +14,32 @@ pub(super) fn navigation(frame: &mut Frame<'_>, app: &App, render: &mut RenderSt
             };
             let label = match view {
                 View::Search => format!("{active} {}  Search", i + 1),
-                View::Playlists => format!("{active} {}  Playlists", i + 1),
-                View::Liked => format!("{active} {}  Liked Songs", i + 1),
+                View::Playlists => format!(
+                    "{active} {}  Playlists{}",
+                    i + 1,
+                    if app.config.source == crate::model::MusicSource::Youtube {
+                        if app.config.youtube_connected {
+                            ""
+                        } else {
+                            " (sign in)"
+                        }
+                    } else {
+                        ""
+                    }
+                ),
+                View::Liked => format!(
+                    "{active} {}  Liked Songs{}",
+                    i + 1,
+                    if app.config.source == crate::model::MusicSource::Youtube {
+                        if app.config.youtube_connected {
+                            ""
+                        } else {
+                            " (sign in)"
+                        }
+                    } else {
+                        ""
+                    }
+                ),
                 View::Queue => {
                     let queue_len = app.queue.ids.len();
                     if queue_len > 0 {

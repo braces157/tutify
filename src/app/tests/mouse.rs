@@ -936,6 +936,7 @@ async fn right_click_context_menu_catalog_track_displays_view_album_and_artist_a
     let mut app = App::new(Config::default(), Queue::default());
     app.catalog.view = View::Search;
     let track = Track {
+        music_metadata: false,
         id: "0000000000000000000001".into(),
         name: "Test Song".into(),
         artists: "Test Artist".into(),
@@ -1023,6 +1024,7 @@ async fn right_click_context_menu_catalog_track_displays_view_album_and_artist_a
 async fn right_click_context_menu_queue_track_displays_view_album_and_artist_and_remove_works() {
     let mut app = App::new(Config::default(), Queue::default());
     let track1 = Track {
+        music_metadata: false,
         id: "0000000000000000000001".into(),
         name: "Queue Track 1".into(),
         artists: "Artist Alpha".into(),
@@ -1035,6 +1037,7 @@ async fn right_click_context_menu_queue_track_displays_view_album_and_artist_and
         track_number: Some(2),
     };
     let track2 = Track {
+        music_metadata: false,
         id: "0000000000000000000002".into(),
         name: "Queue Track 2".into(),
         artists: "Artist Beta".into(),
@@ -1413,6 +1416,7 @@ async fn adversarial_context_menu_filtered_vs_unfiltered_and_stale_rejection() {
     app.catalog.view = View::Liked;
 
     let track_rock = Track {
+        music_metadata: false,
         id: "0000000000000000000001".into(),
         name: "Rock Anthem".into(),
         artists: "Rock Band".into(),
@@ -1425,6 +1429,7 @@ async fn adversarial_context_menu_filtered_vs_unfiltered_and_stale_rejection() {
         track_number: Some(1),
     };
     let track_jazz1 = Track {
+        music_metadata: false,
         id: "0000000000000000000002".into(),
         name: "Jazz Ballad".into(),
         artists: "Jazz Quartet".into(),
@@ -1437,6 +1442,7 @@ async fn adversarial_context_menu_filtered_vs_unfiltered_and_stale_rejection() {
         track_number: Some(2),
     };
     let track_pop = Track {
+        music_metadata: false,
         id: "0000000000000000000003".into(),
         name: "Pop Hit".into(),
         artists: "Pop Star".into(),
@@ -1449,6 +1455,7 @@ async fn adversarial_context_menu_filtered_vs_unfiltered_and_stale_rejection() {
         track_number: Some(3),
     };
     let track_jazz2 = Track {
+        music_metadata: false,
         id: "0000000000000000000004".into(),
         name: "Jazz Fusion".into(),
         artists: "Jazz Trio".into(),
@@ -1609,6 +1616,7 @@ async fn adversarial_context_menu_missing_metadata_and_playlist_rows() {
 
     // 1. Track without album metadata
     let no_album_track = Track {
+        music_metadata: false,
         id: "0000000000000000000010".into(),
         name: "Single Track".into(),
         artists: "Solo Artist".into(),
@@ -1622,6 +1630,7 @@ async fn adversarial_context_menu_missing_metadata_and_playlist_rows() {
     };
     // 2. Track without artist metadata
     let no_artist_track = Track {
+        music_metadata: false,
         id: "0000000000000000000011".into(),
         name: "Unknown Artist Track".into(),
         artists: "".into(),

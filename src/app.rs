@@ -15,6 +15,8 @@ mod search_history;
 mod smart_shuffle;
 pub(crate) mod ui_state;
 
+#[cfg(test)]
+use crate::{auth::TokenManager, playback};
 pub(crate) use actions::Action;
 use browsing::BrowseState;
 use controls::{Control, Seek};
@@ -25,12 +27,11 @@ use jobs::*;
 use lyrics_state::LyricsState;
 use mouse::*;
 use persistence::*;
-pub use runtime::run;
+pub use runtime::run_session;
 pub use ui_state::{Overlay, RenderState, UiState};
 
 use crate::diagnostics::history::Subsystem;
 use crate::{
-    auth::TokenManager,
     catalog::{Browse, Catalog, Page, Recommendations, Rows},
     media_controls::{self, Action as MediaAction},
     mix::{
@@ -38,7 +39,7 @@ use crate::{
         Provenance, RecipeSave,
     },
     model::Track,
-    playback::{self, Command, Event},
+    playback::{Command, Event},
     queue::Queue,
     stats::{PlaybackAccounting, SongStats},
     storage::{Config, Storage},
@@ -104,12 +105,14 @@ impl View {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SearchScope {
     Spotify,
+    Youtube,
     Library,
 }
 impl SearchScope {
     pub fn label(self) -> &'static str {
         match self {
             Self::Spotify => "Spotify search",
+            Self::Youtube => "YouTube search",
             Self::Library => "Saved library search",
         }
     }
@@ -189,6 +192,7 @@ pub struct App {
     /// restart still uses the user's persisted volume setting.
     muted_volume: Option<u8>,
     pub quit: bool,
+    pub session_request: crate::model::SessionRequest,
     pub metadata_error: Option<String>,
     pub catalog_health: crate::catalog::Health,
     position_anchor: Option<(Instant, u32)>,
@@ -229,6 +233,7 @@ impl App {
             loaded: false,
             muted_volume: None,
             quit: false,
+            session_request: crate::model::SessionRequest::Quit,
             metadata_error: None,
             catalog_health: crate::catalog::Health::Unknown,
             position_anchor: None,
@@ -858,6 +863,25 @@ impl App {
         // Expiry wins over a simultaneous completion or delayed playback event.
         self.check_sleep(Instant::now(), tx);
         match event {
+            Event::Metadata { generation, track }
+                if generation == self.generation
+                    && self.queue.current() == Some(track.id.as_str()) =>
+            {
+                let mut track = track;
+                if let Some(music) = self
+                    .cache
+                    .get(&track.id)
+                    .filter(|known| known.music_metadata)
+                {
+                    let duration_ms = track.duration_ms;
+                    track = music.clone();
+                    if duration_ms > 0 {
+                        track.duration_ms = duration_ms;
+                    }
+                }
+                self.stats.refresh_track_metadata(&track);
+                self.cache.insert(track.id.clone(), track);
+            }
             Event::Playing {
                 generation,
                 position_ms,
@@ -939,6 +963,14 @@ impl App {
                 self.stop(tx);
                 self.state = State::Failed;
                 self.status = message;
+            }
+            Event::PremiumRequired => {
+                self.finalize_playback_accounting();
+                self.stop(tx);
+                self.session_request = crate::model::SessionRequest::UseFree;
+                self.quit = true;
+                self.status =
+                    "Spotify confirms this account has no Premium; opening free music.".into();
             }
             Event::TrackError {
                 generation,

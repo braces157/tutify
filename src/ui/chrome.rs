@@ -5,6 +5,10 @@ pub(super) fn header(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let palette = theme.palette();
     let version = if app.demo {
         format!("v{} / demo", env!("CARGO_PKG_VERSION"))
+    } else if app.config.source == crate::model::MusicSource::Youtube && app.config.youtube_music {
+        format!("v{} / YouTube Music", env!("CARGO_PKG_VERSION"))
+    } else if app.config.source == crate::model::MusicSource::Youtube {
+        format!("v{} / YouTube", env!("CARGO_PKG_VERSION"))
     } else {
         format!("v{}", env!("CARGO_PKG_VERSION"))
     };
@@ -25,7 +29,7 @@ pub(super) fn header(frame: &mut Frame<'_>, app: &App, area: Rect) {
                 Style::default().fg(palette.text_muted),
             ),
             Span::styled(
-                format!(" / {}", theme.name()),
+                format!(" / Theme: {}", theme.name()),
                 Style::default().fg(palette.text_subtle),
             ),
         ]);
@@ -85,7 +89,11 @@ pub(super) fn footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
         Line::from(vec![
             Span::styled(" ! AUTH EXPIRED ", warning_badge(theme)),
             Span::styled(
-                "  Spotify login expired. Exit (q), then run 'tuitify auth --force'.",
+                if app.config.source == crate::model::MusicSource::Youtube {
+                    "  Google library connection expired. F6 > Connect Google music library."
+                } else {
+                    "  Spotify login expired. F6 > Connect Spotify account."
+                },
                 Style::default().fg(palette.status_warning).bold(),
             ),
         ])

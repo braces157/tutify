@@ -1,0 +1,197 @@
+{
+  "Date": "2026-10-07",
+  "Platform": "Windows x64",
+  "Terminal": "ConPTY 120x32",
+  "Theme": "Glass",
+  "BuildScope": "Pre-version-bump refactor and previous installed executable",
+  "MemoryScope": "Tuitify and owned descendants (including helper consoles); excludes external ConPTY host and benchmark Python",
+  "CPU": "percent of one CPU core",
+  "Volume": 0,
+  "TrialsPerBuild": 1,
+  "IdleSeconds": 35,
+  "Before": [
+    {
+      "trial": 0,
+      "startup_to_first_frame_seconds": 3.2886979000177234,
+      "search_cold_seconds": 1.1827325999911409,
+      "search_warm_seconds": 0.35806830000365153,
+      "search_cached_seconds": 0.04711169999791309,
+      "settled_idle_rss_mib": 109.65625,
+      "cached_after_idle_seconds": 0.10721040001953952,
+      "resources": {
+        "cached_after_idle": {
+          "rss_mib_median": 109.724609375,
+          "rss_mib_peak": 109.75390625,
+          "private_mib_peak": 60.40234375,
+          "cpu_one_core_percent": 5.868598970512195,
+          "processes": [
+            "conhost.exe",
+            "python.exe",
+            "tuitify.exe"
+          ],
+          "duration_seconds": 0.7987425999890547
+        },
+        "idle": {
+          "rss_mib_median": 47.4140625,
+          "rss_mib_peak": 47.42578125,
+          "private_mib_peak": 30.3046875,
+          "cpu_one_core_percent": 0.0,
+          "processes": [
+            "tuitify.exe"
+          ],
+          "duration_seconds": 4.810219699982554
+        },
+        "idle_after_search": {
+          "rss_mib_median": 109.4921875,
+          "rss_mib_peak": 109.69140625,
+          "private_mib_peak": 60.4140625,
+          "cpu_one_core_percent": 0.0,
+          "processes": [
+            "conhost.exe",
+            "python.exe",
+            "tuitify.exe"
+          ],
+          "duration_seconds": 34.81567760001053
+        },
+        "search_cached": {
+          "rss_mib_median": 109.484375,
+          "rss_mib_peak": 109.484375,
+          "private_mib_peak": 59.91015625,
+          "cpu_one_core_percent": 19.30352016748816,
+          "processes": [
+            "conhost.exe",
+            "python.exe",
+            "tuitify.exe"
+          ],
+          "duration_seconds": 0.5666065000114031
+        },
+        "search_cold": {
+          "rss_mib_median": 102.83203125,
+          "rss_mib_peak": 110.0625,
+          "private_mib_peak": 61.52734375,
+          "cpu_one_core_percent": 8.420787704697743,
+          "processes": [
+            "conhost.exe",
+            "python.exe",
+            "tuitify.exe"
+          ],
+          "duration_seconds": 1.4844217000063509
+        },
+        "search_warm": {
+          "rss_mib_median": 108.87109375,
+          "rss_mib_peak": 108.90234375,
+          "private_mib_peak": 59.50390625,
+          "cpu_one_core_percent": 6.524768665582521,
+          "processes": [
+            "conhost.exe",
+            "python.exe",
+            "tuitify.exe"
+          ],
+          "duration_seconds": 2.8736651000217535
+        },
+        "startup": {
+          "rss_mib_median": 3.05078125,
+          "rss_mib_peak": 53.859375,
+          "private_mib_peak": 38.14453125,
+          "cpu_one_core_percent": 8.203107870046798,
+          "processes": [
+            "tuitify.exe"
+          ],
+          "duration_seconds": 3.2381019999738783
+        }
+      }
+    }
+  ],
+  "After": [
+    {
+      "trial": 0,
+      "startup_to_first_frame_seconds": 3.3129317999992054,
+      "search_cold_seconds": 1.1191795000049751,
+      "search_warm_seconds": 0.3592118000087794,
+      "search_cached_seconds": 0.06205599999520928,
+      "settled_idle_rss_mib": 48.2421875,
+      "cached_after_idle_seconds": 0.1542967999994289,
+      "resources": {
+        "cached_after_idle": {
+          "rss_mib_median": 48.26953125,
+          "rss_mib_peak": 48.3046875,
+          "private_mib_peak": 30.09765625,
+          "cpu_one_core_percent": 0.0,
+          "processes": [
+            "tuitify.exe"
+          ],
+          "duration_seconds": 0.6703262999944855
+        },
+        "idle": {
+          "rss_mib_median": 46.81640625,
+          "rss_mib_peak": 46.828125,
+          "private_mib_peak": 29.328125,
+          "cpu_one_core_percent": 0.0,
+          "processes": [
+            "tuitify.exe"
+          ],
+          "duration_seconds": 4.854916700016474
+        },
+        "idle_after_search": {
+          "rss_mib_median": 108.6796875,
+          "rss_mib_peak": 108.87109375,
+          "private_mib_peak": 58.9765625,
+          "cpu_one_core_percent": 0.3586360835623947,
+          "processes": [
+            "conhost.exe",
+            "python.exe",
+            "tuitify.exe"
+          ],
+          "duration_seconds": 34.85427310000523
+        },
+        "search_cached": {
+          "rss_mib_median": 108.71875,
+          "rss_mib_peak": 108.71875,
+          "private_mib_peak": 58.6953125,
+          "cpu_one_core_percent": 5.333793035232006,
+          "processes": [
+            "conhost.exe",
+            "python.exe",
+            "tuitify.exe"
+          ],
+          "duration_seconds": 0.5858869999938179
+        },
+        "search_cold": {
+          "rss_mib_median": 95.583984375,
+          "rss_mib_peak": 107.3984375,
+          "private_mib_peak": 57.69140625,
+          "cpu_one_core_percent": 25.713713574200142,
+          "processes": [
+            "conhost.exe",
+            "python.exe",
+            "tuitify.exe"
+          ],
+          "duration_seconds": 1.336835299996892
+        },
+        "search_warm": {
+          "rss_mib_median": 108.37109375,
+          "rss_mib_peak": 108.51171875,
+          "private_mib_peak": 58.82421875,
+          "cpu_one_core_percent": 6.262529024334616,
+          "processes": [
+            "conhost.exe",
+            "python.exe",
+            "tuitify.exe"
+          ],
+          "duration_seconds": 2.993998099991586
+        },
+        "startup": {
+          "rss_mib_median": 3.05078125,
+          "rss_mib_peak": 72.26171875,
+          "private_mib_peak": 78.7578125,
+          "cpu_one_core_percent": 9.12339333010772,
+          "processes": [
+            "tuitify.exe"
+          ],
+          "duration_seconds": 3.253997599997092
+        }
+      }
+    }
+  ],
+  "LivePlayback": "Unverified: expired/revoked Spotify grant and YouTube HTTP 429/sign-in/connection block"
+}

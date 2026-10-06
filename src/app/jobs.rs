@@ -609,6 +609,26 @@ impl Tasks {
         }));
     }
     pub(super) fn enqueue_playlist(&mut self, app: &mut App, playlist_id: String, name: String) {
+        self.enqueue_playlist_from(app, playlist_id, name, 0);
+    }
+
+    pub(super) fn enqueue_playlist_from(
+        &mut self,
+        app: &mut App,
+        playlist_id: String,
+        name: String,
+        start_offset: usize,
+    ) {
+        self.enqueue_browse_from(app, Browse::Playlist(playlist_id), name, start_offset);
+    }
+
+    pub(super) fn enqueue_browse_from(
+        &mut self,
+        app: &mut App,
+        browse: Browse,
+        name: String,
+        start_offset: usize,
+    ) {
         self.sync_queue_epoch(app.queue.epoch);
         if self.playlist.is_some() {
             app.status =
@@ -619,7 +639,9 @@ impl Tasks {
             app.status = "Queue limit reached (100,000 tracks).".into();
             return;
         }
-        app.remember_queue();
+        if start_offset == 0 {
+            app.remember_queue();
+        }
         self.playlist_request += 1;
         self.playlist_added = 0;
         let request = self.playlist_request;
@@ -638,13 +660,10 @@ impl Tasks {
             return;
         }
         self.playlist = Some(tokio::spawn(async move {
-            let mut offset = 0;
+            let mut offset = start_offset;
             let mut received = 0;
             loop {
-                match catalog
-                    .page(&Browse::Playlist(playlist_id.clone()), offset)
-                    .await
-                {
+                match catalog.page(&browse, offset).await {
                     Ok(page) => {
                         let Rows::Tracks(mut tracks) = page.rows else {
                             break;
@@ -700,7 +719,10 @@ impl Tasks {
         }
         app.catalog.request += 1;
         app.catalog.busy = true;
-        app.status = "Fetching from Spotify... playback controls remain available.".into();
+        app.status = format!(
+            "Fetching from {}... playback controls remain available.",
+            app.config.source.label()
+        );
         let request = app.catalog.request;
         let browse = app.catalog.browse.clone();
         let catalog = self.catalog.clone();
@@ -713,9 +735,12 @@ impl Tasks {
         if app.catalog.view == View::Search && app.catalog.query.trim().is_empty() {
             app.catalog.busy = false;
             app.catalog.next = None;
-            app.status =
+            app.status = if app.config.source == crate::model::MusicSource::Youtube {
+                "Enter a YouTube search or paste a video link. / edits the query.".into()
+            } else {
                 "Enter a search. F2: Spotify catalog | F3: all saved Liked Songs and playlists."
-                    .into();
+                    .into()
+            };
             return;
         }
         if app.catalog.view == View::Search && app.catalog.search_scope == SearchScope::Library {
@@ -869,6 +894,13 @@ impl Tasks {
         }
     }
     pub(super) fn view(&mut self, app: &mut App, view: View) {
+        if app.config.source == crate::model::MusicSource::Youtube
+            && ((matches!(view, View::Playlists | View::Liked) && !app.config.youtube_connected)
+                || (matches!(view, View::Album | View::Artist) && !app.config.youtube_music))
+        {
+            app.status = "This library view is unavailable until your Google library is connected. F6 > Connect Google music library. Your queue is preserved.".into();
+            return;
+        }
         app.catalog.view = view;
         app.catalog.nav = view.index();
         app.catalog.sidebar = false;
@@ -886,7 +918,13 @@ impl Tasks {
         match view {
             View::Search => {
                 app.catalog.browse = Browse::Search(app.catalog.query.clone());
-                app.catalog.title = app.catalog.search_scope.label().into();
+                app.catalog.title = if app.config.youtube_music
+                    && app.catalog.search_scope == SearchScope::Youtube
+                {
+                    "YouTube Music search".into()
+                } else {
+                    app.catalog.search_scope.label().into()
+                };
             }
             View::Playlists => {
                 app.catalog.browse = Browse::Playlists;
@@ -1093,9 +1131,10 @@ pub(super) fn background(app: &mut App, tasks: &mut Tasks, event: Background) ->
                     if skipped == 0 {
                         app.catalog.title = "Saved library — complete".into();
                         app.status = format!(
-                            "{} matches across {} saved tracks. F2 searches Spotify; / edits the query.",
+                            "{} matches across {} saved tracks. F2 searches {}; / edits the query.",
                             app.raw_len(),
-                            app.catalog.library_scanned
+                            app.catalog.library_scanned,
+                            app.config.source.label()
                         );
                     } else {
                         app.catalog.title =

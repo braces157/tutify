@@ -105,6 +105,7 @@ fn fictional_track(index: usize, suggested: bool) -> Track {
     let number = if suggested { 80 + index } else { index + 1 };
     let artist = index % ARTISTS.len();
     Track {
+        music_metadata: false,
         id: format!("{number:022}"),
         name: TITLES[index % TITLES.len()].into(),
         artists: ARTISTS[artist].into(),
@@ -143,6 +144,7 @@ pub(crate) fn album_tracks(album_id: &str) -> Vec<Track> {
     ];
     (1..=10)
         .map(|i| Track {
+            music_metadata: false,
             id: format!("80000000000000000001{:02}", i),
             name: ALBUM_TITLES[i - 1].into(),
             artists: "Mali & The Signals".into(),
@@ -163,6 +165,7 @@ pub(crate) fn known_artist_tracks(artist_idx: usize) -> Vec<Track> {
     let titles = ARTIST_TRACKS[artist_idx];
     (1..=8)
         .map(|i| Track {
+            music_metadata: false,
             id: format!("500000000000000000{:02}{:02}", artist_idx, i),
             name: titles[i - 1].into(),
             artists: artist_name.into(),
@@ -195,6 +198,7 @@ pub(crate) fn fallback_artist_tracks(artist_id: &str) -> Vec<Track> {
     };
     (1..=8)
         .map(|i| Track {
+            music_metadata: false,
             id: format!("70000000000000000000{:02}", i),
             name: FALLBACK_TITLES[i - 1].into(),
             artists: artist_name.into(),

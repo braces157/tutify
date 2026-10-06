@@ -31,6 +31,8 @@ const SCOPES: &str =
 const STREAMING_SCOPES: &str = "streaming user-read-playback-state user-modify-playback-state user-read-currently-playing user-library-read user-read-private";
 
 pub(crate) mod doctor;
+mod plan;
+pub(crate) use plan::AccountPlan;
 mod identity;
 use identity::{AccountIdentity, AccountRelation, bind_streaming, require_same, token_identity};
 
@@ -297,6 +299,30 @@ pub async fn setup(
     force: bool,
     streaming_only: bool,
 ) -> Result<()> {
+    setup_inner(store, client_id, force, streaming_only, false).await
+}
+
+/// The launcher checked the plan, or the user explicitly chose Spotify when
+/// their app's profile does not expose subscription details.
+pub(crate) async fn setup_selected_spotify(store: &Storage) -> Result<()> {
+    setup_inner(store, None, false, false, true).await
+}
+
+pub(crate) async fn setup_catalog(store: &Storage) -> Result<()> {
+    if TokenManager::load_optional(&store.config()?)?.is_none() {
+        println!("Connect Spotify to check your subscription before setting up audio.");
+        login(store, None, false).await?;
+    }
+    Ok(())
+}
+
+async fn setup_inner(
+    store: &Storage,
+    client_id: Option<String>,
+    force: bool,
+    streaming_only: bool,
+    plan_checked: bool,
+) -> Result<()> {
     let config = store.config()?;
     let requested_id = client_id.map(|id| id.trim().to_owned());
     let client_changed = requested_id
@@ -325,6 +351,20 @@ pub async fn setup(
     );
     for (index, step) in steps.iter().enumerate() {
         let streaming = *step == LoginStep::Streaming;
+        if streaming && !plan_checked {
+            let plan = TokenManager::load(&store.config()?)?.account_plan().await?;
+            if plan == AccountPlan::Free {
+                if streaming_only {
+                    bail!(
+                        "Spotify audio requires Premium. Run 'tuitify' to open YouTube Music, or 'tuitify --source youtube'."
+                    );
+                }
+                println!(
+                    "Spotify Free connected. Run 'tuitify' to use YouTube Music; no Spotify streaming login is needed."
+                );
+                return Ok(());
+            }
+        }
         println!(
             "\nLogin {} of {}: {}",
             index + 1,
@@ -834,6 +874,14 @@ impl TokenManager {
         let tokens = credential_tokens(Ok(text))?.context("Saved login has no reusable tokens")?;
         Self::from_tokens(config, tokens, true)
     }
+    pub(crate) fn load_optional(config: &Config) -> Result<Option<Self>> {
+        if config.client_id.is_empty() {
+            return Ok(None);
+        }
+        credential_tokens(entry()?.get_password())?
+            .map(|tokens| Self::from_tokens(config, tokens, true))
+            .transpose()
+    }
     fn from_tokens(config: &Config, tokens: Tokens, persist: bool) -> Result<Self> {
         token_identity(&tokens, false)?;
         Ok(Self {
@@ -848,13 +896,15 @@ impl TokenManager {
         })
     }
     pub fn load_streaming() -> Result<Self> {
-        let text = stream_entry()?
-            .get_password()
-            .context("No streaming login; run tuitify auth --streaming")?;
-        let tokens =
-            credential_tokens(Ok(text))?.context("Streaming login has no reusable tokens")?;
+        Self::load_optional_streaming()?
+            .context("No streaming login; connect Spotify from F6 Tools")
+    }
+    pub(crate) fn load_optional_streaming() -> Result<Option<Self>> {
+        let Some(tokens) = credential_tokens(stream_entry()?.get_password())? else {
+            return Ok(None);
+        };
         token_identity(&tokens, true)?;
-        Ok(Self {
+        Ok(Some(Self {
             state: Arc::new(Mutex::new(tokens)),
             client: http_client()?,
             client_id: STREAMING_CLIENT_ID.to_owned(),
@@ -863,7 +913,7 @@ impl TokenManager {
             streaming: true,
             read_only: false,
             cooldown: Arc::new(Mutex::new(None)),
-        })
+        }))
     }
     pub async fn access(&self) -> Result<String> {
         self.token(None).await

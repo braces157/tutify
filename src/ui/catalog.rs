@@ -14,10 +14,28 @@ pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
             Constraint::Min(1),
         ])
         .split(area);
-        let modes = [
-            (SearchScope::Spotify, " F2  Spotify "),
-            (SearchScope::Library, " F3  Your library "),
-        ];
+        let modes = if app.config.source == crate::model::MusicSource::Youtube {
+            if app.config.youtube_connected {
+                vec![
+                    (SearchScope::Youtube, " F2  Music "),
+                    (SearchScope::Library, " F3  Your library "),
+                ]
+            } else {
+                vec![(
+                    SearchScope::Youtube,
+                    if app.config.youtube_music {
+                        " F2  Music "
+                    } else {
+                        " F2  YouTube "
+                    },
+                )]
+            }
+        } else {
+            vec![
+                (SearchScope::Spotify, " F2  Spotify "),
+                (SearchScope::Library, " F3  Your library "),
+            ]
+        };
         let spans = modes
             .iter()
             .map(|(scope, label)| {
@@ -51,6 +69,8 @@ pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
                 Span::styled(
                     if app.catalog.search_scope == SearchScope::Library {
                         "Search your saved songs and playlist tracks"
+                    } else if app.config.source == crate::model::MusicSource::Youtube {
+                        "Search songs, artists, or paste a YouTube video link"
                     } else {
                         "Search songs, artists, or paste a Spotify track link"
                     },
@@ -82,6 +102,10 @@ pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
             Paragraph::new(prompt_line).block(block_themed(
                 if app.catalog.editing {
                     " SEARCH · Enter search · ↑/↓ recent "
+                } else if app.config.youtube_music
+                    && app.catalog.search_scope == SearchScope::Youtube
+                {
+                    "YouTube Music search"
                 } else {
                     app.catalog.search_scope.label()
                 },
@@ -244,8 +268,17 @@ pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
                         Some(crate::catalog::ArtistResultSource::Demo) => {
                             "\n  No demo tracks found for this artist.\n\n  Esc  Go back"
                         }
+                        Some(crate::catalog::ArtistResultSource::YoutubeMusic) => {
+                            "\n  No songs returned by YouTube Music for this artist.\n\n  F5  Retry\n  Esc  Go back"
+                        }
                         None => "\n  Artist tracks unavailable.\n\n  F5  Retry\n  Esc  Go back",
                     }
+                } else if app.config.source == crate::model::MusicSource::Youtube
+                    && app.config.youtube_music
+                {
+                    "\n\n  YouTube Music search\n\n  /  Search songs or paste a YouTube link\n  Enter  Play the selected result\n  e  Add to queue\n  4  Open your YouTube Music queue"
+                } else if app.config.source == crate::model::MusicSource::Youtube {
+                    "\n\n  YouTube search\n\n  /  Search songs or paste a YouTube video link\n  Enter  Play the selected result\n  e  Add to queue\n  4  Open your YouTube queue"
                 } else {
                     "\n\n  Nothing here yet.\n\n  /  Search songs or paste a Spotify link\n  2  Browse playlists\n  3  Open liked songs"
                 };

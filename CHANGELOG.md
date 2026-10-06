@@ -1,6 +1,52 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 — 2026-10-07
+
+- Make `tuitify` the complete launch and setup flow. Connect Spotify or a Google
+  library inside F6 Tools; flush saved state before browser sign-in and return to
+  the player afterward. Automatically open free music when account checks fail
+  or subscription details are unavailable, retaining the visible cause.
+- Separate account/source policy, session lifecycle, provider services and TUI
+  runtime. Cache successful account-scoped plan checks for ten minutes, bound
+  lookups to three seconds, and route confirmed Premium expiry to free music.
+- Bound parsed catalog pages by a 32 MiB LRU budget, preserve remote offsets for
+  invalid rows, and release the idle Python metadata helper after 30 seconds
+  without interrupting audio or discarding cached pages. Use two Tokio workers
+  and publish desktop metadata on changes instead of cloning it every frame.
+- Add repeatable Windows ConPTY speed, CPU and process-tree memory benchmarks;
+  validate exact queries and visible result rows, preserve user state, and report
+  upstream-blocked playback separately from successful playback measurements.
+
+- Select Spotify automatically for saved Premium accounts, and YouTube Music for
+  free accounts or users without a Spotify login. Keep explicit `--source spotify`,
+  `--source youtube`, and `--source auto` choices. Prepare missing YouTube tools and
+  music search/radio on first launch, keep provider queues separate, and skip the
+  Spotify streaming login for free accounts. Preserve account-check errors instead
+  of treating expired credentials, denied access or rate limits as a free plan.
+  Subscription checks that omit details now use the existing streaming login
+  where available, then fall back to free music without requiring a source choice.
+
+- Reuse the YouTube Music helper process and HTTP session, returning
+  the first search batch without extra continuation requests, and keeping cached
+  library views responsive during network work. Prepare the next audio stream
+  while playback continues and reuse a bounded, expiring stream cache for skips
+  and repeats; cancellation stops owned helpers and obsolete preparation.
+
+- Add optional Google library connection through a dedicated Chrome sign-in
+  window (Edge fallback), user-encrypted session storage and an isolated,
+  hash-pinned YouTube Music adapter. Browse playlists and Liked Songs, search
+  the saved library, open public playlist links and music album/artist views,
+  and load complete lists into the existing queue and Smart Shuffle algorithms.
+  Preserve song metadata when playback resolves generic video metadata; expose
+  read-only playlist previews and logout commands.
+
+- Add optional YouTube playback without Spotify authentication: `tuitify youtube`
+  or `--source youtube`, song/artist search, video links, a separate persisted
+  queue, transport controls, PCM visualizer, media keys and lyric lookup.
+  Resolve streams with yt-dlp/Deno and decode bounded PCM with FFmpeg; cancel
+  obsolete work when seeking, skipping or stopping. Add checksum-verified tool
+  setup, tool diagnostics and a muted real-audio probe. Spotify remains the
+  explicit Premium source and keeps its existing account data.
 
 ## 0.4.0 — 2026-10-02
 

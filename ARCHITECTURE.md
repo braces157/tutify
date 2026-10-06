@@ -9,9 +9,12 @@ is a separate demonstration, not the player's frontend.
 
 | Module | Responsibility |
 | --- | --- |
-| `src/main.rs` | CLI dispatch and startup authentication |
+| `src/main.rs` | CLI dispatch and two-worker Tokio entry point |
+| `src/launcher.rs` | Session lifecycle, first-run setup, in-app connections and provider handoffs |
+| `src/source.rs`, `src/auth/plan.rs` | Bounded account/entitlement lookup and account-scoped launch policy |
+| `src/providers.rs` | Construction of matching catalog and playback services |
 | `src/app.rs` | Application state, playback transitions/accounting, queue undo |
-| `src/app/runtime.rs` | Startup, event scheduling, redraws, shutdown |
+| `src/app/runtime.rs` | One provider session, event scheduling, redraws, ordered shutdown and session requests |
 | `src/app/demo_runtime.rs`, `src/demo.rs` | Credential-free runtime adapter and bundled fictional catalog |
 | `src/app/input.rs` | Keyboard modes and shortcut permissions |
 | `src/app/mouse.rs` | Hit testing, context menus, mouse-to-action routing |
@@ -34,6 +37,9 @@ is a separate demonstration, not the player's frontend.
 | `src/diagnostics/doctor.rs`, `doctor/installation.rs`, `src/auth/doctor.rs` | Read-only local diagnostics, saved/process PATH hashes, and explicitly opted-in GET probes without credential refresh |
 | `src/diagnostics/history.rs`, `support.rs`, `src/app/diagnostics.rs`, `src/ui/diagnostics.rs` | Bounded typed session errors, redacted report snapshots, preview/export controls and F7 rendering |
 | `src/playback.rs`, `visualizer.rs` | Streaming engine, audio output and spectrum analysis |
+| `src/youtube.rs`, `src/youtube/playback.rs`, `playback/preload.rs` | Tool discovery, public-video extraction, bounded stream preloading, FFmpeg PCM and playback cancellation |
+| `src/youtube/music.rs`, `music/cache.rs`, `music/worker.rs`, `music_bridge.py` | Read-only music catalog RPC, typed bounded LRU pages and an idle-released metadata helper |
+| `src/youtube/music_auth.rs`, `setup.ps1`, `setup-music.ps1` | Isolated browser library connection, Windows user-encrypted credentials and verified dependency setup |
 | `src/queue.rs`, `stats.rs`, `cache.rs`, `storage.rs` | Domain data and persistence |
 | `src/storage/backup.rs` | Versioned saved-state backup, preview confirmation, staged restore and journal recovery |
 | `src/model.rs` | Shared track/repeat/playback-state types |
@@ -41,6 +47,18 @@ is a separate demonstration, not the player's frontend.
 | `src/media_controls.rs`, `discord.rs` | Windows media controls and Discord presence |
 
 ## Boundaries to preserve
+
+- Launch policy selects a matching catalog/playback provider. Catalog results
+  and saved queues stay provider-specific; no Spotify-to-YouTube track mapping
+  occurs. Successful account checks are cached for ten minutes for that account,
+  and live lookup has a three-second deadline. Unavailable checks retain their
+  cause while opening free music. Only a confirmed membership change requests
+  the free handoff. Session requests close and save the TUI before account setup.
+- Public YouTube Music lookup does not send optional Google library credentials.
+  Private library requests retain authentication. Parsed pages keep remote row
+  offsets and have a 32 MiB/16-collection LRU budget. The Python metadata helper
+  releases after 30 idle seconds without clearing pages or stopping audio.
+  Desktop metadata publishes on changes rather than every frame.
 
 - The error journal belongs to `UiState`, holds at most 64 typed records, and is
   separate from the transient status string and every persistence snapshot.

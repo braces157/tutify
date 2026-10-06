@@ -319,6 +319,9 @@ impl Catalog {
         excluded: &[Track],
         round: usize,
     ) -> Result<Recommendations> {
+        if self.youtube.is_some() {
+            return self.youtube_recommendations(seed, excluded, round).await;
+        }
         let similar = self.similarity.is_some();
         let mut candidates = if similar {
             self.similarity_candidates(seed, round).await?

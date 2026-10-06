@@ -203,7 +203,7 @@ pub fn build_activity(
 ) -> Option<Value> {
     let track = snapshot.track.as_ref()?;
     if !matches!(snapshot.state, State::Playing | State::Paused)
-        || !crate::model::valid_id(&track.id)
+        || !crate::model::valid_track_id(&track.id)
     {
         return None;
     }
@@ -255,8 +255,8 @@ pub fn build_activity(
                 "url": "https://github.com/braces157/tutify"
             },
             {
-                "label": "Play on Spotify",
-                "url": format!("https://open.spotify.com/track/{}", track.id)
+                "label": if crate::youtube::video_key(&track.id).is_some() { "Play on YouTube" } else { "Play on Spotify" },
+                "url": crate::model::track_url(&track.id)?
             }
         ]
     });
@@ -639,6 +639,7 @@ mod tests {
 
     fn sample_track() -> Track {
         Track {
+            music_metadata: false,
             artist_ids: Vec::new(),
             id: "4cOdK2wGLETKBW3PvgPWqT".into(),
             name: "Never Gonna Give You Up".into(),

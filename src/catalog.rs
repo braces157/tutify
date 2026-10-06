@@ -47,6 +47,7 @@ pub struct Page {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ArtistResultSource {
+    YoutubeMusic,
     TopTracks,
     ArtistSearch,
     Demo,
@@ -54,6 +55,7 @@ pub enum ArtistResultSource {
 impl ArtistResultSource {
     pub fn label(self) -> &'static str {
         match self {
+            Self::YoutubeMusic => "YouTube Music songs",
             Self::TopTracks => "Top Tracks",
             Self::ArtistSearch => "Artist Search",
             Self::Demo => "Demo Tracks",
@@ -63,6 +65,8 @@ impl ArtistResultSource {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RecommendationSource {
+    YoutubeMusic,
+    YoutubeSearch,
     Spotify,
     ArtistSearch,
     SimilarArtists,
@@ -71,6 +75,8 @@ pub enum RecommendationSource {
 impl RecommendationSource {
     pub fn label(self) -> &'static str {
         match self {
+            Self::YoutubeMusic => "YouTube Music radio",
+            Self::YoutubeSearch => "YouTube search suggestions",
             Self::Spotify => "Spotify recommendations",
             Self::ArtistSearch => "Artist-connected suggestions",
             Self::SimilarArtists => "Similar artists • Deezer",
@@ -126,6 +132,7 @@ impl CapabilitySummary {
 
 #[derive(Clone)]
 pub struct Catalog {
+    youtube: Option<crate::youtube::Tools>,
     client: reqwest::Client,
     tokens: TokenManager,
     base: String,
@@ -138,12 +145,61 @@ pub struct Catalog {
 }
 
 impl Catalog {
+    pub fn youtube(tools: crate::youtube::Tools) -> Result<Self> {
+        Ok(Self {
+            youtube: Some(tools),
+            ..Self::offline()?
+        })
+    }
+
+    pub(crate) async fn youtube_recommendations(
+        &self,
+        seed: &Track,
+        excluded: &[Track],
+        round: usize,
+    ) -> Result<Recommendations> {
+        let tools = self
+            .youtube
+            .as_ref()
+            .context("YouTube provider unavailable")?;
+        if let Some(music) = &tools.music {
+            return Ok(Recommendations {
+                tracks: music.recommendations(seed, excluded, round).await?,
+                source: RecommendationSource::YoutubeMusic,
+            });
+        }
+        let query = format!("{} music", seed.artists);
+        let page = tools
+            .page(&Browse::Search(query), round.saturating_mul(20))
+            .await?;
+        let Rows::Tracks(mut tracks) = page.rows else {
+            unreachable!()
+        };
+        tracks.retain(|track| {
+            track.playable
+                && track.id != seed.id
+                && !excluded.iter().any(|known| known.id == track.id)
+        });
+        Ok(Recommendations {
+            tracks,
+            source: RecommendationSource::YoutubeSearch,
+        })
+    }
     pub(crate) fn capability_summary(&self) -> Vec<CapabilitySummary> {
         self.capabilities.summary()
     }
     /// Only failures from the playlist-items endpoint may be skipped by a
     /// library scan. Token-service failures can have the same HTTP status.
     pub(crate) fn inaccessible_playlist(error: &anyhow::Error) -> Option<FailureKind> {
+        if let Some(failure) = error.downcast_ref::<ServiceFailure>()
+            && failure.provider == Provider::YoutubeMusic
+            && matches!(
+                failure.kind,
+                FailureKind::AccessRestricted | FailureKind::MissingItem
+            )
+        {
+            return Some(failure.kind);
+        }
         if !error.is::<capabilities::Denied>() {
             return None;
         }
@@ -185,6 +241,7 @@ impl Catalog {
 
     pub fn new(tokens: TokenManager) -> Result<Self> {
         Ok(Self {
+            youtube: None,
             client: http_client()?,
             tokens,
             base: "https://api.spotify.com/v1".into(),
@@ -230,7 +287,15 @@ impl Catalog {
     }
 
     pub(crate) fn refresh_capabilities(&self) {
+        if let Some(music) = self.youtube.as_ref().and_then(|tools| tools.music.as_ref()) {
+            music.refresh();
+        }
         self.capabilities.refresh();
+    }
+    pub(crate) fn release_idle_helpers(&self) {
+        if let Some(music) = self.youtube.as_ref().and_then(|tools| tools.music.as_ref()) {
+            music.release_idle_helper();
+        }
     }
 
     async fn capability_request(&self, path: &str, query: &[(&str, String)]) -> Result<Value> {
@@ -319,6 +384,22 @@ impl Catalog {
         unreachable!()
     }
     pub async fn track(&self, id: &str) -> Result<Track> {
+        if let Some(tools) = &self.youtube {
+            let result = tools.track(id).await;
+            self.health.store(
+                if result.is_ok() {
+                    1
+                } else if result.as_ref().is_err_and(|error| {
+                    ServiceFailure::is(error, FailureKind::AuthenticationRequired)
+                }) {
+                    3
+                } else {
+                    2
+                },
+                Ordering::Relaxed,
+            );
+            return result;
+        }
         if !valid_id(id) {
             bail!("Invalid track ID");
         }
@@ -343,6 +424,9 @@ impl Catalog {
             .buffer_unordered(5)
     }
     pub async fn recommendations(&self, seed: &Track) -> Result<Recommendations> {
+        if self.youtube.is_some() {
+            return self.youtube_recommendations(seed, &[], 0).await;
+        }
         let normalized_seed = normalize_title(&seed.name);
 
         let rec_query = [("seed_tracks", seed.id.clone()), ("limit", "20".into())];
@@ -392,6 +476,9 @@ impl Catalog {
         excluded: &[Track],
         context: &[Track],
     ) -> Result<Recommendations> {
+        if self.youtube.is_some() {
+            return self.youtube_recommendations(seed, excluded, 0).await;
+        }
         self.queue_context_recommendations(seed, excluded, context)
             .await
     }
@@ -412,6 +499,22 @@ impl Catalog {
         offset: usize,
         artist_source: Option<ArtistResultSource>,
     ) -> Result<Page> {
+        if let Some(tools) = &self.youtube {
+            let result = tools.page(browse, offset).await;
+            self.health.store(
+                if result.is_ok() {
+                    1
+                } else if result.as_ref().is_err_and(|error| {
+                    ServiceFailure::is(error, FailureKind::AuthenticationRequired)
+                }) {
+                    3
+                } else {
+                    2
+                },
+                Ordering::Relaxed,
+            );
+            return result;
+        }
         if let Browse::Search(query) = browse {
             if let Some(id) = track_id(query) {
                 return Ok(Page {
@@ -651,6 +754,7 @@ pub(crate) fn parse_track(v: &Value) -> Option<Track> {
     let track_number = v["track_number"].as_u64().map(|n| n as u32);
 
     Some(Track {
+        music_metadata: false,
         id: v["id"].as_str().filter(|id| valid_id(id))?.into(),
         name: clean(v["name"].as_str().unwrap_or("Unknown track")),
         artists: v["artists"]

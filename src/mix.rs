@@ -23,7 +23,7 @@ impl MixSource {
     fn validate(&self) -> anyhow::Result<()> {
         if let Self::Playlist { id, name } = self {
             anyhow::ensure!(
-                crate::model::valid_id(id),
+                crate::model::valid_playlist_id(id),
                 "Invalid playlist ID in mix recipe"
             );
             anyhow::ensure!(

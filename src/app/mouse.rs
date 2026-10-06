@@ -5,6 +5,21 @@ pub(super) fn format_time(ms: u32) -> String {
 }
 
 pub(super) fn choose_search(app: &mut App, scope: SearchScope, tasks: &mut Tasks) {
+    let scope = if app.config.source == crate::model::MusicSource::Youtube {
+        if scope == SearchScope::Library && !app.config.youtube_connected {
+            app.status =
+                "Connect your Google music library first: quit (q), then run 'tuitify youtube login'."
+                    .into();
+            return;
+        }
+        if scope == SearchScope::Library {
+            scope
+        } else {
+            SearchScope::Youtube
+        }
+    } else {
+        scope
+    };
     if app.is_filtered() {
         app.catalog.query = app.catalog.filter.clone();
     }
