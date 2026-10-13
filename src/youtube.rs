@@ -86,7 +86,7 @@ pub(crate) fn hidden_command(program: impl AsRef<std::ffi::OsStr>) -> Command {
     command
 }
 
-fn locate(name: &str) -> Result<PathBuf> {
+pub(crate) fn locate(name: &str) -> Result<PathBuf> {
     let root = PathBuf::from(std::env::var_os("LOCALAPPDATA").context("LOCALAPPDATA is not set")?)
         .join("Programs/Tuitify/tools");
     let local = root.join(name);
@@ -120,6 +120,7 @@ pub struct Tools {
 #[derive(Clone)]
 pub(crate) struct Stream {
     pub track: Track,
+    pub quality: crate::audio_quality::AudioQuality,
     url: String,
     headers: String,
     obtained_at: std::time::Instant,
@@ -408,6 +409,7 @@ impl Tools {
         }
         Ok(Stream {
             track,
+            quality: crate::audio_quality::AudioQuality::youtube(value),
             url: stream_url.to_owned(),
             headers,
             obtained_at: std::time::Instant::now(),
@@ -415,7 +417,10 @@ impl Tools {
     }
 }
 
-async fn bounded_read(reader: impl tokio::io::AsyncRead + Unpin, limit: u64) -> Result<Vec<u8>> {
+pub(crate) async fn bounded_read(
+    reader: impl tokio::io::AsyncRead + Unpin,
+    limit: u64,
+) -> Result<Vec<u8>> {
     let mut bytes = Vec::new();
     reader.take(limit + 1).read_to_end(&mut bytes).await?;
     ensure!(

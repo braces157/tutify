@@ -5,6 +5,8 @@ pub enum MusicSource {
     #[default]
     Spotify,
     Youtube,
+    Volta,
+    SpotifyVolta,
 }
 
 impl MusicSource {
@@ -12,6 +14,8 @@ impl MusicSource {
         match self {
             Self::Spotify => "Spotify",
             Self::Youtube => "YouTube",
+            Self::Volta => "Volta",
+            Self::SpotifyVolta => "Spotify + Volta",
         }
     }
 }
@@ -28,10 +32,13 @@ pub(crate) enum SessionRequest {
 
 /// Track identities are namespaced; Spotify entity IDs stay strictly validated.
 pub fn valid_track_id(id: &str) -> bool {
-    valid_id(id) || crate::youtube::video_key(id).is_some()
+    valid_id(id) || crate::youtube::video_key(id).is_some() || crate::volta::key(id).is_some()
 }
 
 pub fn track_url(id: &str) -> Option<String> {
+    if crate::volta::key(id).is_some() {
+        return Some("https://app.volta-music.com/".into());
+    }
     if let Some(video) = crate::youtube::video_key(id) {
         Some(format!("https://www.youtube.com/watch?v={video}"))
     } else {
@@ -81,7 +88,9 @@ pub struct Playlist {
 }
 
 pub fn valid_playlist_id(id: &str) -> bool {
-    valid_id(id) || crate::youtube::music::playlist_key(id).is_some()
+    valid_id(id)
+        || crate::youtube::music::playlist_key(id).is_some()
+        || crate::volta::key(id).is_some()
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

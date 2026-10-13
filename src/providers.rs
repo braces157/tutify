@@ -39,5 +39,29 @@ pub(crate) fn open(
                 library_connected,
             })
         }
+        MusicSource::Volta => {
+            let client = crate::volta::Client::load()?;
+            Ok(Services {
+                catalog: Catalog::volta(client.clone())?,
+                playback: Playback::spawn_volta(client, config.volume, visualizer)?,
+                music_catalog: false,
+                library_connected: true,
+            })
+        }
+        MusicSource::SpotifyVolta => {
+            let catalog = Catalog::new(TokenManager::load(config)?)?;
+            let client = crate::volta::Client::load()?;
+            Ok(Services {
+                playback: Playback::spawn_spotify_volta(
+                    client,
+                    catalog.clone(),
+                    config.volume,
+                    visualizer,
+                )?,
+                catalog,
+                music_catalog: false,
+                library_connected: true,
+            })
+        }
     }
 }

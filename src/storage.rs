@@ -66,8 +66,14 @@ pub struct Storage {
 impl Storage {
     /// Separate provider data, with inherited appearance on first launch.
     pub fn youtube(&self) -> Result<Self> {
+        self.provider_store("youtube")
+    }
+    pub(crate) fn volta(&self) -> Result<Self> {
+        self.provider_store("volta")
+    }
+    fn provider_store(&self, name: &str) -> Result<Self> {
         let store = Self {
-            root: self.root.join("youtube"),
+            root: self.root.join(name),
         };
         fs::create_dir_all(&store.root)?;
         if !store.root.join("config.json").exists() {

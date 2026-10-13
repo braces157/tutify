@@ -129,6 +129,7 @@ mod tests {
                 },
                 url: "https://rr1.googlevideo.com/audio".into(),
                 headers: String::new(),
+                quality: Default::default(),
                 obtained_at: std::time::Instant::now(),
             });
         }

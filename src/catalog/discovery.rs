@@ -319,6 +319,9 @@ impl Catalog {
         excluded: &[Track],
         round: usize,
     ) -> Result<Recommendations> {
+        if let Some(result) = self.volta_recommendations(seed, excluded, round).await {
+            return result;
+        }
         if self.youtube.is_some() {
             return self.youtube_recommendations(seed, excluded, round).await;
         }

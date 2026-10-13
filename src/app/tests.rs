@@ -18,6 +18,7 @@ mod radio_discovery;
 mod refactor;
 mod search_history;
 mod smart_shuffle;
+mod spotify_volta;
 mod state;
 mod youtube;
 

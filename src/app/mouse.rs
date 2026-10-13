@@ -17,6 +17,9 @@ pub(super) fn choose_search(app: &mut App, scope: SearchScope, tasks: &mut Tasks
         } else {
             SearchScope::Youtube
         }
+    } else if app.config.source == crate::model::MusicSource::Volta && scope != SearchScope::Library
+    {
+        SearchScope::Volta
     } else {
         scope
     };

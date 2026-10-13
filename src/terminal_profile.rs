@@ -205,25 +205,28 @@ fn update_background_override(settings: &mut Value, config: &Config) -> Result<(
 }
 
 pub(crate) fn launch() -> Result<bool> {
-    launch_player(Some(false))
+    launch_player(Some("spotify"))
 }
 
 pub(crate) fn launch_youtube() -> Result<bool> {
-    launch_player(Some(true))
+    launch_player(Some("youtube"))
+}
+pub(crate) fn launch_volta() -> Result<bool> {
+    launch_player(Some("volta"))
 }
 
 pub(crate) fn launch_auto() -> Result<bool> {
     launch_player(None)
 }
-fn launch_player(youtube: Option<bool>) -> Result<bool> {
+fn launch_player(source: Option<&str>) -> Result<bool> {
     let Some(wt) = windows_terminal() else {
         return Ok(false);
     };
     let mut command = Command::new(wt);
     command.args(["-w", "0", "new-tab", "-p", PROFILE_GUID]);
     command.arg(std::env::current_exe()?).arg("--native-glass");
-    if let Some(youtube) = youtube {
-        command.args(["--source", if youtube { "youtube" } else { "spotify" }]);
+    if let Some(source) = source {
+        command.args(["--source", source]);
     }
     let status = command
         .status()

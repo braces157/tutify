@@ -335,13 +335,16 @@ async fn setup_inner(
     let streaming_tokens = credential_tokens(stream_entry()?.get_password())?;
     let (catalog_saved, streaming_saved) =
         saved_login_state(catalog_tokens.as_ref(), streaming_tokens.as_ref())?;
-    let steps = setup_steps(
+    let mut steps = setup_steps(
         catalog_saved,
         streaming_saved,
         client_changed,
         force,
         streaming_only,
     );
+    if !plan_checked && !streaming_only && crate::volta::available() {
+        steps.retain(|step| *step == LoginStep::Catalog);
+    }
     if steps.is_empty() {
         return Ok(());
     }
@@ -597,7 +600,7 @@ fn callback_message(result: &Result<()>, streaming: bool) -> (String, String) {
             if streaming {
                 "Spotify streaming login saved successfully. Close this tab and return to the terminal to continue.".into()
             } else {
-                "Spotify catalog login saved successfully. Close this tab and return to the terminal. Tuitify will automatically open the remaining browser login step.".into()
+                "Spotify catalog login saved successfully. Close this tab and return to the terminal to continue.".into()
             },
         ),
         Err(error) => (

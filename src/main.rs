@@ -1,4 +1,5 @@
 mod app;
+mod audio_quality;
 mod auth;
 mod build_info;
 mod cache;
@@ -22,6 +23,7 @@ mod storage;
 mod terminal_profile;
 mod ui;
 pub mod visualizer;
+mod volta;
 mod youtube;
 
 use anyhow::{Context, Result, ensure};
@@ -31,10 +33,10 @@ use std::path::PathBuf;
 #[derive(Parser)]
 #[command(
     version,
-    about = "Spotify Premium or free YouTube Music terminal player, with automatic source selection"
+    about = "Spotify Premium, YouTube Music, or personal Volta FLAC terminal player"
 )]
 struct Cli {
-    /// Auto uses Spotify for saved Premium accounts, otherwise YouTube Music.
+    /// Auto keeps connected Spotify playlists/discovery with Volta lossless audio.
     #[arg(
         long = "source",
         value_enum,
@@ -58,6 +60,11 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Open the Volta FLAC player, or connect a personal Volta application.
+    Volta {
+        #[command(subcommand)]
+        command: Option<VoltaCommand>,
+    },
     /// Open the free YouTube player, or manage/test its optional tools.
     #[command(hide = true)]
     Youtube {
@@ -153,6 +160,29 @@ enum YoutubeCommand {
     Search { query: String },
     /// Validate real audio decoding (muted by default) without changing saved state.
     Probe {
+        track: String,
+        #[arg(long, default_value_t = 5, value_parser = clap::value_parser!(u8).range(1..=60))]
+        seconds: u8,
+        #[arg(long, default_value_t = 0, value_parser = clap::value_parser!(u8).range(0..=100))]
+        volume: u8,
+    },
+}
+
+#[derive(Subcommand)]
+enum VoltaCommand {
+    /// Store your own application's credentials in Windows Credential Manager.
+    Login {
+        /// Read {client_id, client_secret} JSON from stdin, never command-line secrets.
+        #[arg(long)]
+        credentials_stdin: bool,
+    },
+    /// Forget saved Volta credentials; preserve the queue and other sources.
+    Logout,
+    /// Search the Volta catalogue using your personal application's permissions.
+    Search { query: String },
+    /// Check real audio decoding and output (muted by default).
+    Probe {
+        /// Volta track ID, Spotify track link, or Spotify track ID.
         track: String,
         #[arg(long, default_value_t = 5, value_parser = clap::value_parser!(u8).range(1..=60))]
         seconds: u8,
@@ -286,6 +316,30 @@ async fn main() -> Result<()> {
     if let Some(Command::Support { output }) = cli.command {
         return diagnostics::support::run(output).await;
     }
+    if let Some(Command::Volta {
+        command: Some(command),
+    }) = &cli.command
+    {
+        return match command {
+            VoltaCommand::Login { credentials_stdin } => volta::login(*credentials_stdin).await,
+            VoltaCommand::Logout => volta::logout(),
+            VoltaCommand::Search { query } => {
+                let page = volta::Client::load()?
+                    .page(&catalog::Browse::Search(query.clone()), 0)
+                    .await?;
+                let catalog::Rows::Tracks(tracks) = page.rows else {
+                    unreachable!()
+                };
+                println!("{}", serde_json::to_string_pretty(&tracks)?);
+                Ok(())
+            }
+            VoltaCommand::Probe {
+                track,
+                seconds,
+                volume,
+            } => volta::playback::probe(track, *seconds, *volume).await,
+        };
+    }
     if let Some(Command::Youtube {
         command: Some(command),
     }) = &cli.command
@@ -348,7 +402,8 @@ async fn main() -> Result<()> {
             | Command::Doctor(_)
             | Command::Support { .. }
             | Command::Version { .. }
-            | Command::Youtube { .. },
+            | Command::Youtube { .. }
+            | Command::Volta { .. },
         ) => unreachable!(),
         Some(Command::Auth {
             client_id,
@@ -482,10 +537,14 @@ fn player_source(cli: &Cli) -> Result<Option<source::Choice>> {
     match &cli.command {
         None => Ok(Some(cli.music_source)),
         Some(Command::Youtube { command: None }) => Ok(Some(source::Choice::Youtube)),
+        Some(Command::Volta { command: None }) => Ok(Some(source::Choice::Volta)),
         _ => {
             ensure!(
-                cli.music_source != source::Choice::Youtube,
-                "Use 'tuitify youtube' for the YouTube player; Spotify commands require '--source spotify'"
+                !matches!(
+                    cli.music_source,
+                    source::Choice::Youtube | source::Choice::Volta
+                ),
+                "Use the provider's subcommand for management; Spotify commands require '--source spotify'"
             );
             Ok(None)
         }
@@ -494,6 +553,16 @@ fn player_source(cli: &Cli) -> Result<Option<source::Choice>> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn volta_player_and_management_commands_are_separate() {
+        use super::*;
+        let cli = Cli::try_parse_from(["tuitify", "volta"]).unwrap();
+        assert_eq!(player_source(&cli).unwrap(), Some(source::Choice::Volta));
+        let cli = Cli::try_parse_from(["tuitify", "--source", "volta"]).unwrap();
+        assert_eq!(player_source(&cli).unwrap(), Some(source::Choice::Volta));
+        assert!(Cli::try_parse_from(["tuitify", "volta", "login", "--credentials-stdin"]).is_ok());
+        assert!(Cli::try_parse_from(["tuitify", "volta", "probe", "volta:JPW462364925"]).is_ok());
+    }
     use super::*;
 
     #[test]

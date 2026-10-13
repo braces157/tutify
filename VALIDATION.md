@@ -1,5 +1,37 @@
 # Validation record
 
+## v0.6.0 Volta lossless and audio quality — 2026-10-14
+
+The release adds personal Volta applications, standalone Volta saved state,
+Spotify catalog/discovery with matched Volta audio, and source-quality labels in
+the TUI and Discord presence. Rust, npm and public download versions agree on
+0.6.0; previous release records remain historical.
+
+Local stable checks passed formatting, locked tests (**593 active tests: 586 unit
+and seven integration; 22 ignored opt-ins**) and strict all-target Clippy. The
+website passed **24 Microsoft Edge browser tests**, including release/download
+consistency, responsive layouts, installation commands and motion accessibility.
+
+Offline mocks cover token reuse, client-secret isolation from catalog requests,
+same-origin stream-cookie forwarding, external relay rejection, redacted upstream
+failures, rate-limit cooldown, native stream rate, Spotify ISRC resolution,
+ambiguous/version/artist match rejection, separate provider persistence, and
+quality display at narrow terminal widths and in Discord presence.
+
+Gitleaks 8.30.1 scanned full Git history and the staged publication source with
+default rules and a Volta-specific key/token rule, finding no secrets. A synthetic
+Volta-secret canary confirmed that the additional rule detects a key. Scanner
+downloads were checksum-verified. Work logs, agent notes, private credential files
+and local development captures are excluded; GitHub CI repeats the history scan.
+
+Release gates also check Rust 1.88, the optimized locked build, fresh package
+manifests and extracted payload hashes, and final installed executable SHA-256
+against the release build at every observed launch path.
+
+Live authenticated provider playback and device-specific audio behavior were
+not exercised by this release verification. Ignored live/hardware tests remain
+explicit opt-ins; source-format labels do not prove bit-perfect Windows output.
+
 ## v0.5.0 automatic provider launch — 2026-10-07
 
 The release adds automatic Spotify Premium/free YouTube Music selection,

@@ -27,8 +27,9 @@ pub(crate) async fn run(cli: &Cli, choice: source::Choice) -> Result<()> {
         }
         let root = Storage::local()?;
         let mut store = match selected.source {
-            MusicSource::Spotify => root.clone(),
+            MusicSource::Spotify | MusicSource::SpotifyVolta => root.clone(),
             MusicSource::Youtube => root.youtube()?,
+            MusicSource::Volta => root.volta()?,
         };
         let mut instance = Some(store.lock()?);
         if selected.source == MusicSource::Spotify {
@@ -71,6 +72,8 @@ pub(crate) async fn run(cli: &Cli, choice: source::Choice) -> Result<()> {
                 match selected.source {
                     MusicSource::Spotify => terminal_profile::launch()?,
                     MusicSource::Youtube => terminal_profile::launch_youtube()?,
+                    MusicSource::Volta => terminal_profile::launch_volta()?,
+                    MusicSource::SpotifyVolta => terminal_profile::launch_auto()?,
                 }
             };
             if launched {

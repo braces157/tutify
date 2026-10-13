@@ -1,9 +1,9 @@
 [package]
 name = "tuitify"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2024"
 rust-version = "1.88"
-description = "Spotify Premium and free YouTube Music terminal player for Windows"
+description = "Spotify, YouTube Music, and Volta lossless terminal player for Windows"
 license = "MIT"
 
 [dependencies]

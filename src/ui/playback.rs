@@ -12,8 +12,17 @@ pub(super) fn playback(frame: &mut Frame<'_>, app: &App, render: &mut RenderStat
             || " NOW PLAYING ".into(),
             |timer| format!(" NOW PLAYING · {timer} "),
         );
-    let outer = block_themed(title, false, theme)
+    let mut outer = block_themed(title, false, theme)
         .style(Style::default().fg(palette.text).bg(palette.surface_alt));
+    if let Some(quality) = app.audio_quality {
+        outer = outer.title_bottom(
+            Line::from(Span::styled(
+                format!(" {} ", quality.label()),
+                Style::default().fg(palette.primary_soft).bold(),
+            ))
+            .alignment(Alignment::Right),
+        );
+    }
     let inner = outer.inner(area);
     frame.render_widget(outer, area);
     hit(

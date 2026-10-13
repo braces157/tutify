@@ -8,3 +8,24 @@
 /test-results/
 /playwright-report/
 /output/
+
+# Local development notes, logs, fixtures, and captures are not release source.
+/work/
+/.agents/
+/AGENTS.md
+/FUTURE_PLAN.md
+/IMPLEMENTATION_PROGRESS.md
+/ORIGINAL_REQUEST.md
+/PROJECT.md
+/TEST_INFRA.md
+/TEST_READY.md
+/Screenshot*.png
+
+# Per-user authentication and private keys must never be committed.
+.env
+.env.*
+*.pem
+*.key
+*credentials*.json
+*cookies*.txt
+/secrets/

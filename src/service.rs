@@ -4,6 +4,7 @@ use std::time::{Duration, Instant, SystemTime};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Provider {
+    Volta,
     Spotify,
     YoutubeMusic,
     SimilarArtists,
@@ -138,11 +139,20 @@ fn remaining_seconds(until: Instant) -> u64 {
 impl std::fmt::Display for ServiceFailure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let provider = match self.provider {
+            Provider::Volta => "Volta",
             Provider::Spotify => "Spotify",
             Provider::YoutubeMusic => "YouTube Music",
             Provider::SimilarArtists => "Similar-artist service",
         };
         match self.kind {
+            FailureKind::AuthenticationRequired if self.provider == Provider::Volta => write!(
+                f,
+                "Volta application token expired or was revoked; reconnect with 'tuitify volta login'"
+            ),
+            FailureKind::AccessRestricted if self.provider == Provider::Volta => write!(
+                f,
+                "Volta denied this request. Check the personal application's scopes at account.volta-music.com/apps; catalog:read and stream:read are needed for playback"
+            ),
             FailureKind::AuthenticationRequired if self.provider == Provider::YoutubeMusic => {
                 write!(
                     f,
