@@ -5,6 +5,9 @@ use serde_json::Value;
 use std::time::Duration;
 use unicode_normalization::UnicodeNormalization;
 
+mod romanization;
+pub use romanization::{ReadingMode, Readings};
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LyricLine {
     pub position_ms: u32,
@@ -15,6 +18,9 @@ pub struct LyricLine {
 pub struct Lyrics {
     pub lines: Vec<LyricLine>,
     pub plain: Option<String>,
+    pub readings: Vec<Readings>,
+    pub plain_readings: Vec<Readings>,
+    pub japanese: bool,
 }
 
 impl Lyrics {
@@ -76,7 +82,16 @@ pub fn parse_lrc(lrc: &str) -> Vec<LyricLine> {
 }
 
 pub async fn fetch(client: &Client, track: &Track) -> Result<Option<Lyrics>> {
-    fetch_from(client, "https://lrclib.net", track).await
+    let lyrics = fetch_from(client, "https://lrclib.net", track).await?;
+    // Dictionary initialization and conversion run outside the async/UI threads.
+    tokio::task::spawn_blocking(move || {
+        lyrics.map(|mut lyrics| {
+            lyrics.prepare_readings();
+            lyrics
+        })
+    })
+    .await
+    .map_err(Into::into)
 }
 
 async fn fetch_from(client: &Client, base: &str, track: &Track) -> Result<Option<Lyrics>> {
@@ -193,7 +208,11 @@ fn parse_lyrics(json: &Value) -> Lyrics {
         vec![]
     };
 
-    Lyrics { lines, plain }
+    Lyrics {
+        lines,
+        plain,
+        ..Lyrics::default()
+    }
 }
 
 #[cfg(test)]
@@ -435,6 +454,7 @@ mod tests {
         let lyrics = Lyrics {
             lines: parse_lrc(sample),
             plain: None,
+            ..Lyrics::default()
         };
         assert_eq!(lyrics.current_line_index(500), None);
         assert_eq!(lyrics.current_line_index(2000), Some(0));

@@ -79,6 +79,7 @@ fn help_and_plain_lyrics_can_scroll_to_last_line_in_small_terminal() {
                 .collect::<Vec<_>>()
                 .join("\n"),
         ),
+        ..crate::lyrics::Lyrics::default()
     });
     app.lyrics.scroll = usize::MAX;
     terminal
@@ -909,6 +910,7 @@ fn test_synced_lyrics_wraps_in_narrow_terminal() {
     app.lyrics.content = Some(crate::lyrics::Lyrics {
         lines: crate::lyrics::parse_lrc(lrc_sample),
         plain: None,
+        ..crate::lyrics::Lyrics::default()
     });
     // Position at 16 seconds (line index 3 is active: "I was younger then...")
     app.queue.position_ms = 16_000;
@@ -939,6 +941,83 @@ fn test_synced_lyrics_wraps_in_narrow_terminal() {
         text.contains("► I was younger then"),
         "Expected active marker on current line, but buffer was:\n{text}"
     );
+}
+
+#[test]
+fn lyric_readings_render_beneath_originals_and_follow_active_timestamps() {
+    use crate::lyrics::{Lyrics, ReadingMode, parse_lrc};
+    let mut app = App::new(Config::default(), Queue::default());
+    app.ui.overlay = Overlay::Lyrics;
+    let mut content = Lyrics {
+        lines: parse_lrc("[00:01]君は夢を見る\n[00:05]世界\n[00:10]ありがとう"),
+        ..Lyrics::default()
+    };
+    content.prepare_readings();
+    app.lyrics.content = Some(content);
+    app.queue.position_ms = 6000;
+    for width in [24, 40, 80] {
+        let mut terminal = Terminal::new(TestBackend::new(width, 14)).unwrap();
+        terminal
+            .draw(|frame| lyrics(frame, &app, &mut app.ui.render.borrow_mut(), frame.area()))
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        let rows: Vec<String> = (0..14)
+            .map(|y| (0..width).map(|x| buffer[(x, y)].symbol()).collect())
+            .collect();
+        let active = rows.iter().position(|r| r.contains("► 世")).unwrap();
+        assert!(rows[active + 1].contains("sekai"), "{rows:?}");
+        let palette = Theme::from_str(&app.config.theme).palette();
+        let reading_cell = buffer
+            .content
+            .iter()
+            .find(|cell| cell.symbol() == "s" && cell.fg == palette.primary);
+        assert!(reading_cell.is_some());
+        app.lyrics.reading_mode = ReadingMode::Off;
+        terminal
+            .draw(|frame| lyrics(frame, &app, &mut app.ui.render.borrow_mut(), frame.area()))
+            .unwrap();
+        let text: String = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|c| c.symbol())
+            .collect();
+        assert!(!text.contains("sekai"));
+        assert!(text.contains("► 世"));
+        app.lyrics.reading_mode = ReadingMode::Auto;
+    }
+}
+
+#[test]
+fn plain_readings_wrap_and_scroll_to_the_last_pronunciation() {
+    let mut app = App::new(Config::default(), Queue::default());
+    app.ui.overlay = Overlay::Lyrics;
+    let mut content = crate::lyrics::Lyrics {
+        plain: Some(
+            (0..40)
+                .map(|_| "你好世界，你好世界，你好世界")
+                .collect::<Vec<_>>()
+                .join("\n"),
+        ),
+        ..crate::lyrics::Lyrics::default()
+    };
+    content.prepare_readings();
+    app.lyrics.content = Some(content);
+    app.lyrics.scroll = usize::MAX;
+    let mut terminal = Terminal::new(TestBackend::new(24, 10)).unwrap();
+    terminal
+        .draw(|frame| lyrics(frame, &app, &mut app.ui.render.borrow_mut(), frame.area()))
+        .unwrap();
+    let text: String = terminal
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|c| c.symbol())
+        .collect();
+    assert!(text.contains("shì jiè"), "{text}");
+    assert!(app.ui.render.borrow().lyrics_length > 40);
 }
 
 #[test]

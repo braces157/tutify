@@ -30,6 +30,7 @@ function Resolve-TuitifySource {
 $source = Resolve-TuitifySource -ExplicitSource $SourceExe
 $installRoot = [System.IO.Path]::GetFullPath($InstallDir)
 $destination = Join-Path $installRoot 'tuitify.exe'
+$notices = Join-Path $PSScriptRoot '..\THIRD-PARTY-NOTICES.txt'
 
 New-Item -ItemType Directory -Path $installRoot -Force | Out-Null
 try {
@@ -41,6 +42,14 @@ try {
     }
     Move-Item -LiteralPath $destination -Destination $backup -Force
     Copy-Item -LiteralPath $source -Destination $destination -Force
+}
+$noticeDestination = Join-Path $installRoot 'THIRD-PARTY-NOTICES.txt'
+if ((Test-Path -LiteralPath $notices -PathType Leaf) -and -not [string]::Equals(
+    [System.IO.Path]::GetFullPath($notices),
+    $noticeDestination,
+    [System.StringComparison]::OrdinalIgnoreCase
+)) {
+    Copy-Item -LiteralPath $notices -Destination $noticeDestination -Force
 }
 
 $currentUserPath = [Environment]::GetEnvironmentVariable('Path', 'User')

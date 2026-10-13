@@ -1,6 +1,32 @@
 use super::*;
 
 #[tokio::test]
+async fn lyrics_reading_key_cycles_without_changing_playback() {
+    use crate::lyrics::ReadingMode;
+    let mut app = App::new(Config::default(), Queue::default());
+    let (mut tasks, _) = tasks();
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    app.ui.overlay = Overlay::Lyrics;
+    for mode in [
+        ReadingMode::Japanese,
+        ReadingMode::Mandarin,
+        ReadingMode::Off,
+        ReadingMode::Auto,
+    ] {
+        app.lyrics.scroll = 20;
+        key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE),
+            &mut tasks,
+            &tx,
+        );
+        assert_eq!(app.lyrics.reading_mode, mode);
+        assert_eq!(app.lyrics.scroll, 0);
+        assert!(rx.try_recv().is_err());
+    }
+}
+
+#[tokio::test]
 async fn stats_overlay_toggle_mutual_exclusion_and_esc() {
     let mut app = App::new(Config::default(), Queue::default());
     let (mut tasks, _) = tasks();

@@ -583,6 +583,7 @@ impl Tasks {
                     "[SIMULATED LYRICS]\nNeon rain on a midnight train\nA borrowed beat comes home again\nPin the spark and turn the page\nBuild tomorrow on this stage"
                         .into(),
                 ),
+                ..crate::lyrics::Lyrics::default()
             });
             app.lyrics.loading = false;
             return;

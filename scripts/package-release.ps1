@@ -24,7 +24,7 @@ function Publish-File([string]$source, [string]$destination) {
     else { [IO.File]::Move($source, $destination) }
 }
 try {
-    $documents = @('README.md', 'LICENSE', 'ROADMAP.md', 'VALIDATION.md', 'BENCHMARKS.md', 'ARCHITECTURE.md', 'CHANGELOG.md', 'PERFORMANCE_REVIEW.md', 'REFACTOR_REVIEW.md')
+    $documents = @('README.md', 'LICENSE', 'THIRD-PARTY-NOTICES.txt', 'ROADMAP.md', 'VALIDATION.md', 'BENCHMARKS.md', 'ARCHITECTURE.md', 'CHANGELOG.md', 'PERFORMANCE_REVIEW.md', 'REFACTOR_REVIEW.md')
     $items = @($exe) + @($documents | ForEach-Object { Join-Path $projectRoot $_ }) + @(Join-Path $projectRoot 'docs')
     foreach ($item in $items) {
         $entry = Get-Item -LiteralPath $item -Force

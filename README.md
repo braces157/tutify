@@ -84,7 +84,7 @@ workflow inside Windows Terminal—no Electron shell and no background service.
   audio visualizer, and a wallpaper-backed Glass theme. On Windows Terminal,
   Glass uses a dedicated native profile so the wallpaper stays at full display
   resolution; other terminals fall back to the Unicode cell renderer.
-- **Synchronized lyrics** from LRCLIB with automatic scrolling.
+- **Synchronized lyrics** from LRCLIB with automatic scrolling, plus offline Japanese romaji and Mandarin pinyin beneath the original lines.
 - **Windows integration** for media keys, system media controls, metadata, and the
   playback timeline.
 - **Audio quality** in Now Playing and Discord: source codec, bit depth/sample rate
@@ -362,6 +362,7 @@ text; finish text entry before using playback commands.
 | `R` | Start Track Radio from the selected track |
 | `M` (`Shift+M`) | Open Mix Builder from Queue or an active/selected playlist |
 | `l` / `v` / `S` | Toggle lyrics / visualizer / statistics |
+| `r` in lyrics | Cycle Latin readings: auto / Japanese romaji / Mandarin pinyin / off |
 | `t` | Cycle color themes |
 | `/` or `f` | Filter Queue or loaded Liked Songs/playlist rows; `/` opens search from other views |
 | `F2` / `F3` | Search Spotify / search your saved library |
@@ -605,6 +606,17 @@ artist, validating the returned title, artist, and duration. Unicode accents are
 preserved. HTTP 502–504 errors can retry once with a short wait; longer server
 cooldowns and HTTP 429 remain explicit errors. Artwork may use Spotify's public oEmbed service when
 catalog artwork is missing. These requests are separate from analytics.
+
+Japanese romaji and Mandarin pinyin are generated locally from embedded dictionaries
+for both timed and plain lyrics. Press `r` in the lyrics view to cycle auto,
+romaji, pinyin, and off. Auto treats a song containing kana as Japanese and
+otherwise uses Mandarin readings for Chinese characters; choose romaji manually
+for Japanese lyrics written entirely in kanji. The selection lasts for the current
+player session. Dictionary readings are pronunciation aids: unusual names,
+song-specific kanji readings, and Chinese characters with multiple pronunciations
+may differ from the recording. Pinyin represents Mandarin, including traditional
+characters; it does not represent Cantonese pronunciation.
+
 Radio and Smart Shuffle send the seed artist's name to Deezer's public metadata
 API; resolving ambiguous artist names can also send the seed song title. Spotify
 tokens, account identifiers, playlists and listening statistics are not sent to
