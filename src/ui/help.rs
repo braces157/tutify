@@ -57,6 +57,7 @@ pub(super) fn help(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, a
                    Glass text fades after 20 seconds idle; any input brings it back\n\
     v              Toggle Retro Visualizer (Real-time FFT)\n\
     l              Toggle Synced Real-Time Lyrics View (Lrclib)\n\
+    r (lyrics)     Cycle readings: auto / romaji / pinyin / off\n\
     S              Toggle local aggregate song statistics overlay\n\n\
     M (Shift-M)    Open Mix Builder (queue or current Spotify playlist)\n\
     Catalog & network\n\

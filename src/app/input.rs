@@ -343,6 +343,20 @@ pub(super) fn key(
         return;
     }
     if app.ui.overlay == Overlay::Lyrics
+        && key.code == KeyCode::Char('r')
+        && !key
+            .modifiers
+            .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+    {
+        app.lyrics.reading_mode = app.lyrics.reading_mode.next();
+        app.lyrics.scroll = 0;
+        app.status = format!(
+            "Lyrics readings: {} (r cycles auto / romaji / pinyin / off)",
+            app.lyrics.reading_mode.label()
+        );
+        return;
+    }
+    if app.ui.overlay == Overlay::Lyrics
         && app
             .lyrics
             .content

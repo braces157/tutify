@@ -16,6 +16,8 @@ fs2 = "=0.4.3"
 httpdate = "=1.0.3"
 image = { version = "=0.25.8", default-features = false, features = ["bmp", "jpeg", "png", "webp"] }
 log = "=0.4.34"
+lindera = { version = "=1.5.1", default-features = false, features = ["embedded-ipadic", "compress"] }
+pinyin = { version = "=0.11.0", default-features = false, features = ["with_tone"] }
 keyring = { version = "=3.6.3", features = ["windows-native"] }
 librespot-core = { version = "=0.8.0", default-features = false, features = ["rustls-tls-native-roots"] }
 librespot-playback = { version = "=0.8.0", default-features = false, features = ["rustls-tls-native-roots"] }
@@ -32,6 +34,7 @@ tokio-tungstenite = "=0.28.0"
 unicode-normalization = "=0.1.25"
 url = "=2.5.8"
 webbrowser = "=1.0.6"
+wana_kana = { version = "=5.0.0", default-features = false }
 windows = { version = "=0.61.3", features = ["Foundation", "Media", "Media_Playback", "Win32_System_WinRT", "Win32_System_Registry", "Win32_Security_Cryptography"] }
 
 [dev-dependencies]

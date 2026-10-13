@@ -27,7 +27,7 @@ function Read-Package {
         $file = if ($entry.location) { Join-Path $extract $entry.path } else { Join-Path $outputRoot $entry.path }
         if ((Get-Item -LiteralPath $file).Length -ne $entry.bytes -or (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant() -ne $entry.sha256) { throw 'External asset hash mismatch' }
     }
-    foreach ($file in @('scripts/install.ps1', 'scripts/build-manifest.ps1', 'README.md', 'docs/index.html')) {
+    foreach ($file in @('scripts/install.ps1', 'scripts/build-manifest.ps1', 'README.md', 'THIRD-PARTY-NOTICES.txt', 'docs/index.html')) {
         if ((Get-FileHash -LiteralPath (Join-Path $extract $file)).Hash -ne (Get-FileHash -LiteralPath (Join-Path $projectRoot $file)).Hash) { throw 'Installer/current docs absent or stale' }
     }
     if (@($manifest.files | Where-Object { $_.path -match '^(?:work|src|target|\.agents|\.git)/|IMPLEMENTATION_PROGRESS|AGENTS\.md|package-fixture.*\.md' }).Count) { throw 'Unintended/private artifact packaged' }

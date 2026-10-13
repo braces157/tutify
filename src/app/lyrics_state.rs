@@ -2,6 +2,7 @@ use super::Track;
 
 #[derive(Default)]
 pub struct LyricsState {
+    pub reading_mode: crate::lyrics::ReadingMode,
     pub scroll: usize,
     pub error: Option<String>,
     pub(super) metadata: Option<Track>,

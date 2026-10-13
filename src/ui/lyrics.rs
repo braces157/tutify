@@ -90,7 +90,13 @@ pub(super) fn lyrics(frame: &mut Frame<'_>, app: &App, render: &mut RenderState,
     } else {
         " LYRICS [l exit] ".to_string()
     };
-    let outer = block_themed(title, true, theme);
+    let reading_hint = if area.width >= 40 {
+        format!(" r readings: {} ", app.lyrics.reading_mode.label())
+    } else {
+        format!(" r: {} ", app.lyrics.reading_mode.label())
+    };
+    let outer =
+        block_themed(title, true, theme).title_bottom(Line::from(reading_hint).right_aligned());
     let inner = outer.inner(area);
     frame.render_widget(outer, area);
 
@@ -162,6 +168,27 @@ pub(super) fn lyrics(frame: &mut Frame<'_>, app: &App, render: &mut RenderState,
 
                 all_lines.push(Line::from(vec![prefix, text_span]));
             }
+            if let Some(reading) = lyr
+                .readings
+                .get(i)
+                .and_then(|r| r.get(app.lyrics.reading_mode, lyr.japanese))
+            {
+                let style = if is_active {
+                    Style::default()
+                        .fg(palette.primary)
+                        .bg(palette.surface_selected)
+                } else if is_past {
+                    Style::default().fg(palette.text_subtle)
+                } else {
+                    Style::default().fg(palette.text_muted)
+                };
+                for chunk in wrap_lyric_line(reading, max_text_width) {
+                    all_lines.push(Line::from(vec![
+                        Span::raw("  "),
+                        Span::styled(chunk, style),
+                    ]));
+                }
+            }
         }
 
         let height = inner.height as usize;
@@ -170,7 +197,21 @@ pub(super) fn lyrics(frame: &mut Frame<'_>, app: &App, render: &mut RenderState,
         let visible: Vec<Line<'static>> = all_lines.into_iter().skip(scroll).take(height).collect();
         frame.render_widget(Paragraph::new(visible), inner);
     } else if let Some(plain) = &lyr.plain {
-        let p = Paragraph::new(plain.as_str())
+        let mut lines = Vec::new();
+        for (i, original) in plain.lines().enumerate() {
+            lines.push(Line::from(original));
+            if let Some(reading) = lyr
+                .plain_readings
+                .get(i)
+                .and_then(|r| r.get(app.lyrics.reading_mode, lyr.japanese))
+            {
+                lines.push(Line::from(Span::styled(
+                    reading,
+                    Style::default().fg(palette.primary),
+                )));
+            }
+        }
+        let p = Paragraph::new(lines)
             .wrap(Wrap { trim: true })
             .style(Style::default().fg(palette.text));
         let max_scroll = p
