@@ -184,7 +184,7 @@ test('website motion can be paused and the preference persists', async ({ page }
   await expect(toggle).toHaveAttribute('aria-pressed', 'true');
   await toggle.click();
   await expect(toggle).toHaveAttribute('aria-pressed', 'false');
-  await expect.poll(() => page.locator('.vinyl-label').evaluate(element => getComputedStyle(element).animationPlayState)).toBe('paused');
+  await expect.poll(() => page.locator('.preview-image').evaluate(element => getComputedStyle(element).animationPlayState)).toBe('paused');
   await page.reload();
   await expect(toggle).toHaveAttribute('aria-pressed', 'false');
   await expect.poll(() => page.locator('.install-copy').evaluate(element => getComputedStyle(element).opacity)).toBe('1');
@@ -192,7 +192,7 @@ test('website motion can be paused and the preference persists', async ({ page }
   await expect(toggle).toHaveAttribute('aria-pressed', 'true');
   await page.locator('footer').scrollIntoViewIfNeeded();
   await expect(page.locator('.record-scene')).toHaveClass(/motion-offscreen/);
-  await expect.poll(() => page.locator('.vinyl-label').evaluate(element => getComputedStyle(element).animationPlayState)).toBe('paused');
+  await expect.poll(() => page.locator('.preview-image').evaluate(element => getComputedStyle(element).animationPlayState)).toBe('paused');
 });
 
 test('operating system reduced motion keeps content visible and animations still', async ({ page }) => {
@@ -200,7 +200,7 @@ test('operating system reduced motion keeps content visible and animations still
   await page.goto('/docs/index.html');
   await expect(page.locator('.motion-toggle')).toBeEnabled();
   await expect(page.locator('.motion-toggle')).toHaveAttribute('aria-pressed', 'false');
-  await expect.poll(() => page.locator('.vinyl-label').evaluate(element => parseFloat(getComputedStyle(element).animationDuration))).toBeLessThan(.01);
+  await expect.poll(() => page.locator('.preview-image').evaluate(element => parseFloat(getComputedStyle(element).animationDuration))).toBeLessThan(.01);
   await expect.poll(() => page.locator('.questions-heading').evaluate(element => getComputedStyle(element).opacity)).toBe('1');
 });
 
@@ -210,16 +210,17 @@ test('visitors can enable and persist animation when their device prefers reduce
   const toggle = page.getByRole('button', { name: 'Enable website animations' });
   await toggle.click();
   await expect(page.locator('.motion-toggle')).toHaveAttribute('aria-pressed', 'true');
-  await expect.poll(() => page.locator('.vinyl-label').evaluate(element => parseFloat(getComputedStyle(element).animationDuration))).toBeGreaterThan(1);
-  const rotation = await page.locator('.vinyl-label').evaluate(element => getComputedStyle(element).transform);
-  await expect.poll(() => page.locator('.vinyl-label').evaluate(element => getComputedStyle(element).transform)).not.toBe(rotation);
+  await expect.poll(() => page.locator('.preview-image').evaluate(element => parseFloat(getComputedStyle(element).animationDuration))).toBeGreaterThan(1);
+  await page.locator('.record-scene').scrollIntoViewIfNeeded();
+  const rotation = await page.locator('.preview-image').evaluate(element => getComputedStyle(element).transform);
+  await expect.poll(() => page.locator('.preview-image').evaluate(element => getComputedStyle(element).transform)).not.toBe(rotation);
   await page.locator('#signal-stage').scrollIntoViewIfNeeded();
   const canvas = page.locator('#signal-canvas');
   const first = await canvas.evaluate(element => element.toDataURL());
   await expect.poll(() => canvas.evaluate(element => element.toDataURL())).not.toBe(first);
   await page.reload();
   await expect(page.locator('.motion-toggle')).toHaveAttribute('aria-pressed', 'true');
-  await expect.poll(() => page.locator('.vinyl-label').evaluate(element => parseFloat(getComputedStyle(element).animationDuration))).toBeGreaterThan(1);
+  await expect.poll(() => page.locator('.preview-image').evaluate(element => parseFloat(getComputedStyle(element).animationDuration))).toBeGreaterThan(1);
   await page.locator('#signal-stage').scrollIntoViewIfNeeded();
   const reloaded = await canvas.evaluate(element => element.toDataURL());
   await expect.poll(() => canvas.evaluate(element => element.toDataURL())).not.toBe(reloaded);
@@ -293,10 +294,12 @@ test('canvas moves while visible and pauses with motion controls and offscreen',
   expect(await canvas.evaluate(element => element.toDataURL())).toBe(offscreen);
 });
 
-test('record responds to the pointer and stops when motion is disabled', async ({ page }) => {
+test('player preview responds to the pointer and stops when motion is disabled', async ({ page }) => {
   await page.goto('/docs/index.html');
   await page.waitForTimeout(1200);
   const record = page.locator('.record-scene');
+  await record.scrollIntoViewIfNeeded();
+  await expect(record).toHaveClass(/is-visible/);
   const box = await record.boundingBox();
   await page.mouse.move(box.x + box.width * .8, box.y + box.height * .3);
   await expect(record).toHaveClass(/is-hovered/);
@@ -364,4 +367,34 @@ test('essential content and downloads work without JavaScript', async ({ browser
   await expect(page.locator('.install-copy')).toBeVisible();
   await expect(page.locator('.questions-heading')).toHaveCSS('opacity', '1');
   await context.close();
+});
+
+test('native screenshot previews switch with keyboard navigation and keep full-image links', async ({ page }) => {
+  await page.goto('/docs/index.html');
+  const queue = page.locator('#preview-tab-queue');
+  await queue.focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(page.locator('#preview-tab-lyrics')).toBeFocused();
+  await expect(page.locator('#preview-tab-lyrics')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('#preview-panel')).toHaveAttribute('aria-labelledby', 'preview-tab-lyrics');
+  await expect(page.locator('#preview-panel img')).toHaveAttribute('src', /glass-lyrics\.jpg$/);
+  await expect(page.locator('#preview-panel a')).toHaveAttribute('href', /glass-lyrics\.jpg$/);
+  await expect(page.locator('.preview-caption')).toContainText('v0.3.0');
+  await page.keyboard.press('End');
+  await expect(page.locator('#preview-tab-spectrum')).toBeFocused();
+  await expect(page.locator('#preview-panel img')).toHaveAttribute('alt', /spectrum visualizer/);
+  await page.keyboard.press('Home');
+  await expect(queue).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('#preview-panel a')).toHaveAttribute('href', /glass-queue-smart-shuffle\.png$/);
+});
+
+test('native preview explains image failures and recovers on another selection', async ({ page }) => {
+  await page.route('**/glass-lyrics.jpg', route => route.abort());
+  await page.goto('/docs/index.html');
+  await page.locator('#preview-tab-lyrics').click();
+  await expect(page.locator('.preview-error')).toBeVisible();
+  await expect(page.locator('#preview-panel a')).toHaveAttribute('href', /glass-lyrics\.jpg$/);
+  await page.locator('#preview-tab-spectrum').click();
+  await expect(page.locator('.preview-error')).toBeHidden();
+  await expect.poll(() => page.locator('#preview-panel img').evaluate(image => image.complete && image.naturalWidth > 0)).toBe(true);
 });

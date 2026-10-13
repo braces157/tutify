@@ -8,6 +8,8 @@
 /test-results/
 /playwright-report/
 /output/
+/.taste-skill/
+/skills-lock.json
 
 # Local development notes, logs, fixtures, and captures are not release source.
 /work/

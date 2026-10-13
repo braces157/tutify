@@ -78,6 +78,15 @@
     });
   }
 
+  // Choreograph each section in reading order instead of fading one large container.
+  document.querySelectorAll('.story-copy, .keyboard-copy, .install-copy, .questions-heading, .hero-stats, .setup-steps').forEach(group => {
+    group.classList.remove('reveal');
+    Array.from(group.children).forEach((child, index) => {
+      if (child.matches('[data-split]')) return;
+      child.classList.add('reveal');
+      child.style.setProperty('--i', String(index));
+    });
+  });
   const revealTargets = document.querySelectorAll('.reveal, [data-split], .footer-top');
   if ('IntersectionObserver' in window) {
     const reveals = new IntersectionObserver((entries) => {
@@ -88,7 +97,7 @@
           reveals.unobserve(entry.target);
         }
       });
-    }, { threshold: .08, rootMargin: '0px 0px -6% 0px' });
+    }, { threshold: .02, rootMargin: '0px 0px 64px 0px' });
     revealTargets.forEach((element) => reveals.observe(element));
     const records = new IntersectionObserver((entries) => {
       record.classList.toggle('motion-offscreen', !entries[0].isIntersecting);
@@ -111,12 +120,58 @@
   if (!('IntersectionObserver' in window)) revealTargets.forEach(element => element.classList.add('is-visible'));
   updateMotion();
 
-  // Header becomes denser once the page scrolls.
-  const header = document.querySelector('.site-header');
-  let headerTicking = false;
-  const updateHeader = () => { headerTicking = false; header.classList.toggle('is-scrolled', window.scrollY > 24); };
-  window.addEventListener('scroll', () => { if (!headerTicking) { headerTicking = true; window.requestAnimationFrame(updateHeader); } }, { passive: true });
-  updateHeader();
+  // Historical native captures are navigable, and always link to their full image.
+  const previewTabs = Array.from(document.querySelectorAll('[data-preview-mode]'));
+  const previewPanel = document.getElementById('preview-panel');
+  const previewImage = previewPanel.querySelector('img');
+  const previewLink = previewPanel.querySelector('a');
+  const previewError = previewPanel.querySelector('.preview-error');
+  const previews = {
+    queue: { src: 'assets/screenshots/v0.3.0/glass-queue-smart-shuffle.png', label: 'queue', alt: 'Tuitify queue with Smart Shuffle, artist names, track durations and playback controls in the Glass theme', caption: 'Queue and Smart Shuffle. Native player, Glass theme, v0.3.0.' },
+    lyrics: { src: 'assets/screenshots/v0.3.0/glass-lyrics.jpg', label: 'lyrics', alt: 'Timed lyrics shown inside Tuitify’s native terminal interface', caption: 'Lyrics view. Native player, Glass theme, v0.3.0.' },
+    spectrum: { src: 'assets/screenshots/v0.3.0/glass-visualizer.jpg', label: 'spectrum', alt: 'Tuitify’s spectrum visualizer beside the native music player controls', caption: 'Audio spectrum. Native player, Glass theme, v0.3.0.' },
+  };
+  let previewAnimation;
+  function selectPreview(tab) {
+    const content = previews[tab.dataset.previewMode];
+    if (previewAnimation) previewAnimation.cancel();
+    previewTabs.forEach(other => {
+      const selected = other === tab;
+      other.setAttribute('aria-selected', String(selected));
+      other.tabIndex = selected ? 0 : -1;
+    });
+    previewPanel.setAttribute('aria-labelledby', tab.id);
+    previewError.hidden = true;
+    previewLink.href = content.src;
+    previewLink.setAttribute('aria-label', `View the full ${content.label} screenshot`);
+    previewImage.alt = content.alt;
+    previewImage.src = content.src;
+    previewPanel.querySelector('figcaption').textContent = content.caption;
+    if (motionEnabled()) previewAnimation = previewLink.animate([
+      { opacity: .45, transform: 'translateY(16px)' },
+      { opacity: 1, transform: 'translateY(0)' },
+    ], { duration: 420, easing: 'cubic-bezier(.22,1,.36,1)' });
+  }
+  previewTabs.forEach((tab, index) => {
+    tab.addEventListener('click', () => selectPreview(tab));
+    tab.addEventListener('keydown', event => {
+      let next;
+      if (event.key === 'ArrowRight') next = (index + 1) % previewTabs.length;
+      else if (event.key === 'ArrowLeft') next = (index + previewTabs.length - 1) % previewTabs.length;
+      else if (event.key === 'Home') next = 0;
+      else if (event.key === 'End') next = previewTabs.length - 1;
+      else return;
+      event.preventDefault();
+      previewTabs[next].focus();
+      selectPreview(previewTabs[next]);
+    });
+  });
+  previewImage.addEventListener('error', () => { previewError.hidden = false; });
+  previewImage.addEventListener('load', () => { previewError.hidden = true; });
+  document.addEventListener('tuitify:motion-change', event => {
+    if (!event.detail.enabled && previewAnimation) previewAnimation.cancel();
+  });
+  document.querySelector('.preview-tabs').hidden = false;
 
   const menuButton = document.querySelector('.menu-toggle');
   const menu = document.getElementById('mobile-nav');

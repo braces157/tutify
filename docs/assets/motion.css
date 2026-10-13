@@ -1,197 +1,39 @@
-/* Tuitify website — motion. Every decorative loop pauses with the Motion toggle,
-   when its section is offscreen, and under prefers-reduced-motion (unless the
-   visitor explicitly enables motion). Content never depends on animation to be visible. */
-@property --angle { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
-
-/* Page-load entrance (CSS only, so it also runs without JavaScript). */
-.enter { animation: enter-up 1s var(--ease) both; animation-delay: calc(var(--d, 0) * 85ms + 80ms); }
-.enter-word { animation: word-rise 1.05s var(--ease) both; animation-delay: calc(var(--d, 0) * 85ms + 80ms); }
-.record-scene.enter { animation-name: enter-scene; animation-duration: 1.4s; }
-.site-header .header-inner { animation: header-drop .9s var(--ease) both; }
-@keyframes enter-up { from { opacity: 0; transform: translateY(26px); filter: blur(6px); } to { opacity: 1; transform: none; filter: none; } }
-@keyframes word-rise { from { transform: translateY(110%) rotate(4deg); } to { transform: none; } }
-@keyframes enter-scene { from { opacity: 0; transform: translateY(40px) scale(.94); filter: blur(10px); } to { opacity: 1; transform: none; filter: none; } }
-@keyframes header-drop { from { opacity: 0; transform: translateY(-20px); } to { opacity: 1; transform: none; } }
-
-/* Hero loops */
-.title-gradient .enter-word { animation: word-rise 1.05s var(--ease) both, gradient-pan 7s ease-in-out infinite alternate; animation-delay: calc(var(--d, 0) * 85ms + 80ms), 0s; }
-.title-caret { animation: caret-blink 1.1s steps(1) infinite; }
-.aurora-a { animation: aurora-a 18s ease-in-out infinite alternate; }
-.aurora-b { animation: aurora-b 22s ease-in-out infinite alternate; }
-.aurora-c { animation: aurora-c 20s ease-in-out infinite alternate; }
-.hero-beam { animation: beam-sway 12s ease-in-out infinite alternate; }
-.hero-badge::after { content: ""; position: absolute; inset: 0; background: linear-gradient(100deg, transparent 30%, rgb(255 255 255 / 9%) 50%, transparent 70%); transform: translateX(-120%); animation: sheen 5s var(--ease) 1.6s infinite; pointer-events: none; }
-.badge-pill { animation: soft-pulse 2.8s ease-in-out infinite; }
-.req-dot { animation: soft-pulse 2.4s ease-in-out infinite; }
-.req-dot:nth-of-type(1) { animation-delay: 0s; }
-.hero-requirements span:nth-child(2) .req-dot { animation-delay: .4s; }
-.hero-requirements span:nth-child(3) .req-dot { animation-delay: .8s; }
-.button-primary::after { animation: sheen 4.5s var(--ease) 2s infinite; }
-.vinyl-label, .vinyl-grooves { animation: record-turn 14s linear infinite; }
-.record-halo { animation: halo-breathe 8s var(--ease) infinite; }
-.hw-live i, .status-dot, .signal-name i { animation: soft-pulse 1.8s ease-in-out infinite; }
-.hw-spectrum i { animation: bar-bounce var(--s, .8s) ease-in-out var(--d, 0s) infinite alternate; }
-.hw-fill { animation: progress-run 24s linear infinite; }
-.hw-art-sheen { animation: sheen 4s var(--ease) 1s infinite; }
-.hw-art-ring { animation: record-turn 6s linear infinite; border-top-color: rgb(255 255 255 / 60%); }
-.hw-lyrics-track { animation: lyrics-roll 9s var(--ease) infinite; }
-.hw-heart { animation: heart-beat 2.4s ease-in-out infinite; }
-.hw-queue li:first-child { animation: row-glow 6s ease-in-out infinite; }
-.hero-chip { animation: chip-float 6s ease-in-out infinite; }
-.chip-a { animation-delay: -1s; }
-.chip-b { animation-delay: -3s; animation-duration: 7s; }
-.chip-c { animation: chip-pop 9s var(--ease) 2.5s infinite; opacity: 0; }
-@keyframes gradient-pan { from { background-position: 0% 50%; } to { background-position: 100% 50%; } }
-@keyframes caret-blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
-@keyframes aurora-a { to { transform: translate3d(14rem, 6rem, 0) scale(1.15); } }
-@keyframes aurora-b { to { transform: translate3d(-12rem, 8rem, 0) scale(.9); } }
-@keyframes aurora-c { to { transform: translate3d(-10rem, -6rem, 0) scale(1.2); } }
-@keyframes beam-sway { from { transform: rotate(-7deg); opacity: .7; } to { transform: rotate(7deg); opacity: 1; } }
-@keyframes sheen { 0% { transform: translateX(-120%); } 35%, 100% { transform: translateX(120%); } }
-@keyframes soft-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
-@keyframes record-turn { to { transform: rotate(360deg); } }
-@keyframes halo-breathe { 0%, 100% { transform: scale(.97); opacity: .55; } 50% { transform: scale(1.04); opacity: 1; } }
-@keyframes bar-bounce { from { transform: scaleY(.18); } to { transform: scaleY(1); } }
-@keyframes progress-run { from { transform: scaleX(.27); } to { transform: scaleX(1); } }
-@keyframes lyrics-roll { 0%, 28% { transform: translateY(0); } 33%, 61% { transform: translateY(-1.4rem); } 66%, 95% { transform: translateY(-2.8rem); } 100% { transform: translateY(-4.2rem); } }
-@keyframes heart-beat { 0%, 60%, 100% { transform: scale(1); } 10% { transform: scale(1.3); } 20% { transform: scale(.95); } 30% { transform: scale(1.15); } }
-@keyframes row-glow { 0%, 100% { background: transparent; color: var(--muted); } 50% { background: rgb(var(--accent-rgb) / 8%); color: var(--paper); } }
-@keyframes chip-float { 0%, 100% { transform: translate3d(0, 0, 0); } 50% { transform: translate3d(0, -12px, 0); } }
-@keyframes chip-pop { 0%, 6% { opacity: 0; transform: translateY(14px) scale(.9); } 12%, 40% { opacity: 1; transform: none; } 48%, 100% { opacity: 0; transform: translateY(-8px) scale(.96); } }
-
-/* Scroll reveal (JS adds .motion-enabled and .is-visible). */
-html.motion-enabled .reveal { --rd: calc(var(--i, 0) * 90ms); transition: opacity 1s var(--ease) var(--rd), transform 1s var(--ease) var(--rd), filter 1s var(--ease) var(--rd), translate .45s var(--ease), border-color .3s, background-color .3s; }
-html.motion-enabled .reveal:not(.is-visible) { opacity: 0; transform: translateY(36px); filter: blur(8px); }
-html.motion-enabled .reveal[data-reveal="scale"]:not(.is-visible) { transform: translateY(40px) scale(.94); }
-html.motion-enabled [data-split] .split-inner { transition: transform 1.1s var(--ease); transition-delay: calc(var(--w, 0) * 55ms); }
-html.motion-enabled [data-split]:not(.is-visible) .split-inner { transform: translateY(115%) rotate(3deg); }
-
-/* Interactions that use the independent `translate` property so they never fight reveal transforms. */
-.bento-card, .eng-card { transition: translate .45s var(--ease), border-color .3s, background-color .3s; }
-.bento-card:hover, .eng-card:hover { translate: 0 -6px; border-color: var(--border-strong); }
-.hero-badge, .button-ghost, .header-cta { transition: translate .4s var(--ease), border-color .3s, background-color .3s, color .3s; }
-.hero-badge:hover, .button-ghost:hover, .header-cta:hover { translate: 0 -2px; }
-.button-primary { transform: translate3d(var(--magnet-x, 0px), var(--magnet-y, 0px), 0); transition: transform .45s var(--ease), background-color .25s, box-shadow .35s; }
-.button-primary:active { transform: translate3d(var(--magnet-x, 0px), calc(var(--magnet-y, 0px) + 1px), 0) scale(.97); }
-
-/* Stats count and setup timeline */
-.hero-stats > div { transition: background-color .4s; }
-.hero-stats > div:hover { background: rgb(var(--accent-rgb) / 4%); }
-html.motion-enabled .setup-steps::after { transform: scaleY(0); transition: transform 1.6s var(--ease) .4s; }
-html.motion-enabled .install-copy.is-visible .setup-steps::after { transform: scaleY(1); }
-html.motion-enabled .setup-steps li { transition: opacity .8s var(--ease), transform .8s var(--ease); }
-html.motion-enabled .install-copy:not(.is-visible) .setup-steps li { opacity: 0; transform: translateX(-14px); }
-html.motion-enabled .install-copy .setup-steps li:nth-child(2) { transition-delay: .55s; }
-html.motion-enabled .install-copy .setup-steps li:nth-child(3) { transition-delay: 1s; }
-html.motion-enabled .install-copy .setup-steps li:nth-child(1) { transition-delay: .2s; }
-
-/* Kinetic band */
-.kinetic-track { animation: kinetic-loop 42s linear infinite; }
-.kinetic-band:hover .kinetic-track { animation-play-state: paused; }
-@keyframes kinetic-loop { to { transform: translateX(-50%); } }
-
-/* Signal stage */
-.signal-tabs button { transition: color .3s, background-color .4s var(--ease), box-shadow .4s; }
-
-/* Bento visuals */
-.pulse-ring { animation: ring-out 3.6s var(--ease) infinite; }
-.pulse-ring:nth-child(2) { animation-delay: 1.2s; }
-.pulse-ring:nth-child(3) { animation-delay: 2.4s; }
-.pulse-core { animation: core-beat 1.2s ease-in-out infinite; }
-.wave-line path { animation: dash-run 3s linear infinite; }
-.orbit-1 { animation: record-turn 7s linear infinite; }
-.orbit-2 { animation: record-turn 13s linear infinite reverse; }
-.orbit-3 { animation: record-turn 22s linear infinite; }
-.orbit-core { animation: core-beat 2.4s ease-in-out infinite; }
-.q-1 { animation: q-down 6s var(--ease) infinite; }
-.q-2 { animation: q-down 6s var(--ease) infinite; }
-.q-3 { animation: q-up 6s var(--ease) infinite; }
-.visual-themes { animation: theme-cycle 9s steps(1) infinite; }
-.tt-eq i { animation: bar-bounce .7s ease-in-out infinite alternate; }
-.tt-eq i:nth-child(2) { animation-delay: -.2s; animation-duration: .6s; }
-.tt-eq i:nth-child(3) { animation-delay: -.45s; animation-duration: .8s; }
-.tt-eq i:nth-child(4) { animation-delay: -.1s; animation-duration: .55s; }
-.tt-eq i:nth-child(5) { animation-delay: -.35s; animation-duration: .75s; }
-.tt-eq i:nth-child(6) { animation-delay: -.6s; animation-duration: .65s; }
-.tt-eq i:nth-child(7) { animation-delay: -.25s; animation-duration: .9s; }
-.theme-swatches i { animation: swatch-active 9s var(--ease) infinite; }
-.theme-swatches i:nth-child(2) { animation-delay: 1.5s; }
-.theme-swatches i:nth-child(3) { animation-delay: 3s; }
-.theme-swatches i:nth-child(4) { animation-delay: 4.5s; }
-.theme-swatches i:nth-child(5) { animation-delay: 6s; }
-.theme-swatches i:nth-child(6) { animation-delay: 7.5s; }
-.theme-term { transition: color .6s var(--ease), border-color .6s var(--ease), box-shadow .6s var(--ease); }
-@keyframes ring-out { from { transform: scale(.7); opacity: .9; } to { transform: scale(2.8); opacity: 0; } }
-@keyframes core-beat { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.06); } }
-@keyframes dash-run { to { stroke-dashoffset: -72; } }
-@keyframes q-down { 0%, 30% { transform: none; } 42%, 75% { transform: translateY(calc(100% + .3rem)); } 87%, 100% { transform: none; } }
-@keyframes q-up { 0%, 30% { transform: none; } 42%, 75% { transform: translateY(calc(-200% - .6rem)); } 87%, 100% { transform: none; } }
-@keyframes theme-cycle { 0% { color: #1ed760; } 16.66% { color: #ffb000; } 33.33% { color: #33ff33; } 50% { color: #00ffff; } 66.66% { color: #e6edf3; } 83.33% { color: #a4eede; } }
-@keyframes swatch-active { 0%, 16% { opacity: 1; transform: scale(1.08); box-shadow: 0 0 0 2px var(--bg), 0 0 0 3px var(--c), 0 0 24px var(--c); } 20%, 100% { opacity: .5; transform: none; box-shadow: inset 0 0 0 1px rgb(255 255 255 / 15%); } }
-
-/* Demo */
-.demo-summary-icon::before { animation: ring-pulse 2.4s var(--ease) infinite; }
-@keyframes ring-pulse { from { transform: scale(.9); opacity: 1; } to { transform: scale(1.45); opacity: 0; } }
-.demo-disclosure[open] .demo-body { animation: demo-open .7s var(--ease) both; }
-@keyframes demo-open { from { opacity: 0; transform: translateY(-12px); } to { opacity: 1; transform: none; } }
-
-/* FAQ height animation where the browser supports it. */
-@supports (interpolate-size: allow-keywords) {
-  .questions-list { interpolate-size: allow-keywords; }
-  .faq::details-content { block-size: 0; overflow: clip; transition: block-size .5s var(--ease), content-visibility .5s allow-discrete; }
-  .faq[open]::details-content { block-size: auto; }
-}
-.faq[open] .faq-body p { animation: faq-in .6s var(--ease) both; }
-@keyframes faq-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
-
-/* CTA */
-.cta-card::before { animation: angle-spin 6s linear infinite; }
-.cta-eq i { animation: bar-bounce .8s ease-in-out infinite alternate; }
-.cta-eq i:nth-child(2n) { animation-duration: .6s; animation-delay: -.3s; }
-.cta-eq i:nth-child(3n) { animation-duration: .95s; animation-delay: -.5s; }
-.cta-eq i:nth-child(5n) { animation-duration: .7s; animation-delay: -.15s; }
-.cta-glow { animation: halo-breathe 6s ease-in-out infinite; }
-@keyframes angle-spin { to { --angle: 360deg; } }
-
-/* Footer wordmark */
-html.motion-enabled .footer-top.is-visible .fw-inner > span,
-html.motion-enabled .footer-top .fw-inner > span { transition: transform 1.1s var(--ease); transition-delay: calc(var(--i) * 60ms); }
-html.motion-enabled .footer-top:not(.is-visible) .fw-inner > span { transform: translateY(105%); }
-.footer-wordmark:hover .fw-inner > span { animation: letter-hop .7s var(--ease) both; animation-delay: calc(var(--i) * 35ms); }
-@keyframes letter-hop { 0%, 100% { transform: none; } 40% { transform: translateY(-.08em); } }
-
-/* Reading progress + scroll-linked parallax */
-.reading-progress { position: fixed; top: 0; left: 0; z-index: 50; width: 100%; height: 2px; background: linear-gradient(90deg, var(--accent), var(--accent-2)); box-shadow: 0 0 12px rgb(var(--accent-rgb) / 80%); transform: scaleX(0); transform-origin: left; pointer-events: none; }
-@supports (animation-timeline: scroll()) {
-  .reading-progress { animation: reading-progress linear both; animation-timeline: scroll(root); }
-  @keyframes reading-progress { to { transform: scaleX(1); } }
-  html.motion-enabled .record-scroll-layer { animation: record-scroll linear both; animation-timeline: view(); animation-range: exit 0% exit 100%; }
-  @keyframes record-scroll { to { transform: translateY(90px) scale(.9); opacity: .4; } }
-  html.motion-enabled .hero-copy { animation: hero-scroll linear both; animation-timeline: view(); animation-range: exit 0% exit 100%; }
-  @keyframes hero-scroll { to { transform: translateY(-60px); opacity: .3; } }
-  html.motion-enabled .signal-content { animation: signal-rise linear both; animation-timeline: view(); animation-range: entry 0% entry 90%; }
-  @keyframes signal-rise { from { transform: translateY(40px); opacity: .3; } to { transform: none; opacity: 1; } }
-  html.motion-enabled .kinetic-copy { animation: kinetic-skew linear both; animation-timeline: view(); animation-range: cover 0% cover 100%; }
-  @keyframes kinetic-skew { from { transform: translateX(4%); } to { transform: translateX(-4%); } }
-}
-
-/* Pause everything decorative when motion is off, the tab is hidden, or a section is offscreen. */
-html.motion-paused *, html.motion-paused *::before, html.motion-paused *::after,
-.motion-offscreen *, .motion-offscreen *::before, .motion-offscreen *::after { animation-play-state: paused !important; }
-html.motion-paused .enter, html.motion-paused .enter-word, html.motion-paused .site-header .header-inner,
-html.motion-paused .record-scroll-layer, html.motion-paused .hero-copy, html.motion-paused .signal-content, html.motion-paused .kinetic-copy,
-html.motion-paused .footer-wordmark:hover .fw-inner > span { animation: none !important; }
-html.motion-paused .title-gradient .enter-word { animation: none !important; }
-html.motion-paused .chip-c { opacity: 1; }
-html.motion-paused .hero-window { transform: rotateX(6deg) rotateY(-10deg); }
-html.motion-paused .vinyl { transform: none; }
-html.motion-paused .bento-card:hover, html.motion-paused .eng-card:hover { translate: none; }
-
+/* Transform and opacity only. Content remains readable when animation stops. */
+.enter { animation: enter-up .9s var(--ease) both; animation-delay: calc(var(--d,0) * 65ms); }
+.enter-word { animation: word-rise 1.1s var(--ease) both; animation-delay: calc(var(--d,0) * 65ms); }
+@keyframes enter-up { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: none; } }
+@keyframes word-rise { from { transform: translateY(110%); } to { transform: none; } }
+.preview-image { animation: preview-drift 12s ease-in-out infinite alternate; transform-origin: center; }
+@keyframes preview-drift { from { transform: scale(1); } to { transform: scale(1.035); } }
+html.motion-enabled .reveal { transition: opacity .8s var(--ease), transform .8s var(--ease); transition-delay: calc(var(--i,0) * 70ms); }
+html.motion-enabled .reveal:not(.is-visible) { opacity: 0; transform: translateY(24px); }
+html.motion-enabled [data-split] .split-inner { transition: transform .9s var(--ease); transition-delay: calc(var(--w,0) * 65ms); }
+html.motion-enabled [data-split]:not(.is-visible) .split-inner { transform: translateY(110%); }
+.button-primary { transform: translate3d(var(--magnet-x,0px),var(--magnet-y,0px),0); transition: transform .4s var(--ease), background-color .2s; }
+.button-primary:active { transform: translate3d(var(--magnet-x,0px),calc(var(--magnet-y,0px) + 2px),0) scale(.98); }
+.demo-disclosure[open] .demo-body { animation: enter-up .5s var(--ease) both; }
+.faq[open] .faq-body p { animation: enter-up .4s var(--ease) both; }
+html.motion-enabled .footer-top .fw-inner > span { transition: transform .9s var(--ease); transition-delay: calc(var(--i) * 60ms); }
+html.motion-enabled .footer-top:not(.is-visible) .fw-inner > span { transform: translateY(110%); }
+.footer-wordmark:hover .fw-inner > span { animation: letter-rise .6s var(--ease) both; animation-delay: calc(var(--i) * 35ms); }
+@keyframes letter-rise { 40% { transform: translateY(-.06em); } }
+html.motion-paused *,html.motion-paused *::before,html.motion-paused *::after,
+.motion-offscreen *,.motion-offscreen *::before,.motion-offscreen *::after { animation-play-state: paused !important; }
+html.motion-paused .enter,html.motion-paused .enter-word,html.motion-paused .footer-wordmark:hover .fw-inner > span { animation: none !important; }
+html.motion-paused .reveal:not(.is-visible),html.motion-paused [data-split] .split-inner { opacity: 1; transform: none; }
 @media (prefers-reduced-motion: reduce) {
   html:not(.motion-override) { scroll-behavior: auto; }
-  html:not(.motion-override) *, html:not(.motion-override) *::before, html:not(.motion-override) *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; scroll-behavior: auto !important; }
-  html:not(.motion-override) .reveal:not(.is-visible) { opacity: 1; transform: none; filter: none; }
-  html:not(.motion-override) .chip-c { opacity: 1; }
+  html:not(.motion-override) *,html:not(.motion-override) *::before,html:not(.motion-override) *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; scroll-behavior: auto !important; }
+  html:not(.motion-override) .reveal:not(.is-visible),html:not(.motion-override) [data-split] .split-inner { opacity: 1; transform: none; }
   html:not(.motion-override) .button-primary { transform: none !important; }
-  html:not(.motion-override) .record-scroll-layer, html:not(.motion-override) .hero-copy, html:not(.motion-override) .kinetic-copy { animation: none !important; }
+}
+
+/* Pictures settle from a slight scale; control groups arrive horizontally. */
+html.motion-enabled figure.reveal:not(.is-visible) { transform: translateY(20px) scale(.97); }
+html.motion-enabled .preview-tabs.reveal:not(.is-visible) { transform: translateX(-20px); }
+html.motion-enabled .key-demo { transition: opacity .6s var(--ease), transform .6s var(--ease), background-color .2s; transition-delay: calc(var(--i,0) * 60ms); }
+html.motion-enabled .key-grid:not(.is-visible) .key-demo { opacity: 0; transform: translateY(16px); }
+html.motion-paused figure.reveal:not(.is-visible),html.motion-paused .preview-tabs.reveal:not(.is-visible) { transform: none; }
+@media (prefers-reduced-motion: reduce) {
+  html:not(.motion-override) figure.reveal:not(.is-visible),html:not(.motion-override) .preview-tabs.reveal:not(.is-visible),html:not(.motion-override) .key-grid:not(.is-visible) .key-demo { opacity: 1; transform: none; }
 }

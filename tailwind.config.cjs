@@ -12,8 +12,8 @@ module.exports = {
         'terminal-border': '#242925',
       },
       fontFamily: {
-        mono: ['Cascadia Code', 'Consolas', 'ui-monospace', 'monospace'],
-        sans: ['Segoe UI Variable Text', 'Segoe UI', 'system-ui', 'sans-serif'],
+        mono: ['DM Mono', 'monospace'],
+        sans: ['Space Grotesk', 'sans-serif'],
       },
     },
   },

@@ -48,34 +48,6 @@
     element.addEventListener('pointerleave', resetPointerEffects);
   });
 
-  // Cursor spotlight on cards (a hover highlight, not motion, so it is always available).
-  document.querySelectorAll('.spotlight').forEach(card => {
-    card.addEventListener('pointermove', event => {
-      const box = card.getBoundingClientRect();
-      card.style.setProperty('--x', `${(event.clientX - box.left).toFixed(0)}px`);
-      card.style.setProperty('--y', `${(event.clientY - box.top).toFixed(0)}px`);
-    });
-  });
-
-  // Soft glow that follows the pointer across the hero.
-  const hero = document.querySelector('.hero-wrap');
-  let glowFrame = 0;
-  let glowX = 0;
-  let glowY = 0;
-  hero.addEventListener('pointermove', event => {
-    if (!allowed() || !finePointer.matches) return;
-    const box = hero.getBoundingClientRect();
-    glowX = event.clientX - box.left;
-    glowY = event.clientY - box.top;
-    hero.classList.add('is-pointer');
-    if (!glowFrame) glowFrame = window.requestAnimationFrame(() => {
-      glowFrame = 0;
-      hero.style.setProperty('--mx', `${glowX.toFixed(0)}px`);
-      hero.style.setProperty('--my', `${glowY.toFixed(0)}px`);
-    });
-  });
-  hero.addEventListener('pointerleave', () => hero.classList.remove('is-pointer'));
-
   const stage = document.getElementById('signal-stage');
   const canvas = document.getElementById('signal-canvas');
   const ctx = canvas.getContext('2d', { alpha: true });
@@ -116,11 +88,6 @@
     const cx = Math.cos(angleX), sx = Math.sin(angleX);
     const cy = Math.cos(angleY), sy = Math.sin(angleY);
     ctx.clearRect(0, 0, width, height);
-    const glow = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, radius * 1.4);
-    glow.addColorStop(0, `rgba(62,224,143,${(.1 + pulse * .1).toFixed(3)})`);
-    glow.addColorStop(1, 'rgba(62,224,143,0)');
-    ctx.fillStyle = glow;
-    ctx.fillRect(0, 0, width, height);
     const paths = [];
     for (let ring = 0; ring < rings; ring += 1) {
       const theta = ring / rings * Math.PI * 2;
@@ -185,7 +152,6 @@
     }
     if (!allowed()) {
       resetPointerEffects();
-      hero.classList.remove('is-pointer');
     }
   }
   function resize() {
@@ -231,7 +197,7 @@
     }, { threshold: .04 });
     observer.observe(stage);
     // Pause decorative loops in sections that are not on screen.
-    document.querySelectorAll('.kinetic-band, .hero-bg, .bento-card, .cta-card, .key-grid, .demo-disclosure > summary').forEach(element => observer.observe(element));
+    document.querySelectorAll('.hero-art, .cta-card, .key-grid, .demo-disclosure > summary').forEach(element => observer.observe(element));
   } else { visible = true; refresh(); }
   window.addEventListener('pagehide', () => { window.cancelAnimationFrame(frame); resetPointerEffects(); });
   window.addEventListener('pageshow', refresh);
