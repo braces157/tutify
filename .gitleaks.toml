@@ -1,0 +1,15 @@
+title = "Tuitify secret detection"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "volta-secret"
+description = "Volta personal application secret or access token"
+regex = '''\bvolta_(?:sk|at)_[A-Za-z0-9_-]{16,}\b'''
+keywords = ["volta_sk_", "volta_at_"]
+
+[[rules.allowlists]]
+description = "Explicit fake credential used by offline tests"
+regexTarget = "match"
+regexes = ['''^volta_sk_not-a-real-secret$''']

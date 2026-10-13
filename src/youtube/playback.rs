@@ -353,6 +353,7 @@ pub(crate) async fn worker(
                     Update::Resolved(ticket, stream) if active.as_ref().is_some_and(|current| current.request == ticket) => {
                         if let Some(current) = &mut active {
                             let _ = events.send(Event::Metadata { generation: current.generation, track: stream.track.clone() });
+                            let _ = events.send(Event::Quality { generation: current.generation, quality: stream.quality });
                             preparer.remember((*stream).clone());
                             current.stream = Some(*stream);
                         }

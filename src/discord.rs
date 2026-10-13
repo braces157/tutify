@@ -19,6 +19,7 @@ pub struct Snapshot {
     pub track: Option<Track>,
     pub state: State,
     pub position_ms: u32,
+    pub quality: Option<crate::audio_quality::AudioQuality>,
 }
 
 // Watch retains only the newest state while Discord is slow or unavailable.
@@ -59,6 +60,7 @@ struct SentState {
     track: Option<Track>,
     state: State,
     estimated_start_sec: Option<i64>,
+    quality: Option<crate::audio_quality::AudioQuality>,
 }
 
 impl DiscordPresence {
@@ -109,9 +111,11 @@ impl DiscordPresence {
             track: snapshot.track.clone(),
             state: snapshot.state,
             estimated_start_sec,
+            quality: snapshot.quality,
         };
         let should_send = self.last_sent.as_ref().is_none_or(|last| {
             last.track != current.track
+                || last.quality != current.quality
                 || last.state != current.state
                 || match (last.estimated_start_sec, current.estimated_start_sec) {
                     (Some(a), Some(b)) => (a - b).abs() >= 3,
@@ -199,6 +203,23 @@ fn display_text(value: &str) -> String {
     text
 }
 
+fn quality_state(artists: &str, quality: Option<crate::audio_quality::AudioQuality>) -> String {
+    let Some(quality) = quality else {
+        return display_text(artists);
+    };
+    let quality = quality.label();
+    let mut artist = display_text(artists);
+    let available = 128usize.saturating_sub(quality.len() + " • ".len());
+    while artist.len() > available {
+        artist.pop();
+    }
+    if artist.trim().is_empty() {
+        quality
+    } else {
+        format!("{artist} • {quality}")
+    }
+}
+
 pub fn build_activity(
     snapshot: &Snapshot,
     now_sec: i64,
@@ -250,7 +271,7 @@ pub fn build_activity(
         "name": "Tuitify",
         "type": 2, // 2 = Listening ("Listening to Tuitify")
         "details": display_text(&track.name),
-        "state": display_text(&track.artists),
+        "state": quality_state(&track.artists, snapshot.quality),
         "assets": assets,
         "buttons": [
             {
@@ -477,6 +498,47 @@ mod tests {
     use super::*;
 
     #[test]
+    fn audio_quality_updates_presence_and_fits_with_long_unicode_artists() {
+        let quality = crate::audio_quality::AudioQuality::volta(
+            &json!({"format":"flac","bit_depth":24,"sample_rate":96000}),
+        );
+        let (tx, mut rx) = watch::channel(None);
+        let mut presence = DiscordPresence {
+            tx: Some(tx),
+            task: None,
+            last_sent: None,
+        };
+        let mut snapshot = Snapshot {
+            track: Some(sample_track()),
+            state: State::Paused,
+            position_ms: 0,
+            quality: None,
+        };
+        presence.update(snapshot.clone());
+        rx.borrow_and_update();
+        snapshot.quality = Some(quality);
+        presence.update(snapshot.clone());
+        assert!(rx.has_changed().unwrap());
+        let activity = build_activity(&snapshot, 1000, None).unwrap();
+        assert_eq!(activity["state"], "Rick Astley • FLAC 24-bit / 96 kHz");
+        assert!(activity.get("timestamps").is_none());
+        snapshot.track.as_mut().unwrap().artists = "音".repeat(100);
+        let activity = build_activity(&snapshot, 1000, None).unwrap();
+        let state = activity["state"].as_str().unwrap();
+        assert!(state.len() <= 128);
+        assert!(state.ends_with("FLAC 24-bit / 96 kHz"));
+        snapshot.quality = Some(crate::audio_quality::AudioQuality::youtube(
+            &json!({"acodec":"opus","asr":48000,"abr":128}),
+        ));
+        assert!(
+            build_activity(&snapshot, 1000, None).unwrap()["state"]
+                .as_str()
+                .unwrap()
+                .ends_with("Opus 128 kbps / 48 kHz")
+        );
+    }
+
+    #[test]
     fn reconnect_position_advances_only_while_playing() {
         let captured = Instant::now();
         let mut update = Update {
@@ -484,6 +546,7 @@ mod tests {
                 track: Some(sample_track()),
                 state: State::Playing,
                 position_ms: 10_000,
+                quality: None,
             },
             captured,
         };
@@ -512,6 +575,7 @@ mod tests {
             track: Some(sample_track()),
             state: State::Paused,
             position_ms: 0,
+            quality: None,
         };
         presence.update(snapshot.clone());
         snapshot.track.as_mut().unwrap().name = "Corrected title".into();
@@ -547,6 +611,7 @@ mod tests {
             track: Some(track),
             state: State::Playing,
             position_ms: u32::MAX,
+            quality: None,
         };
         let activity = build_activity(&snapshot, 1700000000, None).unwrap();
         assert!(activity["details"].as_str().unwrap().len() <= 128);
@@ -641,6 +706,7 @@ mod tests {
             track: Some(sample_track()),
             state: State::Playing,
             position_ms: 0,
+            quality: None,
         });
         assert!(disabled.tx.is_none());
         assert!(disabled.task.is_none());
@@ -679,6 +745,9 @@ mod tests {
                 track: Some(sample_track()),
                 state: State::Playing,
                 position_ms: 20_000,
+                quality: Some(crate::audio_quality::AudioQuality::volta(
+                    &json!({"format":"flac","bit_depth":24,"sample_rate":96000}),
+                )),
             },
             captured: Instant::now(),
         }));
@@ -704,6 +773,10 @@ mod tests {
                 let (_, payload) = read_packet(server).await.unwrap();
                 let payload: Value = serde_json::from_str(&payload).unwrap();
                 assert_eq!(payload["args"]["activity"]["details"], sample_track().name);
+                assert_eq!(
+                    payload["args"]["activity"]["state"],
+                    "Rick Astley • FLAC 24-bit / 96 kHz"
+                );
                 let start = payload["args"]["activity"]["timestamps"]["start"]
                     .as_i64()
                     .unwrap();
@@ -750,6 +823,7 @@ mod tests {
             track: Some(track),
             state: State::Playing,
             position_ms: 30000,
+            quality: None,
         };
         let now_sec = 1700000000;
         let act = build_activity(&snapshot, now_sec, None).expect("activity exists");
@@ -788,6 +862,7 @@ mod tests {
             track: Some(track),
             state: State::Paused,
             position_ms: 30000,
+            quality: None,
         };
         let now_sec = 1700000000;
         let act = build_activity(&snapshot, now_sec, None).expect("activity exists");
@@ -808,6 +883,7 @@ mod tests {
             track: Some(track),
             state: State::Playing,
             position_ms: 10000,
+            quality: None,
         };
         let now_sec = 1700000000;
         let act = build_activity(&snapshot, now_sec, None).expect("activity exists");
@@ -828,6 +904,7 @@ mod tests {
             track: None,
             state: State::Playing,
             position_ms: 0,
+            quality: None,
         };
         assert!(build_activity(&snapshot_none, now_sec, None).is_none());
 
@@ -835,6 +912,7 @@ mod tests {
             track: Some(sample_track()),
             state: State::Failed,
             position_ms: 0,
+            quality: None,
         };
         assert!(build_activity(&snapshot_failed, now_sec, None).is_none());
     }

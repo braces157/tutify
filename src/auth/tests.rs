@@ -805,7 +805,7 @@ fn saved_refresh_token_skips_browser_even_when_access_token_expired() {
 fn callback_reports_final_success_or_failure() {
     let (status, body) = callback_message(&Ok(()), false);
     assert_eq!(status, "200 OK");
-    assert!(body.contains("automatically open the remaining"));
+    assert!(body.contains("return to the terminal to continue"));
     let (_, body) = callback_message(&Ok(()), true);
     assert!(body.contains("return to the terminal"));
     let (status, body) =

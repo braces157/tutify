@@ -16,6 +16,7 @@ pub enum Choice {
     Auto,
     Spotify,
     Youtube,
+    Volta,
 }
 
 pub struct Selection {
@@ -66,7 +67,7 @@ pub(crate) async fn remember_free(store: &Storage) {
     }
 }
 pub async fn resolve(choice: Choice, fresh: bool) -> Result<Selection> {
-    resolve_with(choice, || async {
+    resolve_with(choice, preferred_volta, || async {
         let store = Storage::local_read_only()?;
         let config = store.config()?;
         let Some(tokens) = TokenManager::load_optional(&config)? else {
@@ -96,14 +97,49 @@ pub async fn resolve(choice: Choice, fresh: bool) -> Result<Selection> {
     .await
 }
 
-async fn resolve_with<F, Fut>(choice: Choice, account: F) -> Result<Selection>
+fn preferred_volta() -> Option<MusicSource> {
+    if !crate::volta::available() {
+        return None;
+    }
+    let spotify_connected = Storage::local_read_only()
+        .and_then(|store| store.config())
+        .and_then(|config| TokenManager::load_optional(&config))
+        .is_ok_and(|tokens| tokens.is_some());
+    Some(if spotify_connected {
+        MusicSource::SpotifyVolta
+    } else {
+        MusicSource::Volta
+    })
+}
+
+async fn resolve_with<V, F, Fut>(choice: Choice, volta: V, account: F) -> Result<Selection>
 where
+    V: FnOnce() -> Option<MusicSource>,
     F: FnOnce() -> Fut,
     Fut: Future<Output = Result<Option<AccountPlan>>>,
 {
+    if choice == Choice::Auto
+        && let Some(source) = volta()
+    {
+        return Ok(Selection {
+            source,
+            premium_verified: false,
+            notice: if source == MusicSource::SpotifyVolta {
+                "Spotify playlists and discovery, with Volta lossless audio."
+            } else {
+                "Volta lossless playback. F6 connects Spotify playlists and discovery."
+            }
+            .into(),
+        });
+    }
     let (source, premium_verified, notice) = match choice {
         Choice::Spotify => (MusicSource::Spotify, false, ""),
         Choice::Youtube => (MusicSource::Youtube, false, ""),
+        Choice::Volta => (
+            MusicSource::Volta,
+            false,
+            "Volta: / searches your music catalogue.",
+        ),
         Choice::Auto => match tokio::time::timeout(Duration::from_secs(3), account()).await {
             Ok(Ok(plan)) => match plan {
                 Some(AccountPlan::Premium) => (
@@ -162,7 +198,7 @@ mod tests {
             (Some(AccountPlan::Unavailable), MusicSource::Youtube),
             (None, MusicSource::Youtube),
         ] {
-            let selected = resolve_with(Choice::Auto, || async { Ok(plan) })
+            let selected = resolve_with(Choice::Auto, || None, || async { Ok(plan) })
                 .await
                 .unwrap();
             assert_eq!(selected.source, expected);
@@ -175,14 +211,33 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn explicit_sources_never_inspect_spotify_credentials() {
+    async fn automatic_launch_prefers_connected_volta_without_checking_spotify() {
+        for source in [MusicSource::Volta, MusicSource::SpotifyVolta] {
+            let selected = resolve_with(
+                Choice::Auto,
+                || Some(source),
+                || async { panic!("connected Volta does not require a Spotify Premium plan") },
+            )
+            .await
+            .unwrap();
+            assert_eq!(selected.source, source);
+            assert!(!selected.premium_verified);
+            assert!(selected.notice.contains("lossless"));
+        }
+    }
+
+    #[tokio::test]
+    async fn explicit_sources_never_inspect_other_credentials() {
         for (choice, expected) in [
             (Choice::Spotify, MusicSource::Spotify),
             (Choice::Youtube, MusicSource::Youtube),
+            (Choice::Volta, MusicSource::Volta),
         ] {
-            let selected = resolve_with(choice, || async {
-                panic!("explicit choice must bypass detection")
-            })
+            let selected = resolve_with(
+                choice,
+                || panic!("explicit choice must bypass Volta detection"),
+                || async { panic!("explicit choice must bypass Spotify detection") },
+            )
             .await
             .unwrap();
             assert_eq!(selected.source, expected);
@@ -202,18 +257,22 @@ mod tests {
             FailureKind::Transport,
             FailureKind::InvalidResponse,
         ] {
-            let selected = resolve_with(Choice::Auto, || async {
-                Err(ServiceFailure::spotify(kind).into())
-            })
+            let selected = resolve_with(
+                Choice::Auto,
+                || None,
+                || async { Err(ServiceFailure::spotify(kind).into()) },
+            )
             .await
             .unwrap();
             assert_eq!(selected.source, MusicSource::Youtube);
             assert!(selected.notice.contains("unavailable"));
             assert!(!selected.notice.contains("--source"));
         }
-        let selected = resolve_with(Choice::Auto, || async {
-            Ok(Some(AccountPlan::Unavailable))
-        })
+        let selected = resolve_with(
+            Choice::Auto,
+            || None,
+            || async { Ok(Some(AccountPlan::Unavailable)) },
+        )
         .await
         .unwrap();
         assert_eq!(selected.source, MusicSource::Youtube);
@@ -222,7 +281,7 @@ mod tests {
     #[tokio::test]
     async fn hung_account_request_is_bounded_and_cancelled() {
         let begin = std::time::Instant::now();
-        let selected = resolve_with(Choice::Auto, std::future::pending)
+        let selected = resolve_with(Choice::Auto, || None, std::future::pending)
             .await
             .unwrap();
         assert_eq!(selected.source, MusicSource::Youtube);

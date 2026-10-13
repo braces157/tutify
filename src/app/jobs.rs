@@ -737,6 +737,8 @@ impl Tasks {
             app.catalog.next = None;
             app.status = if app.config.source == crate::model::MusicSource::Youtube {
                 "Enter a YouTube search or paste a video link. / edits the query.".into()
+            } else if app.config.source == crate::model::MusicSource::Volta {
+                "Enter a Volta search. / edits the query; Enter plays.".into()
             } else {
                 "Enter a search. F2: Spotify catalog | F3: all saved Liked Songs and playlists."
                     .into()

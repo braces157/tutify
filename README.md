@@ -5,7 +5,7 @@
 
   **A fast, keyboard-first music player for the Windows terminal.**
 
-  Launch `tuitify` for Spotify Premium or free YouTube Music. Browse your library,
+  Launch `tuitify` for connected Volta lossless, Spotify Premium, or free YouTube Music. Browse your library,
   manage the queue, view synchronized lyrics, and control playback from one native TUI.
 
   [![Validate](https://github.com/braces157/tutify/actions/workflows/ci.yml/badge.svg)](https://github.com/braces157/tutify/actions/workflows/ci.yml)
@@ -17,14 +17,16 @@
 ---
 
 Tuitify is a standalone music client built with Rust and Ratatui, using librespot
-for Spotify and yt-dlp/FFmpeg for YouTube Music. It plays audio through the Windows
+for Spotify, yt-dlp/FFmpeg for YouTube Music, and Volta's personal API with FFmpeg
+for lossless playback. It plays audio through the Windows
 audio stack and keeps the whole listening
 workflow inside Windows Terminal—no Electron shell and no background service.
 
 > [!IMPORTANT]
 > Spotify Premium is required for **Spotify** audio playback. YouTube Music
 > mode plays public videos without a Spotify login or subscription. Plain
-> `tuitify` selects YouTube Music for free accounts or users without a Spotify login.
+> `tuitify` prefers connected Volta lossless playback, then Spotify Premium,
+> then YouTube Music for free accounts or users without a Spotify login.
 > Tuitify is an independent,
 > personal-use project and is not affiliated with or endorsed by Spotify.
 
@@ -56,15 +58,20 @@ workflow inside Windows Terminal—no Electron shell and no background service.
 
 > These captures document the v0.3.0 Glass interface; the visualizer and lyrics
 > views were captured before its version label advanced from v0.2.9. The current
-> v0.5.0 release keeps this appearance and adds the fixes listed below.
+> v0.6.0 release keeps this appearance and adds the fixes listed below.
 
 ## Highlights
 
 - **Direct playback** through librespot and WASAPI; Spotify Desktop can stay closed.
-- **Automatic source selection** for Spotify Premium or free YouTube Music, with
+- **Automatic source selection** preferring connected Volta lossless, then Spotify
+  Premium, then free YouTube Music, with
   account connections inside F6 Tools and no source choice required.
 - **YouTube Music** with search, video links, its own saved queue,
   playback controls, lyrics, visualizer, and Windows media keys.
+- **Personal Volta playback** selected automatically after connection, using the supported API and
+  FLAC audio relay. Each user supplies their own application credentials;
+  connected Spotify playlists, the original queue and discovery algorithm remain
+  available while Volta supplies audio. See [Volta setup](docs/volta.md).
 - **Library and catalog browsing** for playlists, Liked Songs, complete album
   tracklists, and artist top tracks, plus track/album/artist search and link navigation.
 - **Powerful queue tools** including play next, reorder, remove, undo, shuffle,
@@ -80,7 +87,9 @@ workflow inside Windows Terminal—no Electron shell and no background service.
 - **Synchronized lyrics** from LRCLIB with automatic scrolling.
 - **Windows integration** for media keys, system media controls, metadata, and the
   playback timeline.
-- **Discord Rich Presence** with track artwork and playback state; easy to disable.
+- **Audio quality** in Now Playing and Discord: source codec, bit depth/sample rate
+  for lossless audio, and reported bitrate for lossy audio.
+- **Discord Rich Presence** with track artwork, audio quality and playback state; easy to disable.
 - **Local listening statistics** with aggregate play counts and listening time—no
   analytics service or timestamped listening history.
 - **Resilient sessions** with a persisted queue, atomic state writes, metadata
@@ -88,8 +97,9 @@ workflow inside Windows Terminal—no Electron shell and no background service.
 
 ### Current release
 
-The current release is **v0.5.0**. Just launch `tuitify`: confirmed Spotify Premium
-accounts use Spotify; free accounts and users without a Spotify login use YouTube
+The current release is **v0.6.0**. Just launch `tuitify`: connected Volta is preferred
+for lossless playback; otherwise confirmed Spotify Premium accounts use Spotify,
+and free accounts and users without a Spotify login use YouTube
 Music. F6 Tools connects accounts and updates playback tools inside the app.
 The update adds public music search, albums, artists, radio, optional Google
 libraries, and independent provider queues. Bounded parsed caches and idle helper
@@ -97,7 +107,7 @@ shutdown reduce retained memory. Existing queue tools, recovery, diagnostics,
 lyrics, Glass themes and Windows media controls remain available.
 
 The wallpaper-backed Glass theme supports both a portable Unicode renderer and a
-full-resolution Windows Terminal profile. See the [release notes](docs/releases/v0.5.0.md)
+full-resolution Windows Terminal profile. See the [release notes](docs/releases/v0.6.0.md)
 and [changelog](CHANGELOG.md) for the complete update.
 
 ## Requirements
@@ -111,6 +121,8 @@ and [changelog](CHANGELOG.md) for the complete update.
   yt-dlp, Deno, and FFmpeg (prepared on first launch; F6 updates the tools)
 - For YouTube Music search, albums, artists and radio: Python 3.10+;
   the isolated music adapter installs on the first player launch
+- For Volta playback: a personal application with `catalog:read` and `stream:read`,
+  a network connection, Windows audio, and FFmpeg; see [Volta setup](docs/volta.md)
 
 No Rust installation is needed when using a release build. Consolas and Cascadia
 Mono work out of the box; an icon font is not required.
@@ -122,8 +134,8 @@ The native demo needs no Spotify account or audio device.
 
 ## Install
 
-1. Download `Tuitify-0.5.0-windows-x86_64.zip` from
-   [release v0.5.0](https://github.com/braces157/tutify/releases/tag/v0.5.0).
+1. Download `Tuitify-0.6.0-windows-x86_64.zip` from
+   [release v0.6.0](https://github.com/braces157/tutify/releases/tag/v0.6.0).
 2. Extract the archive.
 3. Open Windows Terminal in the extracted folder and run:
 
@@ -131,8 +143,13 @@ The native demo needs no Spotify account or audio device.
 .\tuitify.exe
 ```
 
-Just run **`tuitify`**. A connected Spotify Premium account plays Spotify; free
-accounts and users without a Spotify login get YouTube Music automatically.
+Just run **`tuitify`**. With Spotify and Volta connected, your Spotify playlists,
+Liked Songs, queue, radio and Smart Shuffle use the existing discovery algorithm,
+while Volta supplies the highest available lossless audio for matched recordings.
+The header shows **Spotify + Volta**. With only Volta connected, its own catalogue
+opens instead. Without Volta credentials and FFmpeg,
+a connected Spotify Premium account plays Spotify; free accounts and users
+without a Spotify login get YouTube Music automatically.
 Missing playback tools and the isolated music adapter are prepared on first
 launch (Python 3.10+ for the music adapter). Public search needs no account.
 Press **F6** and choose **Connect Spotify account** or **Connect Google music

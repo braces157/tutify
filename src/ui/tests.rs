@@ -4,6 +4,54 @@ use ratatui::backend::TestBackend;
 mod diagnostics;
 mod listening;
 mod queue_filter;
+
+#[test]
+fn playback_quality_is_visible_at_narrow_and_normal_sizes_in_all_themes() {
+    let mut queue = Queue::default();
+    queue.replace(vec!["0".repeat(22)], 0, false);
+    let mut app = App::new(Config::default(), queue);
+    app.state = State::Playing;
+    app.audio_quality = Some(crate::audio_quality::AudioQuality::volta(
+        &serde_json::json!({"format":"flac", "bit_depth":24, "sample_rate":96000}),
+    ));
+    for theme in [
+        "spotify",
+        "amber",
+        "matrix",
+        "cyberpunk",
+        "monochrome",
+        "glass",
+    ] {
+        app.config.theme = theme.into();
+        for (width, height) in [(32, 10), (80, 24), (120, 30)] {
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+            terminal
+                .draw(|frame| draw(frame, &app, &mut app.ui.render.borrow_mut()))
+                .unwrap();
+            let text = terminal
+                .backend()
+                .buffer()
+                .content
+                .iter()
+                .map(|cell| cell.symbol())
+                .collect::<String>();
+            let text: String = text
+                .chars()
+                .map(|c| {
+                    if ('\u{2580}'..='\u{259f}').contains(&c) {
+                        ' '
+                    } else {
+                        c
+                    }
+                })
+                .collect();
+            assert!(
+                text.contains("FLAC 24-bit / 96 kHz"),
+                "{theme} {width}x{height}: {text}"
+            );
+        }
+    }
+}
 #[test]
 fn help_and_plain_lyrics_can_scroll_to_last_line_in_small_terminal() {
     let mut app = App::new(Config::default(), Queue::default());

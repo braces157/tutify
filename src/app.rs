@@ -106,6 +106,7 @@ impl View {
 pub enum SearchScope {
     Spotify,
     Youtube,
+    Volta,
     Library,
 }
 impl SearchScope {
@@ -113,6 +114,7 @@ impl SearchScope {
         match self {
             Self::Spotify => "Spotify search",
             Self::Youtube => "YouTube search",
+            Self::Volta => "Volta search",
             Self::Library => "Saved library search",
         }
     }
@@ -185,6 +187,7 @@ pub struct App {
     pub lyrics: LyricsState,
     pub status: String,
     pub state: State,
+    pub audio_quality: Option<crate::audio_quality::AudioQuality>,
     pub cache: crate::cache::MetadataCache,
     pub generation: u64,
     pub loaded: bool,
@@ -228,6 +231,7 @@ impl App {
             lyrics: LyricsState::default(),
             status: "Paused. / search | 1-5 views | Tab navigation | ? help | q quit".into(),
             state: State::Paused,
+            audio_quality: None,
             cache: crate::cache::MetadataCache::default(),
             generation: 0,
             loaded: false,
@@ -723,6 +727,7 @@ impl App {
                 .cloned(),
             state: self.state,
             position_ms: self.queue.position_ms,
+            quality: self.audio_quality,
         }
     }
     pub fn window_title(&self) -> String {
@@ -799,6 +804,7 @@ impl App {
                 .start_generation(self.generation, Some(id.clone()), duration_ms);
             self.loaded = true;
             self.state = State::Loading;
+            self.audio_quality = None;
             self.status = "Loading audio... Space pauses | q exits".into();
             self.send(
                 tx,
@@ -817,6 +823,7 @@ impl App {
         self.generation += 1;
         self.state = State::Paused;
         self.loaded = false;
+        self.audio_quality = None;
         self.position_anchor = None;
         self.send(tx, Command::Stop);
     }
@@ -863,6 +870,12 @@ impl App {
         // Expiry wins over a simultaneous completion or delayed playback event.
         self.check_sleep(Instant::now(), tx);
         match event {
+            Event::Quality {
+                generation,
+                quality,
+            } if generation == self.generation && self.loaded => {
+                self.audio_quality = Some(quality);
+            }
             Event::Metadata { generation, track }
                 if generation == self.generation
                     && self.queue.current() == Some(track.id.as_str()) =>

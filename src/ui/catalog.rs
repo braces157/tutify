@@ -30,6 +30,11 @@ pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
                     },
                 )]
             }
+        } else if app.config.source == crate::model::MusicSource::Volta {
+            vec![
+                (SearchScope::Volta, " F2  Volta "),
+                (SearchScope::Library, " F3  Your library "),
+            ]
         } else {
             vec![
                 (SearchScope::Spotify, " F2  Spotify "),
@@ -71,6 +76,8 @@ pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
                         "Search your saved songs and playlist tracks"
                     } else if app.config.source == crate::model::MusicSource::Youtube {
                         "Search songs, artists, or paste a YouTube video link"
+                    } else if app.config.source == crate::model::MusicSource::Volta {
+                        "Search songs, artists, or enter a volta: track ID"
                     } else {
                         "Search songs, artists, or paste a Spotify track link"
                     },
@@ -254,6 +261,9 @@ pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
                     "\n\n  No tracks found in this album.\n\n  Esc  Go back to previous view"
                 } else if is_artist {
                     match app.catalog.artist_source {
+                        Some(crate::catalog::ArtistResultSource::Volta) => {
+                            "\n  No Volta tracks returned for this artist.\n\n  /  Search by artist name\n  Esc  Go back"
+                        }
                         Some(crate::catalog::ArtistResultSource::TopTracks) => {
                             "\n\n  No top tracks found for this artist.\n\n  Esc  Go back to previous view"
                         }
@@ -279,6 +289,8 @@ pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
                     "\n\n  YouTube Music search\n\n  /  Search songs or paste a YouTube link\n  Enter  Play the selected result\n  e  Add to queue\n  4  Open your YouTube Music queue"
                 } else if app.config.source == crate::model::MusicSource::Youtube {
                     "\n\n  YouTube search\n\n  /  Search songs or paste a YouTube video link\n  Enter  Play the selected result\n  e  Add to queue\n  4  Open your YouTube queue"
+                } else if app.config.source == crate::model::MusicSource::Volta {
+                    "\n\n  Volta search\n\n  /  Search songs or enter a volta: track ID\n  Enter  Play the selected result\n  e  Add to queue\n  4  Open your Volta queue"
                 } else {
                     "\n\n  Nothing here yet.\n\n  /  Search songs or paste a Spotify link\n  2  Browse playlists\n  3  Open liked songs"
                 };

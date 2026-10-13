@@ -37,6 +37,9 @@ is a separate demonstration, not the player's frontend.
 | `src/diagnostics/doctor.rs`, `doctor/installation.rs`, `src/auth/doctor.rs` | Read-only local diagnostics, saved/process PATH hashes, and explicitly opted-in GET probes without credential refresh |
 | `src/diagnostics/history.rs`, `support.rs`, `src/app/diagnostics.rs`, `src/ui/diagnostics.rs` | Bounded typed session errors, redacted report snapshots, preview/export controls and F7 rendering |
 | `src/playback.rs`, `visualizer.rs` | Streaming engine, audio output and spectrum analysis |
+| `src/audio_quality.rs` | Source-stream codec and resolution parsing and display |
+| `src/volta.rs`, `src/volta/catalog.rs`, `src/volta/playback.rs` | Personal application credentials, throttled API access, standalone catalog and cancellable FFmpeg audio |
+| `src/volta/matching.rs` | Spotify recording resolution by ISRC or strict metadata, with session match caching |
 | `src/youtube.rs`, `src/youtube/playback.rs`, `playback/preload.rs` | Tool discovery, public-video extraction, bounded stream preloading, FFmpeg PCM and playback cancellation |
 | `src/youtube/music.rs`, `music/cache.rs`, `music/worker.rs`, `music_bridge.py` | Read-only music catalog RPC, typed bounded LRU pages and an idle-released metadata helper |
 | `src/youtube/music_auth.rs`, `setup.ps1`, `setup-music.ps1` | Isolated browser library connection, Windows user-encrypted credentials and verified dependency setup |
@@ -50,7 +53,13 @@ is a separate demonstration, not the player's frontend.
 
 - Launch policy selects a matching catalog/playback provider. Catalog results
   and saved queues stay provider-specific; no Spotify-to-YouTube track mapping
-  occurs. Successful account checks are cached for ten minutes for that account,
+  occurs. Combined Spotify + Volta retains Spotify catalog IDs and saved state;
+  Volta resolves only the audio recording, rejecting ambiguous matches. Standalone
+  Volta uses separate saved state. Volta secrets stay in Credential Manager or
+  process environment; authenticated requests use a fixed origin, and stream
+  cookies are forwarded only to a validated same-origin relay. Decoder diagnostics
+  expose allowlisted codec/rate metadata rather than signed URLs or cookies.
+  Successful account checks are cached for ten minutes for that account,
   and live lookup has a three-second deadline. Unavailable checks retain their
   cause while opening free music. Only a confirmed membership change requests
   the free handoff. Session requests close and save the TUI before account setup.

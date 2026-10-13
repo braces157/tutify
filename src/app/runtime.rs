@@ -131,6 +131,14 @@ pub async fn run_session(
         app.status =
             "Music is ready. / searches; F6 connects accounts and repairs playback.".into();
     }
+    if source == crate::model::MusicSource::Volta {
+        app.catalog.search_scope = SearchScope::Volta;
+        app.catalog.title = "Volta search".into();
+        app.status = "Volta is ready. / searches; Enter plays. Library browsing needs library:read and playlists:read.".into();
+    }
+    if source == crate::model::MusicSource::SpotifyVolta {
+        app.status = "Spotify playlists, radio and Smart Shuffle are ready. Audio uses Volta's highest available lossless quality.".into();
+    }
     let catalog = services.catalog;
     let mut playback = services.playback;
     if !notice.is_empty() {
@@ -218,7 +226,7 @@ pub async fn run_session(
         loop {
             if app.check_sleep(Instant::now(), &playback.commands) { dirty = true; }
             app.catalog_health = tasks.catalog.health();
-            let media_stamp = (app.generation, app.state, app.queue.position_ms / 1000, app.cache.revision);
+            let media_stamp = (app.generation, app.state, app.queue.position_ms / 1000, app.cache.revision, app.audio_quality);
             if published_media != Some(media_stamp) {
                 if let Some(controls) = &mut media_controls {
                     controls.update(media_controls::Snapshot {

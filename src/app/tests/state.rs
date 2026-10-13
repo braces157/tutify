@@ -1,6 +1,57 @@
 use super::*;
 
 #[test]
+fn audio_quality_is_current_generation_only_and_clears_on_track_change_or_failure() {
+    let mut queue = Queue::default();
+    queue.replace(vec![test_track(1).id, test_track(2).id], 0, false);
+    let mut app = App::new(Config::default(), queue);
+    let (tx, _rx) = mpsc::unbounded_channel();
+    let quality = crate::audio_quality::AudioQuality::volta(
+        &serde_json::json!({"format":"flac", "bit_depth":24, "sample_rate":96000}),
+    );
+    app.load(&tx);
+    let generation = app.generation;
+    app.playback_event(
+        Event::Quality {
+            generation: generation - 1,
+            quality,
+        },
+        &tx,
+    );
+    assert!(app.audio_quality.is_none());
+    app.playback_event(
+        Event::Quality {
+            generation,
+            quality,
+        },
+        &tx,
+    );
+    assert_eq!(app.audio_quality, Some(quality));
+    app.media_action(MediaAction::Pause, &tx);
+    assert_eq!(app.discord_snapshot().quality, Some(quality));
+    app.media_action(MediaAction::Next, &tx);
+    assert!(app.audio_quality.is_none());
+    app.playback_event(
+        Event::Quality {
+            generation,
+            quality,
+        },
+        &tx,
+    );
+    assert!(app.audio_quality.is_none());
+    app.playback_event(
+        Event::Quality {
+            generation: app.generation,
+            quality,
+        },
+        &tx,
+    );
+    app.playback_event(Event::Error("Decoder failed".into()), &tx);
+    assert!(app.audio_quality.is_none());
+    assert!(app.discord_snapshot().quality.is_none());
+}
+
+#[test]
 fn discord_does_not_publish_restored_unknown_or_stopped_tracks() {
     let mut queue = Queue::default();
     queue.replace(vec![test_track(1).id], 0, false);

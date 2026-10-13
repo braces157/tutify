@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.6.0 — 2026-10-14
+
+- Add personal Volta application login through hidden input or bounded standard
+  input, with credentials stored in Windows Credential Manager. Reuse access
+  tokens, throttle requests, and keep upstream secrets out of error messages.
+- Keep connected Spotify libraries, discovery, queues, Smart Shuffle and Mix
+  Builder while resolving audio through Volta. Match by ISRC first, then strict
+  recording metadata; reject missing or ambiguous matches without replacing the
+  Spotify queue. Standalone Volta has its own catalog and saved state.
+- Prefer connected Volta and FFmpeg during automatic launch, followed by Spotify
+  Premium and free YouTube Music. Keep explicit provider selection available.
+- Display source codec, bit depth, sample rate and bitrate when known in playback
+  and Discord presence. Request the highest available Volta lossless quality;
+  report the actual stream format without claiming Windows output is bit-perfect.
+- Update release downloads and setup documentation. Ignore local work artifacts
+  and credential files, and scan repository history for secrets before publishing.
+
 ## 0.5.0 — 2026-10-07
 
 - Make `tuitify` the complete launch and setup flow. Connect Spotify or a Google

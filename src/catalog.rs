@@ -47,6 +47,7 @@ pub struct Page {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ArtistResultSource {
+    Volta,
     YoutubeMusic,
     TopTracks,
     ArtistSearch,
@@ -55,6 +56,7 @@ pub enum ArtistResultSource {
 impl ArtistResultSource {
     pub fn label(self) -> &'static str {
         match self {
+            Self::Volta => "Volta artist tracks",
             Self::YoutubeMusic => "YouTube Music songs",
             Self::TopTracks => "Top Tracks",
             Self::ArtistSearch => "Artist Search",
@@ -65,6 +67,7 @@ impl ArtistResultSource {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RecommendationSource {
+    Volta,
     YoutubeMusic,
     YoutubeSearch,
     Spotify,
@@ -75,6 +78,7 @@ pub enum RecommendationSource {
 impl RecommendationSource {
     pub fn label(self) -> &'static str {
         match self {
+            Self::Volta => "Volta artist search",
             Self::YoutubeMusic => "YouTube Music radio",
             Self::YoutubeSearch => "YouTube search suggestions",
             Self::Spotify => "Spotify recommendations",
@@ -132,6 +136,7 @@ impl CapabilitySummary {
 
 #[derive(Clone)]
 pub struct Catalog {
+    volta: Option<crate::volta::Client>,
     youtube: Option<crate::youtube::Tools>,
     client: reqwest::Client,
     tokens: TokenManager,
@@ -145,6 +150,43 @@ pub struct Catalog {
 }
 
 impl Catalog {
+    pub(crate) fn volta(client: crate::volta::Client) -> Result<Self> {
+        Ok(Self {
+            volta: Some(client),
+            ..Self::offline()?
+        })
+    }
+    fn observe_volta<T>(&self, result: Result<T>) -> Result<T> {
+        self.health.store(
+            if result.is_ok() {
+                1
+            } else if result
+                .as_ref()
+                .is_err_and(|e| ServiceFailure::is(e, FailureKind::AuthenticationRequired))
+            {
+                3
+            } else {
+                2
+            },
+            Ordering::Relaxed,
+        );
+        result
+    }
+    pub(crate) async fn volta_recommendations(
+        &self,
+        seed: &Track,
+        excluded: &[Track],
+        round: usize,
+    ) -> Option<Result<Recommendations>> {
+        Some(
+            self.observe_volta(
+                self.volta
+                    .as_ref()?
+                    .recommendations(seed, excluded, round)
+                    .await,
+            ),
+        )
+    }
     pub fn youtube(tools: crate::youtube::Tools) -> Result<Self> {
         Ok(Self {
             youtube: Some(tools),
@@ -241,6 +283,7 @@ impl Catalog {
 
     pub fn new(tokens: TokenManager) -> Result<Self> {
         Ok(Self {
+            volta: None,
             youtube: None,
             client: http_client()?,
             tokens,
@@ -263,6 +306,9 @@ impl Catalog {
     }
 
     pub(crate) async fn get(&self, path: &str, query: &[(&str, String)]) -> Result<Value> {
+        if self.volta.is_some() {
+            bail!("This Spotify-only feature is unavailable in Volta mode");
+        }
         let result = self.capability_request(path, query).await;
         match &result {
             Ok(_) => self.health.store(1, Ordering::Relaxed),
@@ -384,6 +430,9 @@ impl Catalog {
         unreachable!()
     }
     pub async fn track(&self, id: &str) -> Result<Track> {
+        if let Some(client) = &self.volta {
+            return self.observe_volta(client.track(id).await);
+        }
         if let Some(tools) = &self.youtube {
             let result = tools.track(id).await;
             self.health.store(
@@ -424,6 +473,9 @@ impl Catalog {
             .buffer_unordered(5)
     }
     pub async fn recommendations(&self, seed: &Track) -> Result<Recommendations> {
+        if let Some(result) = self.volta_recommendations(seed, &[], 0).await {
+            return result;
+        }
         if self.youtube.is_some() {
             return self.youtube_recommendations(seed, &[], 0).await;
         }
@@ -476,6 +528,9 @@ impl Catalog {
         excluded: &[Track],
         context: &[Track],
     ) -> Result<Recommendations> {
+        if let Some(result) = self.volta_recommendations(seed, excluded, 0).await {
+            return result;
+        }
         if self.youtube.is_some() {
             return self.youtube_recommendations(seed, excluded, 0).await;
         }
@@ -499,6 +554,9 @@ impl Catalog {
         offset: usize,
         artist_source: Option<ArtistResultSource>,
     ) -> Result<Page> {
+        if let Some(client) = &self.volta {
+            return self.observe_volta(client.page(browse, offset).await);
+        }
         if let Some(tools) = &self.youtube {
             let result = tools.page(browse, offset).await;
             self.health.store(

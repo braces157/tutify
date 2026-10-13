@@ -9,6 +9,10 @@ pub(super) fn header(frame: &mut Frame<'_>, app: &App, area: Rect) {
         format!("v{} / YouTube Music", env!("CARGO_PKG_VERSION"))
     } else if app.config.source == crate::model::MusicSource::Youtube {
         format!("v{} / YouTube", env!("CARGO_PKG_VERSION"))
+    } else if app.config.source == crate::model::MusicSource::Volta {
+        format!("v{} / Volta", env!("CARGO_PKG_VERSION"))
+    } else if app.config.source == crate::model::MusicSource::SpotifyVolta {
+        format!("v{} / Spotify + Volta", env!("CARGO_PKG_VERSION"))
     } else {
         format!("v{}", env!("CARGO_PKG_VERSION"))
     };

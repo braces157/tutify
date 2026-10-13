@@ -38,6 +38,10 @@ pub enum Command {
 }
 #[derive(Debug)]
 pub enum Event {
+    Quality {
+        generation: u64,
+        quality: crate::audio_quality::AudioQuality,
+    },
     Metadata {
         generation: u64,
         track: crate::model::Track,
@@ -75,6 +79,66 @@ pub struct Playback {
 }
 
 impl Playback {
+    pub(crate) fn spawn_volta(
+        client: crate::volta::Client,
+        volume: u8,
+        visualizer: Arc<crate::visualizer::AudioVisualizer>,
+    ) -> Result<Self> {
+        Self::spawn_volta_resolver(
+            crate::volta::matching::Resolver::new(client, None),
+            volume,
+            visualizer,
+        )
+    }
+    pub(crate) fn spawn_spotify_volta(
+        client: crate::volta::Client,
+        catalog: crate::catalog::Catalog,
+        volume: u8,
+        visualizer: Arc<crate::visualizer::AudioVisualizer>,
+    ) -> Result<Self> {
+        Self::spawn_volta_resolver(
+            crate::volta::matching::Resolver::new(client, Some(catalog)),
+            volume,
+            visualizer,
+        )
+    }
+    fn spawn_volta_resolver(
+        resolver: crate::volta::matching::Resolver,
+        volume: u8,
+        visualizer: Arc<crate::visualizer::AudioVisualizer>,
+    ) -> Result<Self> {
+        let ffmpeg = crate::volta::playback::ffmpeg()?;
+        let (commands, rx) = mpsc::unbounded_channel();
+        let (tx, events) = mpsc::unbounded_channel();
+        let task = tokio::spawn(async move {
+            let errors = tx.clone();
+            let result = tokio::task::spawn_blocking(move || {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()?;
+                runtime.block_on(crate::volta::playback::worker(
+                    resolver, ffmpeg, volume, rx, tx, visualizer,
+                ))
+            })
+            .await;
+            match result {
+                Ok(Ok(())) => (),
+                Ok(Err(error)) => {
+                    let _ = errors.send(Event::Error(format!("{error:#}")));
+                }
+                Err(_) => {
+                    let _ = errors.send(Event::Error(
+                        "Volta audio worker exited unexpectedly; restart Tuitify".into(),
+                    ));
+                }
+            }
+        });
+        Ok(Self {
+            commands,
+            events,
+            task,
+        })
+    }
     pub fn spawn_youtube(
         tools: crate::youtube::Tools,
         volume: u8,
@@ -302,6 +366,7 @@ where
     let mut player_events = mpsc::unbounded_channel().1;
     let mut pending = VecDeque::new();
     let mut active: Option<(u64, u64)> = None; // librespot request ID, local generation
+    let mut spotify_quality = None;
     let mut loading_since: Option<Instant> = None;
     let mut health = tokio::time::interval(Duration::from_secs(1));
     let mut playing = false;
@@ -375,7 +440,16 @@ where
                 let event_request = match &event { PlayerEvent::PositionChanged { play_request_id, .. } => Some(*play_request_id), _ => event.get_play_request_id() };
                 if event_request.is_some_and(|id| id != request) { continue; }
                 let out = match event {
-                    PlayerEvent::Playing { position_ms, .. } => { loading_since = None; playing = true; last_progress = Instant::now(); Some(Event::Playing { generation, position_ms }) },
+                    PlayerEvent::TrackChanged { audio_item } => {
+                        spotify_quality = crate::audio_quality::AudioQuality::spotify(audio_item.files.keys().map(|format| format!("{format:?}"))).map(|quality| (audio_item.track_id, quality));
+                        None
+                    },
+                    PlayerEvent::Playing { track_id, position_ms, .. } => {
+                        if let Some((id, quality)) = &spotify_quality && *id == track_id {
+                            let _ = tx.send(Event::Quality { generation, quality: *quality });
+                        }
+                        loading_since = None; playing = true; last_progress = Instant::now(); Some(Event::Playing { generation, position_ms })
+                    },
                     PlayerEvent::Paused { position_ms, .. } => { loading_since = None; playing = false; Some(Event::Paused { generation, position_ms }) },
                     PlayerEvent::PositionChanged { position_ms, .. } | PlayerEvent::PositionCorrection { position_ms, .. } | PlayerEvent::Seeked { position_ms, .. } => { last_progress = Instant::now(); Some(Event::Position { generation, position_ms }) },
                     PlayerEvent::TimeToPreloadNextTrack { .. } => Some(Event::TimeToPreload { generation }),
