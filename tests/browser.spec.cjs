@@ -178,136 +178,55 @@ test('copy controls explain clipboard failures and leave command text selectable
   await expect(page.locator('#install-content-1 code')).toHaveClass(/select-text/);
 });
 
-test('website motion can be paused and the preference persists', async ({ page }) => {
+test('craft design motion preference persists and can follow the device', async ({page}) => {
   await page.goto('/docs/index.html');
   const toggle = page.locator('.motion-toggle');
-  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  await expect(toggle).toHaveAttribute('aria-pressed','true');
+  await page.emulateMedia({reducedMotion:'reduce'});
+  await expect(toggle).toHaveAttribute('aria-pressed','false');
   await toggle.click();
-  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
-  await expect.poll(() => page.locator('.preview-image').evaluate(element => getComputedStyle(element).animationPlayState)).toBe('paused');
+  await expect(toggle).toHaveAttribute('aria-pressed','true');
   await page.reload();
-  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
-  await expect.poll(() => page.locator('.install-copy').evaluate(element => getComputedStyle(element).opacity)).toBe('1');
+  await expect(toggle).toHaveAttribute('aria-pressed','true');
   await toggle.click();
-  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
-  await page.locator('footer').scrollIntoViewIfNeeded();
-  await expect(page.locator('.record-scene')).toHaveClass(/motion-offscreen/);
-  await expect.poll(() => page.locator('.preview-image').evaluate(element => getComputedStyle(element).animationPlayState)).toBe('paused');
-});
-
-test('operating system reduced motion keeps content visible and animations still', async ({ page }) => {
-  await page.emulateMedia({ reducedMotion: 'reduce' });
-  await page.goto('/docs/index.html');
-  await expect(page.locator('.motion-toggle')).toBeEnabled();
-  await expect(page.locator('.motion-toggle')).toHaveAttribute('aria-pressed', 'false');
-  await expect.poll(() => page.locator('.preview-image').evaluate(element => parseFloat(getComputedStyle(element).animationDuration))).toBeLessThan(.01);
-  await expect.poll(() => page.locator('.questions-heading').evaluate(element => getComputedStyle(element).opacity)).toBe('1');
-});
-
-test('visitors can enable and persist animation when their device prefers reduced motion', async ({ page }) => {
-  await page.emulateMedia({ reducedMotion: 'reduce' });
-  await page.goto('/docs/index.html');
-  const toggle = page.getByRole('button', { name: 'Enable website animations' });
-  await toggle.click();
-  await expect(page.locator('.motion-toggle')).toHaveAttribute('aria-pressed', 'true');
-  await expect.poll(() => page.locator('.preview-image').evaluate(element => parseFloat(getComputedStyle(element).animationDuration))).toBeGreaterThan(1);
-  await page.locator('.record-scene').scrollIntoViewIfNeeded();
-  const rotation = await page.locator('.preview-image').evaluate(element => getComputedStyle(element).transform);
-  await expect.poll(() => page.locator('.preview-image').evaluate(element => getComputedStyle(element).transform)).not.toBe(rotation);
-  await page.locator('#signal-stage').scrollIntoViewIfNeeded();
-  const canvas = page.locator('#signal-canvas');
-  const first = await canvas.evaluate(element => element.toDataURL());
-  await expect.poll(() => canvas.evaluate(element => element.toDataURL())).not.toBe(first);
+  await expect(page.locator('html')).toHaveClass(/motion-paused/);
   await page.reload();
-  await expect(page.locator('.motion-toggle')).toHaveAttribute('aria-pressed', 'true');
-  await expect.poll(() => page.locator('.preview-image').evaluate(element => parseFloat(getComputedStyle(element).animationDuration))).toBeGreaterThan(1);
-  await page.locator('#signal-stage').scrollIntoViewIfNeeded();
-  const reloaded = await canvas.evaluate(element => element.toDataURL());
-  await expect.poll(() => canvas.evaluate(element => element.toDataURL())).not.toBe(reloaded);
-  await page.locator('.motion-toggle').click();
-  await expect(page.locator('.motion-toggle')).toHaveAttribute('aria-pressed', 'false');
-  await page.waitForTimeout(100);
-  const paused = await canvas.evaluate(element => element.toDataURL());
-  await page.waitForTimeout(250);
-  expect(await canvas.evaluate(element => element.toDataURL())).toBe(paused);
+  await expect(toggle).toHaveAttribute('aria-pressed','false');
 });
 
-test('device motion changes are followed until the visitor makes an explicit choice', async ({ page }) => {
+test('terminal illustration animation pauses while offscreen and on request', async ({page}) => {
   await page.goto('/docs/index.html');
-  const toggle = page.locator('.motion-toggle');
-  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
-  await page.emulateMedia({ reducedMotion: 'reduce' });
-  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
-  await page.emulateMedia({ reducedMotion: 'no-preference' });
-  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
-  await toggle.click();
-  await page.emulateMedia({ reducedMotion: 'reduce' });
-  await page.emulateMedia({ reducedMotion: 'no-preference' });
-  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
-  await toggle.click();
-  await page.emulateMedia({ reducedMotion: 'reduce' });
-  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
-});
-
-test('sound study switches features and supports keyboard navigation', async ({ page }) => {
-  await page.goto('/docs/index.html');
-  await expect(page.locator('#product-screenshot')).toHaveCount(0);
-  await expect(page.locator('#demo-disclosure')).not.toHaveAttribute('open');
-  await page.locator('#signal-tab-queue').focus();
-  await page.keyboard.press('ArrowRight');
-  await expect(page.locator('#signal-tab-lyrics')).toBeFocused();
-  await expect(page.locator('#signal-tab-lyrics')).toHaveAttribute('aria-selected', 'true');
-  await expect(page.locator('#signal-title')).toHaveText('KNOW EVERYWORD.');
-  await expect(page.locator('#signal-description')).toContainText('LRCLIB');
-  await page.keyboard.press('End');
-  await expect(page.locator('#signal-tab-spectrum')).toBeFocused();
-  await expect(page.locator('#signal-title')).toHaveText('FEEL THEFREQUENCY.');
-  await expect(page.locator('#signal-panel')).toHaveAttribute('aria-labelledby', 'signal-tab-spectrum');
-});
-
-test('sound study retains useful content when canvas is unavailable', async ({ page }) => {
-  await page.addInitScript(() => { HTMLCanvasElement.prototype.getContext = () => null; });
-  await page.goto('/docs/index.html');
-  await page.locator('#signal-stage').scrollIntoViewIfNeeded();
-  await expect(page.locator('.signal-fallback')).toBeVisible();
-  await page.locator('#signal-tab-lyrics').click();
-  await expect(page.locator('#signal-description')).toContainText('Lyrics');
-  await expect(page.locator('#signal-tab-lyrics')).toHaveAttribute('aria-selected', 'true');
-});
-
-test('canvas moves while visible and pauses with motion controls and offscreen', async ({ page }) => {
-  await page.goto('/docs/index.html');
-  await page.locator('#signal-stage').scrollIntoViewIfNeeded();
-  const canvas = page.locator('#signal-canvas');
-  await page.waitForTimeout(400);
-  const first = await canvas.evaluate(element => element.toDataURL());
-  await expect.poll(() => canvas.evaluate(element => element.toDataURL())).not.toBe(first);
-  await page.locator('.motion-toggle').click();
-  const paused = await canvas.evaluate(element => element.toDataURL());
-  await page.waitForTimeout(250);
-  expect(await canvas.evaluate(element => element.toDataURL())).toBe(paused);
-  await page.locator('.motion-toggle').click();
+  const preview = page.locator('.terminal-showcase');
+  await preview.scrollIntoViewIfNeeded();
+  const bar = page.locator('.preview-bar').first();
+  await expect(bar).toHaveCSS('animation-play-state','running');
   await page.locator('footer').scrollIntoViewIfNeeded();
-  await page.waitForTimeout(300);
-  const offscreen = await canvas.evaluate(element => element.toDataURL());
-  await page.waitForTimeout(250);
-  expect(await canvas.evaluate(element => element.toDataURL())).toBe(offscreen);
+  await expect(bar).toHaveCSS('animation-play-state','paused');
+  await preview.scrollIntoViewIfNeeded();
+  await page.locator('.motion-toggle').click();
+  await expect(bar).toHaveCSS('animation-play-state','paused');
 });
 
-test('player preview responds to the pointer and stops when motion is disabled', async ({ page }) => {
+test('production design has no dead links, fake metrics, or mock alert controls', async ({page}) => {
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
   await page.goto('/docs/index.html');
-  await page.waitForTimeout(1200);
-  const record = page.locator('.record-scene');
-  await record.scrollIntoViewIfNeeded();
-  await expect(record).toHaveClass(/is-visible/);
-  const box = await record.boundingBox();
-  await page.mouse.move(box.x + box.width * .8, box.y + box.height * .3);
-  await expect(record).toHaveClass(/is-hovered/);
-  await expect.poll(() => record.evaluate(element => element.style.getPropertyValue('--tilt-x'))).not.toBe('');
-  await page.locator('.motion-toggle').click();
-  await page.mouse.move(box.x + box.width * .8, box.y + box.height * .3);
-  await expect(record).not.toHaveClass(/is-hovered/);
-  expect(await record.evaluate(element => element.style.getPropertyValue('--tilt-x'))).toBe('');
+  await expect(page.locator('a[href="#"], [onclick*="alert("]')).toHaveCount(0);
+  const missing = await page.locator('a[href^="#"]').evaluateAll(links => links.map(a=>a.hash).filter(hash=>!document.getElementById(hash.slice(1))));
+  expect(missing).toEqual([]);
+  await expect(page.locator('body')).not.toContainText('14MB');
+  await expect(page.locator('body')).not.toContainText('88ms');
+  await expect(page.locator('body')).not.toContainText('Homebrew');
+  expect(errors).toEqual([]);
+});
+
+test('hero copy uses the pinned release command and explains clipboard failure', async ({page}) => {
+  await page.goto('/docs/index.html');
+  await page.evaluate(() => Object.defineProperty(navigator,'clipboard',{value:undefined,configurable:true}));
+  await page.locator('#hero-copy-cmd').click();
+  await expect(page.locator('#install-content-1')).toBeVisible();
+  await expect(page.locator('#install-content-1 code')).toContainText('--tag v0.6.0');
+  await expect(page.locator('#hero-copy-cmd')).toContainText('Select command');
 });
 
 test('mobile navigation supports opening, escape, and section links', async ({ page }) => {
@@ -377,9 +296,10 @@ test('native screenshot previews switch with keyboard navigation and keep full-i
   await expect(page.locator('#preview-tab-lyrics')).toBeFocused();
   await expect(page.locator('#preview-tab-lyrics')).toHaveAttribute('aria-selected', 'true');
   await expect(page.locator('#preview-panel')).toHaveAttribute('aria-labelledby', 'preview-tab-lyrics');
-  await expect(page.locator('#preview-panel img')).toHaveAttribute('src', /glass-lyrics\.jpg$/);
-  await expect(page.locator('#preview-panel a')).toHaveAttribute('href', /glass-lyrics\.jpg$/);
-  await expect(page.locator('.preview-caption')).toContainText('v0.3.0');
+  await expect(page.locator('#preview-panel img')).toHaveAttribute('src', /v0\.6\.0\/glass-lyrics-readings-volta\.png$/);
+  await expect(page.locator('#preview-panel a')).toHaveAttribute('href', /v0\.6\.0\/glass-lyrics-readings-volta\.png$/);
+  await expect(page.locator('.preview-caption')).toContainText('v0.6.0');
+  await expect.poll(() => page.locator('#preview-panel img').evaluate(image => image.complete && image.naturalWidth === 2854 && image.naturalHeight === 1722)).toBe(true);
   await page.keyboard.press('End');
   await expect(page.locator('#preview-tab-spectrum')).toBeFocused();
   await expect(page.locator('#preview-panel img')).toHaveAttribute('alt', /spectrum visualizer/);
@@ -389,11 +309,11 @@ test('native screenshot previews switch with keyboard navigation and keep full-i
 });
 
 test('native preview explains image failures and recovers on another selection', async ({ page }) => {
-  await page.route('**/glass-lyrics.jpg', route => route.abort());
+  await page.route('**/glass-lyrics-readings-volta.png', route => route.abort());
   await page.goto('/docs/index.html');
   await page.locator('#preview-tab-lyrics').click();
   await expect(page.locator('.preview-error')).toBeVisible();
-  await expect(page.locator('#preview-panel a')).toHaveAttribute('href', /glass-lyrics\.jpg$/);
+  await expect(page.locator('#preview-panel a')).toHaveAttribute('href', /glass-lyrics-readings-volta\.png$/);
   await page.locator('#preview-tab-spectrum').click();
   await expect(page.locator('.preview-error')).toBeHidden();
   await expect.poll(() => page.locator('#preview-panel img').evaluate(image => image.complete && image.naturalWidth > 0)).toBe(true);

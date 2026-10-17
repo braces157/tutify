@@ -103,7 +103,7 @@
       record.classList.toggle('motion-offscreen', !entries[0].isIntersecting);
     });
     records.observe(record);
-    const links = Array.from(document.querySelectorAll('.desktop-nav a'));
+    const links = Array.from(document.querySelectorAll('.desktop-nav a[href^="#"]'));
     const sections = links.map((link) => document.querySelector(link.getAttribute('href'))).filter(Boolean);
     const activeSections = new Map();
     const navigation = new IntersectionObserver((entries) => {
@@ -120,7 +120,7 @@
   if (!('IntersectionObserver' in window)) revealTargets.forEach(element => element.classList.add('is-visible'));
   updateMotion();
 
-  // Historical native captures are navigable, and always link to their full image.
+  // Native captures are navigable, and always link to their full image.
   const previewTabs = Array.from(document.querySelectorAll('[data-preview-mode]'));
   const previewPanel = document.getElementById('preview-panel');
   const previewImage = previewPanel.querySelector('img');
@@ -128,7 +128,7 @@
   const previewError = previewPanel.querySelector('.preview-error');
   const previews = {
     queue: { src: 'assets/screenshots/v0.3.0/glass-queue-smart-shuffle.png', label: 'queue', alt: 'Tuitify queue with Smart Shuffle, artist names, track durations and playback controls in the Glass theme', caption: 'Queue and Smart Shuffle. Native player, Glass theme, v0.3.0.' },
-    lyrics: { src: 'assets/screenshots/v0.3.0/glass-lyrics.jpg', label: 'lyrics', alt: 'Timed lyrics shown inside Tuitify’s native terminal interface', caption: 'Lyrics view. Native player, Glass theme, v0.3.0.' },
+    lyrics: { src: 'assets/screenshots/v0.6.0/glass-lyrics-readings-volta.png', label: 'lyrics and readings', alt: 'Tuitify v0.6.0 Glass theme with Japanese lyrics, romaji readings, and Volta FLAC audio at 24-bit / 96 kHz', caption: 'Lyric readings and Volta FLAC, 24-bit / 96 kHz. Native player, Glass theme, v0.6.0.' },
     spectrum: { src: 'assets/screenshots/v0.3.0/glass-visualizer.jpg', label: 'spectrum', alt: 'Tuitify’s spectrum visualizer beside the native music player controls', caption: 'Audio spectrum. Native player, Glass theme, v0.3.0.' },
   };
   let previewAnimation;
@@ -197,64 +197,47 @@
 
   const disclosure = document.getElementById('demo-disclosure');
   document.querySelectorAll('a[href="#interactive-demo"]').forEach(link => link.addEventListener('click', () => { disclosure.open = true; }));
-  const stage = document.getElementById('signal-stage');
-  const signalPanel = document.getElementById('signal-panel');
-  const modes = {
-    queue: { lines: ['KEEP IT', 'FLOWING.'], description: 'A queue that follows your lead. Add, reorder, undo. Leave room for the next good song.', caption: 'Your queue. Your call.' },
-    lyrics: { lines: ['KNOW EVERY', 'WORD.'], description: 'Lyrics that move with the music. Follow timed lines from LRCLIB, or scroll through plain lyrics when available.', caption: 'Stay with the song.' },
-    spectrum: { lines: ['FEEL THE', 'FREQUENCY.'], description: 'A live spectrum, drawn from the audio playing in Tuitify. See the rhythm, from the low end to the high notes.', caption: 'A little atmosphere.' },
-  };
-  const signalTabs = Array.from(document.querySelectorAll('[data-signal-mode]'));
-  signalTabs.forEach(tab => tab.addEventListener('click', () => {
-    const selectedMode = tab.dataset.signalMode;
-    const changed = stage.dataset.mode !== selectedMode;
-    stage.dataset.mode = selectedMode;
-    signalTabs.forEach(other => {
-      const active = other === tab;
-      other.setAttribute('aria-selected', String(active));
-      other.tabIndex = active ? 0 : -1;
-    });
-    signalPanel.setAttribute('aria-labelledby', tab.id);
-    const content = modes[selectedMode];
-    modeAnimations.forEach(animation => animation.cancel());
-    modeAnimations = [];
-    const description = document.getElementById('signal-description');
-    description.textContent = content.description;
-    stage.querySelector('.signal-indicator').textContent = content.caption;
-    stage.querySelectorAll('.signal-title > span').forEach((line, index) => {
-      line.textContent = content.lines[index];
-      if (changed && motionEnabled()) {
-        modeAnimations.push(line.animate([{ opacity: 0, transform: 'translateY(30px)', filter: 'blur(8px)' }, { opacity: 1, transform: 'translateY(0)', filter: 'blur(0)' }], { duration: 700, delay: index * 80, easing: 'cubic-bezier(.22,1,.36,1)', fill: 'backwards' }));
-      }
-    });
-    if (changed && motionEnabled()) {
-      modeAnimations.push(description.animate([{ opacity: 0, transform: 'translateY(12px)' }, { opacity: 1, transform: 'none' }], { duration: 600, delay: 180, easing: 'cubic-bezier(.22,1,.36,1)', fill: 'backwards' }));
-    }
-    modeAnimations = modeAnimations.filter(animation => animation.playState !== 'finished');
-    document.dispatchEvent(new CustomEvent('tuitify:signal-change'));
-  }));
 
+  document.querySelectorAll('[data-copy-command]').forEach(button => button.addEventListener('click', async () => {
+    const originalContent = button.innerHTML;
+    const originalLabel = button.getAttribute('aria-label');
+    try {
+      await navigator.clipboard.writeText(button.dataset.copyCommand);
+      button.textContent = 'Copied';
+      button.setAttribute('aria-label', 'Command copied');
+    } catch (_) {
+      window.switchInstallTab(1);
+      document.getElementById('install').scrollIntoView({ behavior: 'instant' });
+      button.textContent = 'Select command in the install panel';
+      button.setAttribute('aria-label', 'Copy unavailable; select the command in the install panel');
+    }
+    window.setTimeout(() => {
+      button.innerHTML = originalContent;
+      button.setAttribute('aria-label', originalLabel);
+    }, 3500);
+  }));
   const actions = {
     play: () => window.togglePlay(), theme: () => window.cycleDemoTheme(),
     lyrics: () => window.toggleDemoLyrics(), spectrum: () => window.toggleDemoVisualizer(),
     radio: () => window.triggerDemoRadio(), search: () => { window.switchView(1); document.getElementById('tui-filter-input').focus({ preventScroll: true }); },
-    next: () => window.setCurrentTrackByDirection(1), previous: () => window.setCurrentTrackByDirection(-1),
+    next: () => window.setCurrentTrackByDirection(1), queue: () => window.switchView(4),
   };
-  document.querySelectorAll('[data-demo-action]').forEach((key) => key.addEventListener('click', () => {
+  document.querySelectorAll('[data-demo-action]').forEach(button => button.addEventListener('click', () => {
     const screen = document.getElementById('tui-terminal-screen');
     disclosure.open = true;
-    screen.scrollIntoView({ behavior: motionEnabled() ? 'smooth' : 'instant', block: 'center' });
+    screen.scrollIntoView({ behavior: 'instant', block: 'center' });
     screen.focus({ preventScroll: true });
-    actions[key.dataset.demoAction]();
+    actions[button.dataset.demoAction]();
+    document.getElementById('key-action-status').textContent = 'Applied to the silent browser demo.';
   }));
-
-  // Light up the matching keycap when a visitor presses the key anywhere on the page (visual only).
-  const keycaps = new Map(Array.from(document.querySelectorAll('.key-demo[data-key]')).map(key => [key.dataset.key, key]));
-  document.addEventListener('keydown', (event) => {
-    if (event.ctrlKey || event.metaKey || event.altKey) return;
-    const keycap = keycaps.get(event.key);
-    if (!keycap) return;
-    keycap.classList.add('is-pressed');
-    window.setTimeout(() => keycap.classList.remove('is-pressed'), 180);
+  document.querySelectorAll('.terminal-showcase div').forEach((bar, index) => {
+    if (/h-\[\d+%\]/.test(bar.className) && bar.classList.contains('bg-electric-neon')) {
+      bar.classList.add('preview-bar');
+      bar.style.setProperty('--bar-delay', (index % 9) * -.13 + 's');
+    }
   });
+  if ('IntersectionObserver' in window) {
+    const observer = new IntersectionObserver(entries => entries.forEach(entry => entry.target.classList.toggle('preview-offscreen', !entry.isIntersecting)));
+    observer.observe(document.querySelector('.terminal-showcase'));
+  }
 })();
