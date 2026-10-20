@@ -292,6 +292,21 @@ fn preload_respects_repeat_modes() {
     }
 }
 
+#[test]
+fn removing_the_next_song_cancels_its_preload() {
+    let mut queue = Queue::default();
+    queue.replace(vec!["0".repeat(22), "1".repeat(22)], 0, false);
+    let mut app = App::new(Config::default(), queue);
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    app.generation = 1;
+    app.playback_event(Event::TimeToPreload { generation: 1 }, &tx);
+    assert!(matches!(rx.try_recv().unwrap(), Command::Preload { .. }));
+    app.queue.ids.pop();
+    app.check_preload(&tx);
+    assert!(matches!(rx.try_recv().unwrap(), Command::CancelPreload));
+    assert!(app.last_preloaded_id.is_none());
+}
+
 #[tokio::test]
 async fn enqueue_triggers_preload_when_at_end_of_queue() {
     let mut q = Queue::default();

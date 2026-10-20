@@ -81,8 +81,31 @@ impl AudioQuality {
                 .ok()
                 .filter(|rate| (8000..=768000).contains(rate))
         });
+        let bit_depth = codec
+            .lossless()
+            .then(|| {
+                description.split(',').find_map(|part| {
+                    let part = part.trim();
+                    if let Some((_, bits)) = part.split_once('(') {
+                        bits.strip_suffix(" bit)")?
+                            .parse::<u8>()
+                            .ok()
+                            .filter(|bits| (1..=32).contains(bits))
+                    } else if matches!(part, "s16" | "s16p") {
+                        Some(16)
+                    } else {
+                        None
+                    }
+                })
+            })
+            .flatten();
         Some(Self {
             codec: Some(codec),
+            bit_depth: bit_depth.or_else(|| {
+                (self.codec == Some(codec))
+                    .then_some(self.bit_depth)
+                    .flatten()
+            }),
             sample_rate: rate.or(self.sample_rate),
             ..self
         })
@@ -225,6 +248,20 @@ mod tests {
             reported
                 .decoded("  Stream #0:0: Audio: pcm_f32le, 96000 Hz")
                 .is_none()
+        );
+        assert_eq!(
+            AudioQuality::default()
+                .decoded("  Stream #0:0: Audio: flac, 192000 Hz, stereo, s32 (24 bit)")
+                .unwrap()
+                .label(),
+            "FLAC 24-bit / 192 kHz"
+        );
+        assert_eq!(
+            reported
+                .decoded("  Stream #0:0: Audio: flac, 44100 Hz, stereo, s16")
+                .unwrap()
+                .label(),
+            "FLAC 16-bit / 44.1 kHz"
         );
     }
 }

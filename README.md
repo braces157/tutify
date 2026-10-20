@@ -5,7 +5,7 @@
 
   **A fast, keyboard-first music player for the Windows terminal.**
 
-  Launch `tuitify` for connected Volta lossless, Spotify Premium, or free YouTube Music. Browse your library,
+  Discover songs through Deezer and play through connected Volta, Spotify Premium, or free YouTube Music. Browse your library,
   manage the queue, view synchronized lyrics, and control playback from one native TUI.
 
   [![Validate](https://github.com/braces157/tutify/actions/workflows/ci.yml/badge.svg)](https://github.com/braces157/tutify/actions/workflows/ci.yml)
@@ -33,6 +33,22 @@ workflow inside Windows Terminal—no Electron shell and no background service.
 ## Preview
 
 <p align="center">
+  <a href="docs/assets/screenshots/v0.7.0/demo-queue-wide.png">
+    <img src="docs/assets/screenshots/v0.7.0/demo-queue-wide.png" width="100%" alt="Tuitify v0.7.0 rendered demo with a library sidebar, fictional queue, spectrum and playback controls">
+  </a>
+</p>
+
+<p align="center"><strong>v0.7.0 wide layout, rendered from the native demo with fictional tracks and simulated playback</strong> · <a href="docs/assets/screenshots/v0.7.0/demo-queue-tall.png">Tall-window layout</a></p>
+
+<p align="center">
+  <a href="docs/assets/screenshots/v0.6.0/glass-lyrics-readings-volta.png">
+    <img src="docs/assets/screenshots/v0.6.0/glass-lyrics-readings-volta.png" width="100%" alt="Tuitify v0.6.0 Glass theme showing Japanese lyrics with romaji readings, a Spotify queue, and Volta FLAC audio at 24-bit / 96 kHz">
+  </a>
+</p>
+
+<p align="center"><strong>Glass lyrics with Japanese readings and Volta lossless audio (v0.6.0)</strong></p>
+
+<p align="center">
   <a href="docs/assets/screenshots/v0.3.0/glass-queue-smart-shuffle.png">
     <img src="docs/assets/screenshots/v0.3.0/glass-queue-smart-shuffle.png" width="100%" alt="Tuitify v0.3.0 Glass theme showing a multilingual queue with Smart Shuffle suggestions in Windows Terminal">
   </a>
@@ -56,11 +72,15 @@ workflow inside Windows Terminal—no Electron shell and no background service.
 
 <p align="center"><strong>Synchronized lyrics over a native-resolution wallpaper</strong></p>
 
-> These captures document the v0.3.0 Glass interface; the visualizer and lyrics
+> The current layout preview is rendered from the native demo. The next capture shows v0.6.0 with lyric readings and Spotify + Volta.
+> The remaining captures document the v0.3.0 Glass interface; the visualizer and lyrics
 > views were captured before its version label advanced from v0.2.9. The current
-> v0.6.0 release keeps this appearance and adds the fixes listed below.
+> v0.7.0 adds a responsive sidebar and tall-window listening layout; these older captures remain historical.
 
 ## Highlights
+
+- **Deezer discovery** for public song search, albums, artists, related-artist radio and Smart Shuffle. Deezer supplies metadata; your selected audio provider supplies the full recording.
+- **Continuous listening** fetches related songs near the end of the queue, with cancellation when you pause, stop, or choose another queue.
 
 - **Direct playback** through librespot and WASAPI; Spotify Desktop can stay closed.
 - **Automatic source selection** preferring connected Volta lossless, then Spotify
@@ -89,6 +109,10 @@ workflow inside Windows Terminal—no Electron shell and no background service.
   playback timeline.
 - **Audio quality** in Now Playing and Discord: source codec, bit depth/sample rate
   for lossless audio, and reported bitrate for lossy audio.
+- **High-resolution output** prefers the source sample rate and floating-point or
+  32-bit Windows output. FLAC decoding retains 24-bit detail. When the endpoint
+  requires another rate, FFmpeg uses a bandlimited 64-tap converter for Volta and
+  YouTube, with no forced 44.1 kHz intermediate step.
 - **Discord Rich Presence** with track artwork, audio quality and playback state; easy to disable.
 - **Local listening statistics** with aggregate play counts and listening time—no
   analytics service or timestamped listening history.
@@ -97,17 +121,16 @@ workflow inside Windows Terminal—no Electron shell and no background service.
 
 ### Current release
 
-The current release is **v0.6.0**. Just launch `tuitify`: connected Volta is preferred
+The current release is **v0.7.0**. Just launch `tuitify`: connected Volta is preferred
 for lossless playback; otherwise confirmed Spotify Premium accounts use Spotify,
 and free accounts and users without a Spotify login use YouTube
 Music. F6 Tools connects accounts and updates playback tools inside the app.
-The update adds public music search, albums, artists, radio, optional Google
-libraries, and independent provider queues. Bounded parsed caches and idle helper
+This update adds Deezer discovery, automatic queue continuation, prepared next-track audio, responsive player layouts, and clearer audio-provider badges. Optional Google libraries and independent provider queues remain available. Bounded parsed caches and idle helper
 shutdown reduce retained memory. Existing queue tools, recovery, diagnostics,
 lyrics, Glass themes and Windows media controls remain available.
 
 The wallpaper-backed Glass theme supports both a portable Unicode renderer and a
-full-resolution Windows Terminal profile. See the [release notes](docs/releases/v0.6.0.md)
+full-resolution Windows Terminal profile. See the [release notes](docs/releases/v0.7.0.md)
 and [changelog](CHANGELOG.md) for the complete update.
 
 ## Requirements
@@ -134,8 +157,8 @@ The native demo needs no Spotify account or audio device.
 
 ## Install
 
-1. Download `Tuitify-0.6.0-windows-x86_64.zip` from
-   [release v0.6.0](https://github.com/braces157/tutify/releases/tag/v0.6.0).
+1. Download `Tuitify-0.7.0-windows-x86_64.zip` from
+   [release v0.7.0](https://github.com/braces157/tutify/releases/tag/v0.7.0).
 2. Extract the archive.
 3. Open Windows Terminal in the extracted folder and run:
 
@@ -163,6 +186,23 @@ an existing streaming login can verify its entitlement without opening audio.
 An expired login, denied access or failed check shows its cause and opens free
 music. Only a confirmed Spotify membership change updates the cached plan.
 Restored queues always start paused; press Space to resume.
+
+Volta prepares the next queue entry while the current song plays, keeping a
+small decoded audio buffer ready for the transition. Changing the next song or
+stopping playback cancels that preparation. If Volta cannot supply a recording,
+playback tries a matching YouTube recording using installed YouTube tools.
+In Spotify + Volta mode, an existing Spotify streaming login provides a further
+fallback if YouTube is unavailable (Spotify Premium is required). Queue IDs and
+order stay intact; the playback status identifies fallback audio, and Now Playing
+reports the audio provider beside its actual source quality. Explicit `--source youtube` selects YouTube even when Volta is connected; plain `tuitify` uses automatic selection. Each new song tries Volta first.
+
+For high-resolution Volta playback, use a compatible DAC and select its desired
+24-bit/high-rate default format in Windows Sound settings. Playback uses Windows
+shared audio; its mixer, device format, volume, and enhancements can affect the
+final signal, so this is not an exclusive or bit-perfect output mode. Now Playing
+reports the source quality, not the DAC format. Spotify's current playback backend
+uses up to 320 kbps and YouTube streams remain lossy; FLAC/high-resolution quality
+depends on the recording supplied by Volta.
 
 To install the executable for your Windows user and add it to `PATH`, run:
 
@@ -365,7 +405,7 @@ text; finish text entry before using playback commands.
 | `r` in lyrics | Cycle Latin readings: auto / Japanese romaji / Mandarin pinyin / off |
 | `t` | Cycle color themes |
 | `/` or `f` | Filter Queue or loaded Liked Songs/playlist rows; `/` opens search from other views |
-| `F2` / `F3` | Search Spotify / search your saved library |
+| `F2` / `F3` | Search Deezer / search your connected saved library |
 | `F4` | Inspect skipped sources in saved-library search |
 | `F5` | Refresh catalog data, retry metadata, or retry lyrics in the lyrics view |
 | `Home` / `End` | Seek to the start / end of the track |
@@ -446,9 +486,8 @@ tuitify background --horizontal "C:\path\to\wide.jpg" --vertical "C:\path\to\tal
 
 You can set either orientation independently. `tuitify background --dim 52`
 changes dimming while keeping the configured images; running `tuitify background`
-with no options restores the Windows wallpaper and default dimming. In Glass,
-the interface text fades after 20 seconds without keyboard, mouse, or media-key
-input and returns when input resumes. The playback panel stays bright.
+with no options restores the Windows wallpaper and default dimming. Glass text
+stays at full brightness, including while the player is idle.
 
 Running `tuitify` stays in the current terminal using the Unicode image renderer.
 Run `tuitify --glass` to start directly in the current terminal with the Glass background
@@ -536,7 +575,14 @@ updated when you save it again. Replacement pauses playback; appending preserves
 
 - **Filter loaded rows:** `/` or `f` in Liked Songs or playlists searches only
   data already fetched into that view.
-- **Spotify search:** F2 searches tracks across Spotify's catalog. Enter plays
+- **Deezer search:** F2 searches Deezer's public music catalog without a login.
+  Albums, artist tracks, Track Radio, and Smart Shuffle use Deezer metadata for
+  these results. Your selected audio provider still plays full songs: recording
+  codes (ISRC) are checked first, then title, artist, and duration. Queue entries
+  keep their Deezer identities across restarts. Empty or unavailable Deezer
+  searches fall back to the current provider, with the fallback labeled in the
+  results. Pagination stays on the provider that supplied the first page.
+  Existing provider links and connected playlists continue to work. Enter plays
   the selected result and starts Track Radio in the background.
 - **Saved-library search:** F3 scans saved Liked Songs and accessible saved
   playlist tracks across pages. It needs network access and can take time.
@@ -554,6 +600,18 @@ retain partial results after a later-page failure and offer explicit retries.
 
 ## How playback and recommendations work
 
+Autoplay keeps music going when your chosen songs run out, including restored
+queues, playlists, Liked Songs, and Smart Shuffle. With repeat off, Tuitify
+fetches related songs when three or fewer tracks remain and appends them after
+your choices. Manually queued songs stay ahead of these suggestions. Refills
+stay anchored to an original queued song and exclude recordings already in the
+queue. If a batch arrives after the last song finishes, playback continues
+automatically; pausing or stopping cancels that delayed restart. Repeat modes
+and sleep timers still take priority. If discovery fails or returns no new
+songs, playback stops with a message; `R` starts a fresh Track Radio session.
+
+For Deezer results, recommendations come directly from Deezer's related artists
+and artist tracks, without a Spotify lookup. Existing Spotify queue entries in
 Track Radio and Smart Shuffle use Deezer's related-artist metadata to discover
 other artists, then find and verify their tracks in Spotify. Radio adds up to
 15 tracks per batch, with at most three per primary artist. Searches stay
@@ -617,7 +675,8 @@ song-specific kanji readings, and Chinese characters with multiple pronunciation
 may differ from the recording. Pinyin represents Mandarin, including traditional
 characters; it does not represent Cantonese pronunciation.
 
-Radio and Smart Shuffle send the seed artist's name to Deezer's public metadata
+Public search sends your query to Deezer; album, track, and artist lookups send
+their Deezer IDs. Radio and Smart Shuffle send the seed artist's name to Deezer's public metadata
 API; resolving ambiguous artist names can also send the seed song title. Spotify
 tokens, account identifiers, playlists and listening statistics are not sent to
 Deezer. Similarity results are cached in memory, not written as a listening profile.

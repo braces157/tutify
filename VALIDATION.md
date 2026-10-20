@@ -1,5 +1,38 @@
 # Validation record
 
+## v0.7.0 Deezer discovery and continuous listening — 2026-10-20
+
+The release adds public Deezer discovery, preserved catalog identities during
+audio resolution, bounded automatic queue continuation, prepared Volta audio,
+matched fallback, native output negotiation and responsive player layouts.
+Audio-provider badges distinguish discovery metadata from the stream provider.
+
+Local formatting, locked tests and strict all-target Clippy passed. The suite
+passed **636 active tests: 629 unit and seven integration**, with 28 ignored
+live, hardware and benchmark opt-ins. Regression coverage includes stale queue
+refills, manual cancellation, recording mapping, next-track preparation,
+provider fallback and provider labels in the Deezer interface.
+
+The website passed **22 Microsoft Edge browser tests** for release/download
+consistency, keyboard controls, clipboard failure, native preview navigation,
+motion preferences, no-script operation and responsive layouts. The updated
+page was visually inspected at 390, 768 and 1440 pixels. Current-layout images
+are rendered native demo fixtures with fictional tracks and simulated playback;
+older live captures retain their original versions.
+
+Read-only live Volta search succeeded. A five-second muted playback probe passed
+with AAC at 44.1 kHz and no gaps over 250 ms, after a 16.11-second startup. The
+separate live quality-metadata opt-in failed because no sample rate was parsed
+from the stream API response. Decoding can still report its actual sample rate;
+this check is not evidence of lossless availability. Sustained playback and all
+provider/device combinations were not verified by this publication.
+
+Gitleaks 8.30.1 checks repository history and staged publication contents with
+the project rules, including Volta credential detection. Release packages carry
+source/build identity, payload manifests and SHA-256 sidecars. Installation uses
+the existing installer, with the canonical executable verified against the
+release build; running sessions need to be reopened to load the new executable.
+
 ## v0.6.0 Volta lossless and audio quality — 2026-10-14
 
 The release adds personal Volta applications, standalone Volta saved state,

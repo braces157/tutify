@@ -38,6 +38,17 @@ fn screen(terminal: &Terminal<TestBackend>) -> String {
         .content
         .iter()
         .map(|cell| cell.symbol())
+        .collect::<String>()
+        // Transparent Glass rows expose wallpaper glyphs in spaces between
+        // words. Normalize those pixels when checking the rendered text.
+        .chars()
+        .map(|c| {
+            if ('\u{2580}'..='\u{259f}').contains(&c) {
+                ' '
+            } else {
+                c
+            }
+        })
         .collect()
 }
 

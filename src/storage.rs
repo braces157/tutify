@@ -16,6 +16,8 @@ pub(crate) use recovery::StateFile;
 #[serde(default)]
 pub struct Config {
     #[serde(skip)]
+    pub deezer_search: bool,
+    #[serde(skip)]
     pub youtube_music: bool,
     #[serde(skip)]
     pub youtube_connected: bool,
@@ -39,6 +41,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            deezer_search: false,
             youtube_music: false,
             youtube_connected: false,
             source: crate::model::MusicSource::Spotify,

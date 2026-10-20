@@ -18,7 +18,11 @@ use std::{
 };
 use tokio::sync::mpsc;
 
-#[derive(Debug)]
+mod catalog;
+mod fallback;
+pub(crate) mod pcm;
+
+#[derive(Debug, Clone)]
 pub enum Command {
     Load {
         id: String,
@@ -28,6 +32,7 @@ pub enum Command {
     Preload {
         id: String,
     },
+    CancelPreload,
     Pause,
     Resume,
     Seek(u32),
@@ -38,6 +43,10 @@ pub enum Command {
 }
 #[derive(Debug)]
 pub enum Event {
+    Fallback {
+        generation: u64,
+        source: &'static str,
+    },
     Quality {
         generation: u64,
         quality: crate::audio_quality::AudioQuality,
@@ -79,6 +88,9 @@ pub struct Playback {
 }
 
 impl Playback {
+    pub(crate) fn with_catalog(self, catalog: crate::catalog::Catalog) -> Self {
+        catalog::spawn(self, catalog)
+    }
     pub(crate) fn spawn_volta(
         client: crate::volta::Client,
         volume: u8,
@@ -96,17 +108,33 @@ impl Playback {
         volume: u8,
         visualizer: Arc<crate::visualizer::AudioVisualizer>,
     ) -> Result<Self> {
-        Self::spawn_volta_resolver(
+        let primary = Self::spawn_volta_resolver(
             crate::volta::matching::Resolver::new(client, Some(catalog)),
             volume,
-            visualizer,
-        )
+            visualizer.clone(),
+        )?;
+        let spotify = TokenManager::load_optional_streaming()
+            .ok()
+            .flatten()
+            .map(|tokens| {
+                Self::spawn_with_visualizer(
+                    tokens,
+                    crate::auth::STREAMING_CLIENT_ID.into(),
+                    volume,
+                    visualizer,
+                )
+            });
+        Ok(match spotify {
+            Some(spotify) => fallback::spawn(primary, spotify),
+            None => primary,
+        })
     }
     fn spawn_volta_resolver(
         resolver: crate::volta::matching::Resolver,
         volume: u8,
         visualizer: Arc<crate::visualizer::AudioVisualizer>,
     ) -> Result<Self> {
+        let resolver = resolver.with_youtube(crate::youtube::Tools::discover().ok());
         let ffmpeg = crate::volta::playback::ffmpeg()?;
         let (commands, rx) = mpsc::unbounded_channel();
         let (tx, events) = mpsc::unbounded_channel();
@@ -654,7 +682,7 @@ impl SincResampler {
 /// Opens Rodio/CPAL on librespot's audio thread (WASAPI on Windows).
 /// No process::exit or unwrap on device failure; buffers have a bounded drain time.
 struct WindowsAudio {
-    output: Option<(rodio::Sink, rodio::OutputStream, u32)>,
+    output: Option<(rodio::Sink, rodio::cpal::Stream, u32)>,
     tx: mpsc::UnboundedSender<Event>,
     visualizer: Arc<crate::visualizer::AudioVisualizer>,
     resampler: SincResampler,
@@ -688,36 +716,10 @@ impl WindowsAudio {
     fn open_output(
         &self,
         device: &rodio::cpal::Device,
-    ) -> SinkResult<(rodio::Sink, rodio::OutputStream, u32)> {
-        use rodio::cpal::traits::DeviceTrait;
-
-        // 1. Try native stereo 44.1 kHz playback first to avoid any resampling if supported
-        let preferred_config = device.supported_output_configs().ok().and_then(|configs| {
-            configs
-                .filter(|c| c.channels() == 2)
-                .find_map(|c| c.try_with_sample_rate(rodio::cpal::SampleRate(44_100)))
-        });
-
-        if let Some(config) = preferred_config
-            && let Ok((stream, handle)) =
-                rodio::OutputStream::try_from_device_config(device, config)
-            && let Ok(sink) = rodio::Sink::try_new(&handle)
-        {
-            return Ok((sink, stream, 44_100));
-        }
-
-        // 2. Try default config on the default device
-        if let Ok(default_config) = device.default_output_config() {
-            let rate = default_config.sample_rate().0;
-            if let Ok((stream, handle)) =
-                rodio::OutputStream::try_from_device_config(device, default_config)
-                && let Ok(sink) = rodio::Sink::try_new(&handle)
-            {
-                return Ok((sink, stream, rate));
-            }
-        }
-
-        Err(self.fail("could not open the Windows default output device"))
+    ) -> SinkResult<(rodio::Sink, rodio::cpal::Stream, u32)> {
+        let output = crate::audio_output::open_device(device, Some(44_100))
+            .map_err(|error| self.fail(error))?;
+        Ok((output.sink, output._stream, output.rate))
     }
 
     fn refresh_output(&mut self, force: bool) -> SinkResult<()> {

@@ -48,11 +48,22 @@ pub(super) fn block_themed(
 }
 
 pub(super) fn selected_row_style(theme: Theme) -> Style {
-    Style::default().bg(theme.palette().surface_selected)
+    if theme == Theme::Glass {
+        Style::default().bg(theme.palette().surface).bold()
+    } else {
+        Style::default().bg(theme.palette().surface_selected)
+    }
 }
 
 pub(super) fn selected_marker(theme: Theme) -> Span<'static> {
-    Span::styled("▌ ", Style::default().fg(theme.palette().primary))
+    Span::styled(
+        if theme == Theme::Glass {
+            "› "
+        } else {
+            "▌ "
+        },
+        Style::default().fg(theme.palette().primary),
+    )
 }
 
 pub(super) fn table_header_style(theme: Theme) -> Style {
@@ -69,8 +80,8 @@ pub(super) fn key_hint(key: &'static str, theme: Theme, primary: bool) -> Span<'
         format!(" {key} "),
         if primary {
             Style::default()
-                .fg(palette.on_primary)
-                .bg(palette.primary)
+                .fg(palette.primary)
+                .bg(palette.surface_selected)
                 .bold()
         } else {
             let bg = if theme == Theme::Glass {

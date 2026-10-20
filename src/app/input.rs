@@ -9,9 +9,35 @@ pub(super) fn route_input(
     tx: &mpsc::UnboundedSender<Command>,
 ) -> bool {
     match event {
-        Input::Key(event) if event.kind != KeyEventKind::Release => {
+        Input::Key(event) => {
+            if event.code == KeyCode::Char(' ') {
+                if event.kind == KeyEventKind::Release {
+                    app.playback_space_down = false;
+                    return false;
+                }
+                // Windows reports held keys as successive Press events, not
+                // Repeat. A playback toggle must happen only once per key-down.
+                let editing = match app.ui.overlay {
+                    Overlay::Stats => app.ui.stats.borrow().editing,
+                    Overlay::MixBuilder => app.mix.naming,
+                    Overlay::None => {
+                        app.catalog.editing
+                            || app.catalog.filtering
+                            || (app.catalog.view == View::Queue && app.ui.queue.editing)
+                    }
+                    _ => false,
+                };
+                if !editing && (app.playback_space_down || event.kind == KeyEventKind::Repeat) {
+                    return false;
+                }
+                app.playback_space_down = true;
+            }
             key(app, event, tasks, tx);
-            true
+            event.kind != KeyEventKind::Release
+        }
+        Input::FocusLost => {
+            app.playback_space_down = false;
+            false
         }
         Input::Mouse(event) => mouse(app, event, tasks, tx),
         Input::Resize(_, _) => {

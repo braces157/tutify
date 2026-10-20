@@ -1,6 +1,8 @@
 use super::*;
 
 mod artist_provenance;
+mod autoplay;
+mod deezer;
 mod diagnostics;
 mod input_events;
 mod jobs;

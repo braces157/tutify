@@ -4,6 +4,59 @@ use ratatui::backend::TestBackend;
 mod diagnostics;
 mod listening;
 mod queue_filter;
+mod redesign;
+
+#[test]
+fn deezer_catalog_does_not_hide_selected_or_fallback_audio_provider() {
+    use crate::model::MusicSource;
+    for (source, fallback, expected) in [
+        (MusicSource::Youtube, None, "YouTube"),
+        (MusicSource::Volta, None, "Volta"),
+        (MusicSource::SpotifyVolta, None, "Volta"),
+        (MusicSource::SpotifyVolta, Some("YouTube"), "YouTube"),
+        (MusicSource::SpotifyVolta, Some("Spotify"), "Spotify"),
+    ] {
+        let mut app = App::new(
+            Config {
+                source,
+                deezer_search: true,
+                theme: "glass".into(),
+                ..Config::default()
+            },
+            Queue::default(),
+        );
+        if let Some(provider) = fallback {
+            let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+            app.playback_event(
+                crate::playback::Event::Fallback {
+                    generation: app.generation,
+                    source: provider,
+                },
+                &tx,
+            );
+        }
+        app.audio_quality = Some(crate::audio_quality::AudioQuality::youtube(
+            &serde_json::json!({"acodec":"opus", "asr":48000,"abr":137}),
+        ));
+        for width in [80, 100, 140] {
+            let mut terminal = Terminal::new(TestBackend::new(width, 3)).unwrap();
+            terminal
+                .draw(|frame| header(frame, &app, frame.area()))
+                .unwrap();
+            let text: String = terminal
+                .backend()
+                .buffer()
+                .content
+                .iter()
+                .map(|cell| cell.symbol())
+                .collect();
+            assert!(
+                text.contains(&format!("{expected} · Opus 137 kbps / 48 kHz")),
+                "{text}"
+            );
+        }
+    }
+}
 
 #[test]
 fn playback_quality_is_visible_at_narrow_and_normal_sizes_in_all_themes() {
@@ -798,14 +851,15 @@ fn render_modern_ui_elements() {
         .iter()
         .map(|c| c.symbol())
         .collect::<String>();
-    assert!(text.contains("TITLE"));
+    assert!(text.contains("TRACK"));
     assert!(text.contains("ARTIST"));
     assert!(text.contains("TIME"));
     assert!(text.contains("My Song"));
     assert!(text.contains("My Artist"));
     assert!(text.contains("Loading track info..."));
     assert!(!text.contains(&uncached_id));
-    assert!(text.contains("QUEUE • 2"));
+    assert!(text.contains("Your queue"));
+    assert!(text.contains("2 tracks"));
     assert!(text.contains("Space"));
     assert!(text.contains("Play/Pause"));
 }

@@ -14,7 +14,12 @@ pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
             Constraint::Min(1),
         ])
         .split(area);
-        let modes = if app.config.source == crate::model::MusicSource::Youtube {
+        let modes = if app.config.deezer_search {
+            vec![
+                (SearchScope::Deezer, " F2  Deezer "),
+                (SearchScope::Library, " F3  Your library "),
+            ]
+        } else if app.config.source == crate::model::MusicSource::Youtube {
             if app.config.youtube_connected {
                 vec![
                     (SearchScope::Youtube, " F2  Music "),
@@ -74,6 +79,8 @@ pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
                 Span::styled(
                     if app.catalog.search_scope == SearchScope::Library {
                         "Search your saved songs and playlist tracks"
+                    } else if app.config.deezer_search {
+                        "Search Deezer songs, artists, or paste a music link"
                     } else if app.config.source == crate::model::MusicSource::Youtube {
                         "Search songs, artists, or paste a YouTube video link"
                     } else if app.config.source == crate::model::MusicSource::Volta {
@@ -281,8 +288,13 @@ pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
                         Some(crate::catalog::ArtistResultSource::YoutubeMusic) => {
                             "\n  No songs returned by YouTube Music for this artist.\n\n  F5  Retry\n  Esc  Go back"
                         }
+                        Some(crate::catalog::ArtistResultSource::Deezer) => {
+                            "\n  No songs returned by Deezer for this artist.\n\n  F5  Retry\n  Esc  Go back"
+                        }
                         None => "\n  Artist tracks unavailable.\n\n  F5  Retry\n  Esc  Go back",
                     }
+                } else if app.config.deezer_search {
+                    "\n\n  Deezer search\n\n  /  Search songs or artists\n  Enter  Play and start related songs\n  e  Add to queue\n  4  Open your queue"
                 } else if app.config.source == crate::model::MusicSource::Youtube
                     && app.config.youtube_music
                 {

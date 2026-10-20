@@ -62,23 +62,15 @@ pub(crate) fn strip_verbatim_prefix(path: PathBuf) -> PathBuf {
     }
 }
 
-pub(super) fn apply(
-    frame: &mut Frame<'_>,
-    app: &App,
-    render: &mut RenderState,
-    theme: Theme,
-    protected: Option<Rect>,
-) {
+pub(super) fn apply(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, theme: Theme) {
     if theme != Theme::Glass {
         return;
     }
-    let fade = app.idle_text_fade();
     let area = frame.area();
     let orientation = orientation_for_size(area.width, area.height);
     render.background.orientation = Some(orientation);
     if app.config.native_glass {
         apply_native_transparency(frame, theme);
-        apply_native_fade(frame, fade, protected);
         return;
     }
     let source = match orientation {
@@ -103,16 +95,14 @@ pub(super) fn apply(
             .or_else(windows_wallpaper),
     };
     let Some(source) = source else {
-        apply_palette_fade(frame, fade, protected);
         return;
     };
     if !render.background.prepare(&source, area.width, area.height) {
-        apply_palette_fade(frame, fade, protected);
         return;
     }
 
     let palette = theme.palette();
-    let configured_dim = app.config.background_dim.min(85);
+    let dim = app.config.background_dim.min(85);
     let width = area.width as usize;
     let buffer = frame.buffer_mut();
     for y in 0..area.height {
@@ -120,9 +110,6 @@ pub(super) fn apply(
             let Some(cell) = buffer.cell_mut((area.x + x, area.y + y)) else {
                 continue;
             };
-            let fade = cell_fade(fade, protected, area.x + x, area.y + y);
-            let dim = idle_background_dim(configured_dim, fade);
-            let is_text = cell.symbol() != " ";
             let (tint, tint_alpha): (Rgb, u8) =
                 if cell.bg == palette.background || cell.bg == Color::Reset {
                     (rgb(palette.background), 14)
@@ -131,9 +118,6 @@ pub(super) fn apply(
                 } else if cell.bg == palette.surface_alt {
                     (rgb(palette.surface_alt), 31)
                 } else {
-                    if is_text {
-                        fade_cell(cell, cell.bg, fade);
-                    }
                     continue;
                 };
             let Some(samples) = render
@@ -154,70 +138,9 @@ pub(super) fn apply(
             } else {
                 let background = color(mean(&shaded, 0b1111));
                 cell.set_bg(background);
-                fade_cell(cell, background, fade);
             }
         }
     }
-}
-
-fn apply_palette_fade(frame: &mut Frame<'_>, fade: u8, protected: Option<Rect>) {
-    if fade == 0 {
-        return;
-    }
-    let area = frame.area();
-    let buffer = frame.buffer_mut();
-    for y in area.y..area.bottom() {
-        for x in area.x..area.right() {
-            let Some(cell) = buffer.cell_mut((x, y)) else {
-                continue;
-            };
-            let cell_fade = cell_fade(fade, protected, x, y);
-            if cell.symbol() != " " && cell_fade > 0 {
-                fade_cell(cell, cell.bg, cell_fade);
-            }
-        }
-    }
-}
-
-fn apply_native_fade(frame: &mut Frame<'_>, fade: u8, protected: Option<Rect>) {
-    if fade == 0 {
-        return;
-    }
-    let area = frame.area();
-    let buffer = frame.buffer_mut();
-    for y in area.y..area.bottom() {
-        for x in area.x..area.right() {
-            let Some(cell) = buffer.cell_mut((x, y)) else {
-                continue;
-            };
-            if cell.symbol() != " " && cell_fade(fade, protected, x, y) > 0 {
-                cell.set_style(Style::default().add_modifier(Modifier::DIM));
-            }
-        }
-    }
-}
-
-fn cell_fade(fade: u8, protected: Option<Rect>, x: u16, y: u16) -> u8 {
-    if protected.is_some_and(|area| area.contains((x, y).into())) {
-        0
-    } else {
-        fade
-    }
-}
-
-fn fade_cell(cell: &mut ratatui::buffer::Cell, background: Color, fade: u8) {
-    if fade == 0 {
-        return;
-    }
-    let (Color::Rgb(fr, fg, fb), Color::Rgb(br, bg, bb)) = (cell.fg, background) else {
-        cell.set_style(Style::default().add_modifier(Modifier::DIM));
-        return;
-    };
-    let blend = |foreground: u8, background: u8| {
-        let fade = u16::from(fade);
-        ((u16::from(foreground) * (100 - fade) + u16::from(background) * fade) / 100) as u8
-    };
-    cell.set_fg(Color::Rgb(blend(fr, br), blend(fg, bg), blend(fb, bb)));
 }
 
 fn apply_native_transparency(frame: &mut Frame<'_>, theme: Theme) {
@@ -344,13 +267,6 @@ fn glass_pixel(source: Rgb, tint: Rgb, dim: u8, tint_alpha: u8) -> Rgb {
     out
 }
 
-fn idle_background_dim(configured_dim: u8, text_fade: u8) -> u8 {
-    // Ease away most of the configured darkening as the UI recedes, while
-    // retaining a little tint so the artwork does not flash or wash out.
-    let brighten = u16::from(text_fade).saturating_mul(4) / 5;
-    (u16::from(configured_dim) * 100u16.saturating_sub(brighten) / 100) as u8
-}
-
 struct EncodedQuad {
     symbol: &'static str,
     foreground: Rgb,
@@ -462,30 +378,6 @@ mod tests {
         let pixel = glass_pixel(source, tint, 30, 20);
         assert!(pixel[0] < 200);
         assert!(pixel[2] > pixel[0]);
-    }
-
-    #[test]
-    fn idle_fade_blends_foreground_toward_rendered_background() {
-        let mut cell = ratatui::buffer::Cell::new("A");
-        cell.set_fg(Color::Rgb(240, 220, 200));
-        cell.set_bg(Color::Rgb(40, 60, 80));
-        fade_cell(&mut cell, Color::Rgb(40, 60, 80), 50);
-        assert_eq!(cell.fg, Color::Rgb(140, 140, 140));
-        assert_eq!(cell.bg, Color::Rgb(40, 60, 80));
-    }
-
-    #[test]
-    fn idle_fade_brightens_glass_artwork_without_removing_all_dim() {
-        assert_eq!(idle_background_dim(40, 0), 40);
-        assert_eq!(idle_background_dim(40, 36), 28);
-        assert_eq!(idle_background_dim(40, 72), 17);
-    }
-
-    #[test]
-    fn idle_fade_keeps_now_playing_region_crisp() {
-        let now_playing = Rect::new(0, 18, 80, 5);
-        assert_eq!(cell_fade(72, Some(now_playing), 20, 20), 0);
-        assert_eq!(cell_fade(72, Some(now_playing), 20, 10), 72);
     }
 
     #[test]

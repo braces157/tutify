@@ -127,7 +127,7 @@
   const previewLink = previewPanel.querySelector('a');
   const previewError = previewPanel.querySelector('.preview-error');
   const previews = {
-    queue: { src: 'assets/screenshots/v0.3.0/glass-queue-smart-shuffle.png', label: 'queue', alt: 'Tuitify queue with Smart Shuffle, artist names, track durations and playback controls in the Glass theme', caption: 'Queue and Smart Shuffle. Native player, Glass theme, v0.3.0.' },
+    queue: { src: 'assets/screenshots/v0.7.0/demo-queue-wide.png', label: 'queue', alt: 'Tuitify v0.7.0 rendered native demo with library sidebar, fictional queue and spectrum', caption: 'v0.7.0 wide layout. Rendered native demo; fictional tracks and simulated playback.' },
     lyrics: { src: 'assets/screenshots/v0.6.0/glass-lyrics-readings-volta.png', label: 'lyrics and readings', alt: 'Tuitify v0.6.0 Glass theme with Japanese lyrics, romaji readings, and Volta FLAC audio at 24-bit / 96 kHz', caption: 'Lyric readings and Volta FLAC, 24-bit / 96 kHz. Native player, Glass theme, v0.6.0.' },
     spectrum: { src: 'assets/screenshots/v0.3.0/glass-visualizer.jpg', label: 'spectrum', alt: 'Tuitify’s spectrum visualizer beside the native music player controls', caption: 'Audio spectrum. Native player, Glass theme, v0.3.0.' },
   };

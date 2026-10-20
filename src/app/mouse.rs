@@ -5,7 +5,9 @@ pub(super) fn format_time(ms: u32) -> String {
 }
 
 pub(super) fn choose_search(app: &mut App, scope: SearchScope, tasks: &mut Tasks) {
-    let scope = if app.config.source == crate::model::MusicSource::Youtube {
+    let scope = if app.config.deezer_search && scope != SearchScope::Library {
+        SearchScope::Deezer
+    } else if app.config.source == crate::model::MusicSource::Youtube {
         if scope == SearchScope::Library && !app.config.youtube_connected {
             app.status =
                 "Connect your Google music library first: quit (q), then run 'tuitify youtube login'."

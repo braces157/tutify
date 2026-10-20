@@ -12,7 +12,7 @@ pub(crate) mod music;
 pub(crate) mod music_auth;
 pub(crate) mod playback;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 const PAGE_SIZE: usize = 20;
 const MAX_SEARCH_RESULTS: usize = 200;
@@ -127,6 +127,16 @@ pub(crate) struct Stream {
 }
 
 impl Stream {
+    pub(crate) fn into_volta_audio(self) -> crate::volta::Audio {
+        crate::volta::Audio {
+            url: self.url,
+            headers: self.headers,
+            quality: self.quality,
+            obtained: self.obtained_at,
+            source: "YouTube",
+        }
+    }
+
     fn fresh(&self) -> bool {
         if self.obtained_at.elapsed() >= Duration::from_secs(300) {
             return false;

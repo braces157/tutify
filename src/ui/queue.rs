@@ -10,6 +10,24 @@ pub(super) fn queue(
     hit(render, area, MouseTarget::QueueScroll);
     let theme = Theme::from_str(&app.config.theme);
     let palette = theme.palette();
+    let spacious = main && area.height >= 12;
+    let area = if spacious {
+        let parts = Layout::vertical([Constraint::Length(2), Constraint::Min(1)]).split(area);
+        frame.render_widget(
+            Paragraph::new(Line::from(vec![
+                Span::styled("  Your queue", Style::default().fg(palette.text).bold()),
+                Span::styled(
+                    format!("   {} tracks", app.queue.ids.len()),
+                    Style::default().fg(palette.text_subtle),
+                ),
+            ]))
+            .style(Style::default().bg(palette.surface)),
+            parts[0],
+        );
+        parts[1]
+    } else {
+        area
+    };
     let filtered = main.then(|| app.queue_rows());
     let len = filtered
         .as_ref()
@@ -98,13 +116,14 @@ pub(super) fn queue(
     } else {
         app.queue.cursor.unwrap_or(0)
     };
-    let height = area.height.saturating_sub(if compact {
+    let stride = if spacious && area.height >= 16 { 2 } else { 1 };
+    let height = (area.height.saturating_sub(if compact {
         0
     } else if header {
         4
     } else {
         2
-    }) as usize;
+    }) / stride) as usize;
     render.queue_height = height;
     let visible = viewport(selected, len, height, &mut render.queue_scroll);
     if filtering && !visible.is_empty() {
@@ -124,9 +143,9 @@ pub(super) fn queue(
                     } else {
                         1
                     }
-                    + line as u16,
+                    + line as u16 * stride,
                 area.width.saturating_sub(if compact { 0 } else { 2 }),
-                1,
+                stride,
             ),
             MouseTarget::Queue(at),
         );
@@ -177,7 +196,7 @@ pub(super) fn queue(
                 ("Loading track info...", "—", "--:--".to_string(), true)
             };
 
-            let index = if main && area.width < 45 {
+            let index = if main && area.width < 60 {
                 format!("{indicator} {:>2}", at + 1)
             } else {
                 format!(" {:>2} {:>3} ", indicator, at + 1)
@@ -218,6 +237,7 @@ pub(super) fn queue(
                         palette.text_muted
                     }));
                 Row::new(vec![index_cell, name_cell, artist_cell, time_cell])
+                    .bottom_margin(stride - 1)
             } else {
                 let time_cell =
                     Cell::from(duration).style(Style::default().fg(if is_placeholder {
@@ -230,7 +250,7 @@ pub(super) fn queue(
         })
         .collect();
 
-    let source = if app.queue.smart_shuffle {
+    let mut source = if app.queue.smart_shuffle {
         " | Smart Shuffle • ✦ suggested".into()
     } else if app.radio_epoch == Some(app.queue.epoch) {
         if let Some(error) = &app.radio_error {
@@ -243,6 +263,13 @@ pub(super) fn queue(
     } else {
         String::new()
     };
+    if app.autoplay_epoch == Some(app.queue.epoch) {
+        source.push_str(if app.autoplay_error.is_some() {
+            " | Autoplay unavailable (R retries)"
+        } else {
+            " | Autoplay"
+        });
+    }
     let title = if filtering {
         let missing = app.ui.queue.missing(&app.queue, &app.cache);
         format!(
@@ -255,6 +282,8 @@ pub(super) fn queue(
             },
             source
         )
+    } else if spacious {
+        format!(" / Filter{source} ")
     } else if main {
         format!(" QUEUE • {} · / Filter{} ", app.queue.ids.len(), source)
     } else {
@@ -277,21 +306,21 @@ pub(super) fn queue(
         } else if area.width >= 60 {
             vec![
                 Constraint::Length(8),
-                Constraint::Percentage(50),
-                Constraint::Percentage(34),
+                Constraint::Fill(3),
+                Constraint::Fill(2),
                 Constraint::Length(7),
             ]
         } else {
             vec![
-                Constraint::Length(8),
-                Constraint::Percentage(60),
-                Constraint::Percentage(34),
-                Constraint::Length(0),
+                Constraint::Length(6),
+                Constraint::Fill(3),
+                Constraint::Fill(2),
+                Constraint::Length(6),
             ]
         };
         let header_row = Row::new(vec![
             Cell::from("   #    "),
-            Cell::from("TITLE"),
+            Cell::from("TRACK"),
             Cell::from("ARTIST"),
             Cell::from(" TIME"),
         ])
@@ -299,6 +328,11 @@ pub(super) fn queue(
         .bottom_margin(1);
 
         let mut table = Table::new(rows, widths)
+            .column_spacing(if top_navigation_layout(frame.area()) {
+                2
+            } else {
+                1
+            })
             .block(outer(title))
             .row_highlight_style(selected_row_style(theme))
             .highlight_symbol(selected_marker(theme));
@@ -306,6 +340,22 @@ pub(super) fn queue(
             table = table.header(header_row);
         }
         frame.render_stateful_widget(table, area, &mut state);
+        // Ratatui applies a row highlight to its bottom margin too. Leave the
+        // breathing room between tracks on the ordinary surface.
+        if stride > 1 {
+            let top = area.y + if header { 3 } else { 1 };
+            for line in 0..visible.len() {
+                let y = top + line as u16 * stride + 1;
+                if y >= area.bottom().saturating_sub(1) {
+                    break;
+                }
+                for x in area.x + 1..area.right().saturating_sub(1) {
+                    frame.buffer_mut()[(x, y)]
+                        .set_symbol(" ")
+                        .set_style(Style::default().fg(palette.text).bg(palette.surface));
+                }
+            }
+        }
     } else {
         let widths = vec![
             Constraint::Length(8),

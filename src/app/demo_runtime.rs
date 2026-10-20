@@ -18,6 +18,7 @@ pub async fn run_demo(glass: bool) -> Result<()> {
         tasks.sync_queue_epoch(app.queue.epoch);
         tasks.refill_radio(&app);
         tasks.refill_smart_shuffle(&app);
+        tasks.update_autoplay(&mut app, &commands);
         tasks.metadata(&app);
         terminal
             .terminal
@@ -25,7 +26,6 @@ pub async fn run_demo(glass: bool) -> Result<()> {
         tokio::select! {
             input = keys.next() => match input {
                 Some(Ok(event)) => {
-                    app.note_user_interaction();
                     route_input(&mut app, event, &mut tasks, &commands);
                 }
                 Some(Err(error)) => return Err(error.into()),
@@ -74,7 +74,7 @@ impl DemoPlayback {
                 );
             }
             Command::Load { .. } => (),
-            Command::Preload { .. } => (),
+            Command::Preload { .. } | Command::CancelPreload => (),
             Command::Seek(position_ms) if self.active_generation == Some(app.generation) => {
                 // Production seeking reports a position update and preserves the
                 // current play/pause intent.

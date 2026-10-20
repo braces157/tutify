@@ -3,14 +3,13 @@ use super::*;
 const GLASS_ORIENTATION_DEBOUNCE: Duration = Duration::from_millis(300);
 const GLASS_ORIENTATION_RETRY: Duration = Duration::from_secs(2);
 
-/// Frame periods are relative to the last frame; remaining debounce/fade delays
+/// Frame periods are relative to the last frame; remaining debounce delays
 /// are relative to now. Mixing those origins makes an expired timer spin.
 fn refresh_deadline(
     now: Instant,
     last_draw: Instant,
     dirty: bool,
     animation: Option<Duration>,
-    idle_refresh: Option<Duration>,
     orientation_delay: Option<Duration>,
 ) -> Option<Instant> {
     let frame = if dirty {
@@ -21,7 +20,6 @@ fn refresh_deadline(
     frame
         .map(|delay| last_draw + delay)
         .into_iter()
-        .chain(idle_refresh.map(|delay| now + delay))
         .chain(orientation_delay.map(|delay| now + delay))
         .min()
 }
@@ -118,6 +116,7 @@ pub async fn run_session(
     load_history(&mut app, &store)?;
     let services = crate::providers::open(source, &app.config, app.visualizer.clone())?;
     app.config.youtube_music = services.music_catalog;
+    app.config.deezer_search = true;
     app.config.youtube_connected =
         source == crate::model::MusicSource::Youtube && services.library_connected;
     if source == crate::model::MusicSource::Youtube {
@@ -141,6 +140,8 @@ pub async fn run_session(
     }
     let catalog = services.catalog;
     let mut playback = services.playback;
+    app.catalog.search_scope = SearchScope::Deezer;
+    app.catalog.title = "Deezer search".into();
     if !notice.is_empty() {
         app.status = notice.into();
         if notice.contains("unavailable")
@@ -239,6 +240,7 @@ pub async fn run_session(
             tasks.sync_queue_epoch(app.queue.epoch);
             tasks.refill_radio(&app);
             tasks.refill_smart_shuffle(&app);
+            tasks.update_autoplay(&mut app, &playback.commands);
             if lyrics_dirty { tasks.update_lyrics(&mut app); lyrics_dirty = false; }
             if dirty && last_draw.elapsed() >= Duration::from_millis(33) {
                 app.interpolate_position();
@@ -282,16 +284,15 @@ pub async fn run_session(
             }
             if metadata_dirty { tasks.metadata(&app); metadata_dirty = false; }
             let animation = app.animation_interval();
-            let idle_refresh = app.idle_refresh_interval();
             let orientation_delay = orientation_sync.delay(Instant::now());
             let now = Instant::now();
-            let deadline = refresh_deadline(now, last_draw, dirty, animation, idle_refresh, orientation_delay)
-                .into_iter().chain(app.ui.listening.sleep.refresh_at(now)).min();
+            let deadline = refresh_deadline(now, last_draw, dirty, animation, orientation_delay)
+                .into_iter().chain(app.ui.listening.sleep.refresh_at(now))
+                .min();
             // The branch is disabled when no refresh is scheduled.
             let wake_at = tokio::time::Instant::from_std(deadline.unwrap_or(last_draw));
             tokio::select! {
                 Some(event) = media_rx.recv() => {
-                    app.note_user_interaction();
                     match event {
                         media_controls::Event::Action(action) => app.media_action(action, &playback.commands),
                         media_controls::Event::Unavailable => {
@@ -305,7 +306,6 @@ pub async fn run_session(
                 key_event = keys.next() => {
                     match key_event {
                         Some(Ok(event)) => {
-                            app.note_user_interaction();
                             if !route_input(&mut app, event, &mut tasks, &playback.commands) {
                                 dirty = true;
                                 continue;
@@ -408,20 +408,13 @@ mod tests {
         let old_frame = now - Duration::from_secs(10);
         let delay = Duration::from_millis(300);
         assert_eq!(
-            refresh_deadline(now, old_frame, false, None, None, Some(delay)),
+            refresh_deadline(now, old_frame, false, None, Some(delay)),
             Some(now + delay)
         );
-        assert_eq!(
-            refresh_deadline(now, old_frame, false, None, Some(delay), None),
-            Some(now + delay)
-        );
-        assert_eq!(
-            refresh_deadline(now, old_frame, false, None, None, None),
-            None
-        );
+        assert_eq!(refresh_deadline(now, old_frame, false, None, None), None);
         let last_frame = now - Duration::from_millis(10);
         assert_eq!(
-            refresh_deadline(now, last_frame, true, None, None, Some(delay)),
+            refresh_deadline(now, last_frame, true, None, Some(delay)),
             Some(last_frame + Duration::from_millis(33))
         );
         assert_eq!(
@@ -430,8 +423,7 @@ mod tests {
                 last_frame,
                 false,
                 Some(Duration::from_millis(33)),
-                Some(delay),
-                None
+                Some(delay)
             ),
             Some(last_frame + Duration::from_millis(33))
         );

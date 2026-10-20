@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.7.0 — 2026-10-20
+
+- Add Deezer public discovery, albums, artist tracks and related-artist radio,
+  resolving recordings through the selected audio provider without replacing
+  catalog identities in the queue.
+- Continue listening with bounded related-track refills near the queue tail;
+  respect pause, stop, repeat, sleep timers and manual queue changes.
+- Prepare next-track Volta audio, reuse decoded buffers and cancel stale work.
+  Add matched YouTube fallback and existing Spotify Premium fallback in combined mode.
+- Share native audio output negotiation and bounded PCM playback, retaining
+  source detail and converting sample rates with a bandlimited filter as needed.
+- Add responsive sidebar and tall-window player layouts, clearer queue counts
+  and filtering, and audio-provider labels beside stream quality.
+- Fix held-Space toggling and improve Windows media transport integration.
+- Update the website, setup documentation and downloadable release together.
+
 ## 0.6.0 — 2026-10-14
 
 - Add personal Volta application login through hidden input or bounded standard

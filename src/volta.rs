@@ -178,6 +178,17 @@ pub(crate) struct Client {
     cooldown: Arc<Mutex<Option<crate::service::ServiceFailure>>>,
 }
 impl Client {
+    #[cfg(test)]
+    pub(crate) fn mock(base: &str) -> Self {
+        Self::new(
+            Credentials {
+                client_id: "volta_id_test".into(),
+                client_secret: "volta_sk_test".into(),
+            },
+            base,
+        )
+        .unwrap()
+    }
     pub(crate) fn load() -> Result<Self> {
         Self::new(credentials()?, BASE)
     }
@@ -356,10 +367,7 @@ impl Client {
             "Volta returned an unsupported audio relay (origin {})",
             url.origin().ascii_serialization()
         );
-        let rate = value["sample_rate"]
-            .as_u64()
-            .filter(|rate| (8000..=192000).contains(rate))
-            .unwrap_or(44100) as u32;
+        let quality = crate::audio_quality::AudioQuality::volta(&value);
         let mut headers = format!("User-Agent: {AGENT}\r\n");
         if !cookies.is_empty() {
             headers.push_str(&format!("Cookie: {cookies}\r\n"));
@@ -367,26 +375,27 @@ impl Client {
         Ok(Audio {
             url: url.into(),
             headers,
-            rate,
-            quality: crate::audio_quality::AudioQuality::volta(&value),
+            quality,
             obtained: std::time::Instant::now(),
+            source: "Volta",
         })
     }
 }
 #[derive(Clone)]
 pub(crate) struct Audio {
-    url: String,
-    headers: String,
-    rate: u32,
-    quality: crate::audio_quality::AudioQuality,
-    obtained: std::time::Instant,
+    pub(crate) url: String,
+    pub(crate) headers: String,
+    pub(crate) quality: crate::audio_quality::AudioQuality,
+    pub(crate) obtained: std::time::Instant,
+    pub(crate) source: &'static str,
 }
 impl Audio {
     fn fresh(&self) -> bool {
-        self.obtained.elapsed() < Duration::from_secs(25)
+        self.obtained.elapsed()
+            < Duration::from_secs(if self.source == "YouTube" { 300 } else { 25 })
             && url::Url::parse(&self.url).ok().is_some_and(|url| {
                 url.query_pairs()
-                    .find(|(k, _)| k == "exp")
+                    .find(|(k, _)| k == "exp" || k == "expire")
                     .and_then(|(_, v)| v.parse::<u64>().ok())
                     .is_none_or(|expires| {
                         std::time::SystemTime::now()

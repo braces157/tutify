@@ -11,6 +11,7 @@ pub(super) enum Background {
     PlaylistPage(u64, u64, Vec<Track>, bool),
     PlaylistError(u64, u64, String),
     Recommendations(u64, Result<Recommendations>),
+    Autoplay(u64, usize, Result<Recommendations>),
     SmartRecommendations(u64, u64, Result<Recommendations>),
     MixPlaylistPage(u64, Vec<Track>, bool),
     MixPlaylistError(u64, String),
@@ -37,6 +38,7 @@ pub(super) struct Tasks {
     pub(super) radio_attempted: HashSet<String>,
     pub(super) radio_seed: Option<Track>,
     pub(super) radio_round: usize,
+    pub(super) autoplay: super::autoplay::AutoplayTask,
     pub(super) smart: super::smart_shuffle::SmartTask,
     pub(super) mix: Option<tokio::task::JoinHandle<()>>,
     pub(super) mix_recommendations: Option<tokio::task::JoinHandle<()>>,
@@ -51,6 +53,7 @@ impl Drop for Tasks {
             &self.metadata,
             &self.lyrics,
             &self.recommendations,
+            &self.autoplay.handle,
             &self.playlist,
             &self.smart.handle,
             &self.mix,
@@ -99,6 +102,7 @@ impl Tasks {
             radio_attempted: HashSet::new(),
             radio_seed: None,
             radio_round: 0,
+            autoplay: super::autoplay::AutoplayTask::default(),
             smart: super::smart_shuffle::SmartTask::default(),
             mix: None,
             mix_recommendations: None,
@@ -459,6 +463,7 @@ impl Tasks {
     }
     pub(super) fn sync_queue_epoch(&mut self, epoch: u64) {
         if self.job_epoch != epoch {
+            self.autoplay.reset();
             self.cancel_smart_shuffle();
             if let Some(t) = self.metadata.take() {
                 t.abort();
@@ -899,7 +904,9 @@ impl Tasks {
     pub(super) fn view(&mut self, app: &mut App, view: View) {
         if app.config.source == crate::model::MusicSource::Youtube
             && ((matches!(view, View::Playlists | View::Liked) && !app.config.youtube_connected)
-                || (matches!(view, View::Album | View::Artist) && !app.config.youtube_music))
+                || (matches!(view, View::Album | View::Artist)
+                    && !app.config.youtube_music
+                    && !app.config.deezer_search))
         {
             app.status = "This library view is unavailable until your Google library is connected. F6 > Connect Google music library. Your queue is preserved.".into();
             return;
@@ -1167,6 +1174,31 @@ pub(super) fn background(app: &mut App, tasks: &mut Tasks, event: Background) ->
             app.catalog.busy = false;
             match result {
                 Ok(page) => {
+                    if app.catalog.view == View::Search
+                        && app.catalog.search_scope == SearchScope::Deezer
+                        && let Rows::Tracks(tracks) = &page.rows
+                        && let Some(track) = tracks.first()
+                    {
+                        app.catalog.title = if crate::deezer::key(&track.id).is_some() {
+                            "Deezer search".into()
+                        } else {
+                            let provider = if crate::youtube::video_key(&track.id).is_some() {
+                                "YouTube"
+                            } else if crate::volta::key(&track.id).is_some() {
+                                "Volta"
+                            } else {
+                                "Spotify"
+                            };
+                            let direct = app.catalog.query.contains("://")
+                                || app.catalog.query.starts_with("spotify:")
+                                || app.catalog.query.starts_with("youtube:")
+                                || app.catalog.query.starts_with("volta:");
+                            format!(
+                                "{provider} search{}",
+                                if direct { "" } else { " (Deezer fallback)" }
+                            )
+                        };
+                    }
                     if let Rows::Tracks(tracks) = &page.rows {
                         for track in tracks {
                             app.cache.insert(track.id.clone(), track.clone());
@@ -1291,6 +1323,12 @@ pub(super) fn background(app: &mut App, tasks: &mut Tasks, event: Background) ->
                 && app.queue.smart_shuffle =>
         {
             tasks.finish_smart_shuffle(app, result);
+        }
+        Background::Autoplay(epoch, next_round, result)
+            if epoch == app.queue.epoch && tasks.autoplay.pending =>
+        {
+            tasks.autoplay.round = next_round;
+            tasks.finish_autoplay(app, result);
         }
         Background::Recommendations(epoch, result)
             if epoch == app.queue.epoch

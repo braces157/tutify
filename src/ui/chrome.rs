@@ -5,6 +5,8 @@ pub(super) fn header(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let palette = theme.palette();
     let version = if app.demo {
         format!("v{} / demo", env!("CARGO_PKG_VERSION"))
+    } else if app.config.deezer_search {
+        format!("v{} / Deezer", env!("CARGO_PKG_VERSION"))
     } else if app.config.source == crate::model::MusicSource::Youtube && app.config.youtube_music {
         format!("v{} / YouTube Music", env!("CARGO_PKG_VERSION"))
     } else if app.config.source == crate::model::MusicSource::Youtube {
@@ -16,6 +18,86 @@ pub(super) fn header(frame: &mut Frame<'_>, app: &App, area: Rect) {
     } else {
         format!("v{}", env!("CARGO_PKG_VERSION"))
     };
+    if area.height >= 3 {
+        frame.render_widget(
+            Block::default()
+                .borders(Borders::BOTTOM)
+                .border_style(Style::default().fg(palette.border))
+                .style(Style::default().bg(palette.surface)),
+            area,
+        );
+        let row = Rect::new(area.x + 2, area.y, area.width.saturating_sub(4), 1);
+        let quality = audio_badge(app, area.width);
+        if !top_navigation_layout(frame.area()) {
+            let parts = Layout::horizontal([
+                Constraint::Min(10),
+                Constraint::Length(if area.width >= 100 { 26 } else { 23 }),
+                Constraint::Length(quality.chars().count() as u16 + 5),
+            ])
+            .split(row);
+            frame.render_widget(
+                Paragraph::new(Line::from(vec![
+                    Span::styled("TUITIFY", Style::default().fg(palette.primary).bold()),
+                    Span::styled(
+                        format!("   {version}"),
+                        Style::default().fg(palette.text_subtle),
+                    ),
+                ])),
+                parts[0],
+            );
+            frame.render_widget(
+                Paragraph::new(if area.width >= 100 {
+                    "F6 Tools  ? Help  q Quit "
+                } else {
+                    "F6 Tools ? Help q Quit "
+                })
+                .style(Style::default().fg(palette.text_muted))
+                .alignment(Alignment::Right),
+                parts[1],
+            );
+            frame.render_widget(
+                Paragraph::new(format!("{quality}  ▥"))
+                    .style(Style::default().fg(palette.primary_soft))
+                    .alignment(Alignment::Right),
+                parts[2],
+            );
+            return;
+        }
+        let parts = Layout::horizontal([
+            Constraint::Min(10),
+            Constraint::Length(quality.chars().count() as u16 + 5),
+        ])
+        .split(row);
+        frame.render_widget(
+            Paragraph::new(Line::from(vec![
+                Span::styled("TUITIFY", Style::default().fg(palette.primary).bold()),
+                Span::styled(
+                    format!("   {version}"),
+                    Style::default().fg(palette.text_subtle),
+                ),
+            ])),
+            parts[0],
+        );
+        frame.render_widget(
+            Paragraph::new(format!("{quality}  ▥"))
+                .style(Style::default().fg(palette.primary_soft))
+                .alignment(Alignment::Right),
+            parts[1],
+        );
+        let second = Rect::new(row.x, row.y + 1, row.width, 1);
+        frame.render_widget(
+            Paragraph::new(format!("t  {}", theme.name()))
+                .style(Style::default().fg(palette.text_subtle)),
+            second,
+        );
+        frame.render_widget(
+            Paragraph::new("F6 Tools   ? Help   q Quit ")
+                .alignment(Alignment::Right)
+                .style(Style::default().fg(palette.text_muted)),
+            second,
+        );
+        return;
+    }
 
     frame.render_widget(
         Block::default().style(Style::default().bg(palette.surface_alt)),
@@ -176,7 +258,11 @@ pub(super) fn footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
         }
         if area.width >= 100 {
             push_hint(&mut hints, "n/p", "Next/Prev", false, theme);
-            push_hint(&mut hints, "+/−", "Volume", false, theme);
+            push_hint(&mut hints, "v", "Spectrum", false, theme);
+            push_hint(&mut hints, "F6", "Tools", false, theme);
+        }
+        if area.width >= 140 {
+            push_hint(&mut hints, "t", "Theme", false, theme);
         }
     }
     frame.render_widget(Paragraph::new(Line::from(hints)), status_split[1]);
@@ -191,7 +277,7 @@ fn push_hint(
 ) {
     spans.push(key_hint(key, theme, primary));
     spans.push(Span::styled(
-        format!(" {label}  "),
+        format!(" {label}   "),
         Style::default().fg(theme.palette().text_muted),
     ));
 }

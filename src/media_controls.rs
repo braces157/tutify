@@ -3,13 +3,14 @@ use crate::model::{PlaybackState as State, Track};
 use std::{sync::mpsc, thread};
 use tokio::sync::mpsc::UnboundedSender;
 use windows::{
-    Foundation::{TimeSpan, TypedEventHandler},
+    Foundation::{TimeSpan, TypedEventHandler, Uri},
     Media::{
         MediaPlaybackStatus, MediaPlaybackType, Playback::MediaPlayer,
         SystemMediaTransportControls, SystemMediaTransportControlsButton,
         SystemMediaTransportControlsButtonPressedEventArgs,
         SystemMediaTransportControlsTimelineProperties,
     },
+    Storage::Streams::RandomAccessStreamReference,
     Win32::System::WinRT::{RO_INIT_MULTITHREADED, RoInitialize, RoUninitialize},
 };
 
@@ -156,6 +157,21 @@ fn run(rx: mpsc::Receiver<Snapshot>, events: UnboundedSender<Event>) -> windows:
                 if let Some(album) = &track.album {
                     let _ = music.SetAlbumTitle(&album.as_str().into());
                 }
+                // Windows loads the image from this reference without blocking
+                // playback or the UI. ClearAll above also removes the old cover
+                // when the next track has no artwork (or an unusable URL).
+                if let Some(url) = track
+                    .album_art_url
+                    .as_deref()
+                    .filter(|url| valid_art_url(url))
+                {
+                    let result = Uri::CreateUri(&url.into())
+                        .and_then(|uri| RandomAccessStreamReference::CreateFromUri(&uri))
+                        .and_then(|thumbnail| updater.SetThumbnail(&thumbnail));
+                    if let Err(error) = result {
+                        log::warn!("Windows media artwork unavailable: {error}");
+                    }
+                }
             }
             updater.Update()?;
             last_track = snapshot.track.clone();
@@ -188,11 +204,36 @@ fn timespan(ms: u32) -> TimeSpan {
     }
 }
 
+fn valid_art_url(value: &str) -> bool {
+    url::Url::parse(value).is_ok_and(|url| {
+        matches!(url.scheme(), "https" | "http")
+            && url.host_str().is_some()
+            && url.username().is_empty()
+            && url.password().is_none()
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::time::{Duration, Instant};
     use windows::Media::Control::GlobalSystemMediaTransportControlsSessionManager;
+
+    #[test]
+    fn artwork_requires_a_web_image_url() {
+        assert!(valid_art_url("https://i.scdn.co/image/cover"));
+        assert!(valid_art_url("https://cdn.example/cover.jpg?signature=123"));
+        assert!(valid_art_url("http://127.0.0.1:1234/cover.png"));
+        for url in [
+            "",
+            "not a URL",
+            "file:///C:/private/cover.png",
+            "data:image/png;base64,AAAA",
+            "https://user:password@example.com/cover.png",
+        ] {
+            assert!(!valid_art_url(url), "{url}");
+        }
+    }
 
     #[test]
     fn snapshots_coalesce_and_retry_when_worker_is_busy() {
@@ -221,9 +262,21 @@ mod tests {
         assert_eq!(timespan(u32::MAX).Duration, i64::from(u32::MAX) * 10_000);
     }
 
-    #[test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     #[ignore = "creates a silent Windows media session; requires an interactive Windows desktop"]
-    fn windows_media_session_acceptance() -> anyhow::Result<()> {
+    async fn windows_media_session_acceptance() -> anyhow::Result<()> {
+        use windows::Storage::Streams::DataReader;
+        use wiremock::{Mock, MockServer, ResponseTemplate, matchers::path};
+
+        let server = MockServer::start().await;
+        let mut cover = std::io::Cursor::new(Vec::new());
+        image::RgbImage::from_pixel(32, 32, image::Rgb([40, 120, 200]))
+            .write_to(&mut cover, image::ImageFormat::Png)?;
+        let cover = cover.into_inner();
+        Mock::given(path("/cover.png"))
+            .respond_with(ResponseTemplate::new(200).set_body_raw(cover.clone(), "image/png"))
+            .mount(&server)
+            .await;
         unsafe {
             RoInitialize(RO_INIT_MULTITHREADED)?;
         }
@@ -275,6 +328,50 @@ mod tests {
                 .to_string(),
             "Tuitify test"
         );
+        // Metadata may arrive before its artwork. Updating only the cover of
+        // the same track must publish it to the actual Windows media session.
+        snapshot.track.as_mut().unwrap().album_art_url =
+            Some(format!("{}/cover.png", server.uri()));
+        controls.update(snapshot.clone());
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let thumbnail = loop {
+            if let Ok(thumbnail) = session.TryGetMediaPropertiesAsync()?.get()?.Thumbnail() {
+                break thumbnail;
+            }
+            anyhow::ensure!(Instant::now() < deadline, "Windows artwork was not updated");
+            thread::sleep(Duration::from_millis(50));
+        };
+        let stream = thumbnail.OpenReadAsync()?.get()?;
+        let reader = DataReader::CreateDataReader(&stream)?;
+        assert_eq!(
+            reader.LoadAsync(cover.len() as u32)?.get()? as usize,
+            cover.len()
+        );
+        let mut actual = vec![0; cover.len()];
+        reader.ReadBytes(&mut actual)?;
+        assert_eq!(actual, cover);
+
+        // A track without art must not inherit the previous song's image.
+        let next_title = format!("{title} without artwork");
+        snapshot.track.as_mut().unwrap().name = next_title.clone();
+        snapshot.track.as_mut().unwrap().album_art_url = None;
+        controls.update(snapshot.clone());
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let properties = session.TryGetMediaPropertiesAsync()?.get()?;
+            if properties.Title()? == next_title {
+                assert!(
+                    properties.Thumbnail().is_err(),
+                    "Previous artwork was retained"
+                );
+                break;
+            }
+            anyhow::ensure!(
+                Instant::now() < deadline,
+                "Windows metadata was not updated"
+            );
+            thread::sleep(Duration::from_millis(50));
+        }
         assert_eq!(
             session.GetTimelineProperties()?.Position()?.Duration,
             timespan(12000).Duration
@@ -328,7 +425,8 @@ mod tests {
         loop {
             let mut present = false;
             for session in manager.GetSessions()? {
-                present |= session.TryGetMediaPropertiesAsync()?.get()?.Title()? == title;
+                let current_title = session.TryGetMediaPropertiesAsync()?.get()?.Title()?;
+                present |= current_title == title || current_title == next_title;
             }
             if !present {
                 break;

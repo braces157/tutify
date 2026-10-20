@@ -1,4 +1,5 @@
 mod actions;
+mod autoplay;
 mod browsing;
 mod controls;
 mod demo_runtime;
@@ -58,10 +59,6 @@ use std::{
 };
 use tokio::sync::{mpsc, watch};
 
-const IDLE_FADE_DELAY: Duration = Duration::from_secs(20);
-const IDLE_FADE_DURATION: Duration = Duration::from_secs(2);
-const IDLE_FADE_MAX: u8 = 72;
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum View {
     Search,
@@ -104,6 +101,7 @@ impl View {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SearchScope {
+    Deezer,
     Spotify,
     Youtube,
     Volta,
@@ -112,6 +110,7 @@ pub enum SearchScope {
 impl SearchScope {
     pub fn label(self) -> &'static str {
         match self {
+            Self::Deezer => "Deezer search",
             Self::Spotify => "Spotify search",
             Self::Youtube => "YouTube search",
             Self::Volta => "Volta search",
@@ -179,6 +178,7 @@ struct QueueUndo {
 
 pub struct App {
     undo: VecDeque<QueueUndo>,
+    playback_space_down: bool,
 
     pub context_menu: Option<ContextMenu>,
     pub config: Config,
@@ -199,7 +199,6 @@ pub struct App {
     pub metadata_error: Option<String>,
     pub catalog_health: crate::catalog::Health,
     position_anchor: Option<(Instant, u32)>,
-    last_user_interaction: Instant,
     pub animation_frame: u32,
     pub visualizer: Arc<crate::visualizer::AudioVisualizer>,
     pub stats: SongStats,
@@ -209,11 +208,15 @@ pub struct App {
     pub radio_source: Option<crate::catalog::RecommendationSource>,
     pub radio_error: Option<String>,
     radio_suggestions: HashSet<String>,
+    pub autoplay_epoch: Option<u64>,
+    pub autoplay_error: Option<String>,
+    autoplay_waiting: Option<(u64, u64)>,
     pub mix: MixBuilder,
     pub mix_recipes: MixRecipes,
     pub demo: bool,
     pub preload_requested: Option<u64>,
     pub last_preloaded_id: Option<String>,
+    playback_fallback: Option<&'static str>,
 }
 
 impl App {
@@ -224,6 +227,7 @@ impl App {
         let restored = !queue.ids.is_empty();
         Self {
             undo: VecDeque::new(),
+            playback_space_down: false,
             context_menu: None,
             config,
             queue,
@@ -241,7 +245,6 @@ impl App {
             metadata_error: None,
             catalog_health: crate::catalog::Health::Unknown,
             position_anchor: None,
-            last_user_interaction: Instant::now(),
             animation_frame: 0,
             visualizer: crate::visualizer::AudioVisualizer::new(),
             stats: SongStats::default(),
@@ -251,15 +254,27 @@ impl App {
             radio_source: None,
             radio_error: None,
             radio_suggestions: HashSet::new(),
+            autoplay_epoch: None,
+            autoplay_error: None,
+            autoplay_waiting: None,
             mix: MixBuilder::default(),
             mix_recipes: MixRecipes::default(),
             demo: false,
             preload_requested: None,
             last_preloaded_id: None,
+            playback_fallback: None,
         }
     }
     pub fn can_undo(&self) -> bool {
         !self.undo.is_empty()
+    }
+
+    pub(crate) fn audio_source_label(&self) -> &'static str {
+        self.playback_fallback.unwrap_or(match self.config.source {
+            crate::model::MusicSource::Spotify => "Spotify",
+            crate::model::MusicSource::Youtube => "YouTube",
+            crate::model::MusicSource::Volta | crate::model::MusicSource::SpotifyVolta => "Volta",
+        })
     }
 
     pub(crate) fn open_queue_mix(&mut self) {
@@ -510,7 +525,9 @@ impl App {
     }
 
     fn enqueue_manual(&mut self, id: String) -> bool {
-        let before = if self.radio_epoch == Some(self.queue.epoch) {
+        let before = if self.radio_epoch == Some(self.queue.epoch)
+            || self.autoplay_epoch == Some(self.queue.epoch)
+        {
             self.queue.cursor.and_then(|cursor| {
                 self.queue
                     .order
@@ -602,36 +619,6 @@ impl App {
                 250
             },
         ))
-    }
-    fn note_user_interaction(&mut self) {
-        self.last_user_interaction = Instant::now();
-    }
-    pub(crate) fn idle_text_fade(&self) -> u8 {
-        self.idle_text_fade_at(Instant::now())
-    }
-    fn idle_text_fade_at(&self, now: Instant) -> u8 {
-        if !self.config.theme.eq_ignore_ascii_case("glass") {
-            return 0;
-        }
-        let idle = now.saturating_duration_since(self.last_user_interaction);
-        let Some(fading_for) = idle.checked_sub(IDLE_FADE_DELAY) else {
-            return 0;
-        };
-        ((fading_for.as_millis() * u128::from(IDLE_FADE_MAX) / IDLE_FADE_DURATION.as_millis())
-            .min(u128::from(IDLE_FADE_MAX))) as u8
-    }
-    fn idle_refresh_interval(&self) -> Option<Duration> {
-        if !self.config.theme.eq_ignore_ascii_case("glass") {
-            return None;
-        }
-        let idle = self.last_user_interaction.elapsed();
-        if idle < IDLE_FADE_DELAY {
-            Some(IDLE_FADE_DELAY - idle)
-        } else if idle < IDLE_FADE_DELAY + IDLE_FADE_DURATION {
-            Some(Duration::from_millis(50))
-        } else {
-            None
-        }
     }
     fn interpolate_position(&mut self) {
         if self.state == State::Playing
@@ -789,11 +776,15 @@ impl App {
                 self.last_preloaded_id = next_id.clone();
                 if let Some(id) = next_id {
                     self.send(tx, Command::Preload { id });
+                } else {
+                    self.send(tx, Command::CancelPreload);
                 }
             }
         }
     }
     fn load(&mut self, tx: &mpsc::UnboundedSender<Command>) {
+        self.autoplay_waiting = None;
+        self.playback_fallback = None;
         self.preload_requested = None;
         self.last_preloaded_id = None;
         if let Some(id) = self.queue.current().map(str::to_owned) {
@@ -817,6 +808,8 @@ impl App {
         }
     }
     fn stop(&mut self, tx: &mpsc::UnboundedSender<Command>) {
+        self.autoplay_waiting = None;
+        self.playback_fallback = None;
         self.preload_requested = None;
         self.last_preloaded_id = None;
         self.finalize_playback_accounting();
@@ -828,6 +821,8 @@ impl App {
         self.send(tx, Command::Stop);
     }
     fn media_action(&mut self, action: MediaAction, tx: &mpsc::UnboundedSender<Command>) {
+        // A deliberate transport action cancels any delayed automatic restart.
+        self.autoplay_waiting = None;
         let active = matches!(self.state, State::Playing | State::Loading);
         match action {
             MediaAction::Play if active => (),
@@ -853,8 +848,7 @@ impl App {
                 if self.queue.advance(self.config.repeat, false) {
                     self.load(tx);
                 } else {
-                    self.stop(tx);
-                    self.status = "End of queue.".into();
+                    self.finish_queue(tx);
                 }
             }
             MediaAction::Previous => {
@@ -870,6 +864,14 @@ impl App {
         // Expiry wins over a simultaneous completion or delayed playback event.
         self.check_sleep(Instant::now(), tx);
         match event {
+            Event::Fallback { generation, source } if generation == self.generation => {
+                self.playback_fallback = Some(source);
+                self.ui.diagnostics.history.record_text(
+                    Subsystem::Playback,
+                    &format!("Using {source} audio fallback"),
+                );
+                self.status = format!("Loading {source} fallback audio...");
+            }
             Event::Quality {
                 generation,
                 quality,
@@ -912,6 +914,10 @@ impl App {
                 self.status =
                     "Playing | Space pause | Left/Right seek | +/- volume | n/p next/previous"
                         .into();
+                if let Some(source) = self.playback_fallback {
+                    self.status =
+                        format!("Playing via {source} fallback | Space pause | n/p next/previous");
+                }
             }
             Event::Paused {
                 generation,
@@ -962,9 +968,7 @@ impl App {
                 if self.queue.advance(self.config.repeat, true) {
                     self.load(tx);
                 } else {
-                    self.stop(tx);
-                    self.queue.position_ms = 0;
-                    self.status = "Queue finished. Space replays the current track.".into();
+                    self.finish_queue(tx);
                 }
             }
             Event::Error(message) => {

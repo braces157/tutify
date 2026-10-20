@@ -1,5 +1,76 @@
 use super::*;
 
+pub(super) fn spectrum_panel(frame: &mut Frame<'_>, app: &App, area: Rect) {
+    let theme = Theme::from_str(&app.config.theme);
+    let palette = theme.palette();
+    let outer = block_themed(" SPECTRUM ", false, theme);
+    let inner = outer.inner(area);
+    frame.render_widget(outer, area);
+    if inner.height < 3 || inner.width < 6 {
+        return;
+    }
+    let graph = Rect::new(
+        inner.x + 1,
+        inner.y + 1,
+        inner.width.saturating_sub(2),
+        inner.height.saturating_sub(3),
+    );
+    let count = graph.width.div_ceil(2) as usize;
+    let height = graph.height as usize;
+    let live = app.visualizer.has_audio_samples();
+    let playing = app.state == State::Playing;
+    let (bars, peaks) = if live {
+        app.visualizer.get_bars_and_peaks(count, height, playing)
+    } else {
+        let bars: Vec<usize> = (0..count)
+            .map(|col| {
+                if !playing {
+                    return 0;
+                }
+                let t = f64::from(app.animation_frame) * 0.16;
+                let x = col as f64;
+                let wave = (t + x * 0.62).sin() * 0.28 + (t * 0.7 - x * 0.35).cos() * 0.22;
+                ((wave + 0.5) * height as f64)
+                    .round()
+                    .clamp(0.0, height as f64) as usize
+            })
+            .collect();
+        (bars.clone(), bars)
+    };
+    let mut lines = Vec::new();
+    for row in (1..=height).rev() {
+        let mut spans = Vec::new();
+        for col in 0..count {
+            let lit = bars.get(col).copied().unwrap_or(0) >= row;
+            let peak = peaks.get(col).copied().unwrap_or(0) == row;
+            spans.push(Span::styled(
+                if lit { "■ " } else { "· " },
+                Style::default().fg(if peak || (lit && row > height / 2) {
+                    palette.primary
+                } else if lit {
+                    palette.primary_soft
+                } else {
+                    palette.border
+                }),
+            ));
+        }
+        lines.push(Line::from(spans));
+    }
+    frame.render_widget(Paragraph::new(lines), graph);
+    frame.render_widget(
+        Paragraph::new(if live {
+            "Live audio · v expand"
+        } else if playing {
+            "Standby · v expand"
+        } else {
+            "Paused · v expand"
+        })
+        .style(Style::default().fg(palette.text_subtle))
+        .alignment(Alignment::Center),
+        Rect::new(inner.x, inner.bottom() - 1, inner.width, 1),
+    );
+}
+
 pub(super) fn visualizer(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let theme = Theme::from_str(&app.config.theme);
     let palette = theme.palette();

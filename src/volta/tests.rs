@@ -108,9 +108,9 @@ async fn stream_preserves_session_cookie_and_native_high_resolution_rate() {
     token(&server, "catalog:read stream:read").await;
     Mock::given(method("GET")).and(path("/api/v1/stream")).and(query_param("quality", "lossless_hq")).and(query_param("track_id", "JPW462364925"))
         .respond_with(ResponseTemplate::new(200).insert_header("set-cookie", "volta_stream=bound-session; HttpOnly; Path=/api/v1/stream_relay")
-            .set_body_json(json!({"stream_url":"/api/v1/stream_relay?url=opaque&sig=test&exp=9999999999", "bit_depth":24, "sample_rate":192000, "source":"arcod_qobuz"}))).expect(1).mount(&server).await;
+            .set_body_json(json!({"stream_url":"/api/v1/stream_relay?url=opaque&sig=test&exp=9999999999", "bit_depth":24, "sample_rate":384000, "source":"arcod_qobuz"}))).expect(1).mount(&server).await;
     let audio = client(&server).stream("volta:JPW462364925").await.unwrap();
-    assert_eq!(audio.rate, 192000);
+    assert_eq!(audio.quality.sample_rate, Some(384000));
     assert!(
         audio
             .headers

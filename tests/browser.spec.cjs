@@ -1,4 +1,5 @@
 const { test, expect } = require('@playwright/test');
+const { version: releaseVersion } = require('../package.json');
 
 async function openDemo(page) {
   await page.goto('/docs/index.html');
@@ -225,7 +226,7 @@ test('hero copy uses the pinned release command and explains clipboard failure',
   await page.evaluate(() => Object.defineProperty(navigator,'clipboard',{value:undefined,configurable:true}));
   await page.locator('#hero-copy-cmd').click();
   await expect(page.locator('#install-content-1')).toBeVisible();
-  await expect(page.locator('#install-content-1 code')).toContainText('--tag v0.6.0');
+  await expect(page.locator('#install-content-1 code')).toContainText(`--tag v${releaseVersion}`);
   await expect(page.locator('#hero-copy-cmd')).toContainText('Select command');
 });
 
@@ -282,7 +283,7 @@ test('essential content and downloads work without JavaScript', async ({ browser
   const page = await context.newPage();
   await page.goto('http://127.0.0.1:4173/docs/index.html');
   await expect(page.locator('h1')).toBeVisible();
-  await expect(page.locator('.button-primary').first()).toHaveAttribute('href', /v0.6.0\/tuitify.exe$/);
+  await expect(page.locator('.button-primary').first()).toHaveAttribute('href', `https://github.com/braces157/tutify/releases/download/v${releaseVersion}/tuitify.exe`);
   await expect(page.locator('.install-copy')).toBeVisible();
   await expect(page.locator('.questions-heading')).toHaveCSS('opacity', '1');
   await context.close();
@@ -305,7 +306,7 @@ test('native screenshot previews switch with keyboard navigation and keep full-i
   await expect(page.locator('#preview-panel img')).toHaveAttribute('alt', /spectrum visualizer/);
   await page.keyboard.press('Home');
   await expect(queue).toHaveAttribute('aria-selected', 'true');
-  await expect(page.locator('#preview-panel a')).toHaveAttribute('href', /glass-queue-smart-shuffle\.png$/);
+  await expect(page.locator('#preview-panel a')).toHaveAttribute('href', /v0\.7\.0\/demo-queue-wide\.png$/);
 });
 
 test('native preview explains image failures and recovers on another selection', async ({ page }) => {

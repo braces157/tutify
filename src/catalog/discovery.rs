@@ -319,6 +319,14 @@ impl Catalog {
         excluded: &[Track],
         round: usize,
     ) -> Result<Recommendations> {
+        if crate::deezer::key(&seed.id).is_some() {
+            return self
+                .deezer
+                .as_ref()
+                .context("Deezer catalog is unavailable")?
+                .recommendations(seed, excluded, round)
+                .await;
+        }
         if let Some(result) = self.volta_recommendations(seed, excluded, round).await {
             return result;
         }

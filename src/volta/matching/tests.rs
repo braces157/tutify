@@ -8,6 +8,57 @@ use wiremock::{
 const SPOTIFY: &str = "0000000000000000000001";
 const ISRC: &str = "JPW462364925";
 
+#[test]
+fn youtube_fallback_accepts_official_audio_but_rejects_wrong_recordings() {
+    let original = track(SPOTIFY, "Song", "Artist", 200000);
+    for (title, artist) in [
+        ("Song", "Artist - Topic"),
+        ("Artist - Song (Official Audio)", "ArtistVEVO"),
+    ] {
+        assert!(youtube_recording(
+            &original,
+            &track("youtube:dQw4w9WgXcQ", title, artist, 200001)
+        ));
+    }
+    for (title, artist, duration) in [
+        ("Song (Live)", "Artist", 200000),
+        ("Song", "Cover Artist", 200000),
+        ("Song", "Artist", 0),
+        ("Song", "Artist", 220000),
+    ] {
+        assert!(!youtube_recording(
+            &original,
+            &track("youtube:dQw4w9WgXcQ", title, artist, duration)
+        ));
+    }
+}
+
+#[tokio::test]
+async fn missing_volta_recording_falls_back_to_youtube_using_cached_spotify_metadata() {
+    let (_spotify, volta, resolver) = setup(None).await;
+    Mock::given(path("/api/v1/search"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"results":{"tracks":[]}})))
+        .expect(1)
+        .mount(&volta)
+        .await;
+    let directory = tempfile::tempdir().unwrap();
+    let tools = crate::youtube::tests::fixture(
+        directory.path(),
+        &format!(
+            "[Console]::WriteLine('{}')",
+            json!({"id":"dQw4w9WgXcQ","title":"Song","channel":"Artist - Topic","duration":200,"acodec":"opus","asr":48000,"url":"https://rr1.googlevideo.com/audio"})
+        ),
+    );
+    let resolver = resolver.with_youtube(Some(tools));
+    let audio = resolver.audio(SPOTIFY).await.unwrap();
+    assert_eq!(audio.source, "YouTube");
+    assert_eq!(audio.quality.codec, Some(crate::audio_quality::Codec::Opus));
+    assert_eq!(audio.quality.sample_rate, Some(48000));
+    assert!(!audio.headers.contains("Cookie"));
+    assert!(!audio.headers.contains("Authorization"));
+    assert!(audio.fresh());
+}
+
 fn track(id: &str, name: &str, artist: &str, duration: u32) -> Track {
     Track {
         id: id.into(),
@@ -77,7 +128,7 @@ async fn spotify_identity_resolves_to_lossless_audio_without_spotify_streaming()
             .set_body_json(json!({"stream_url":"/api/v1/app_stream_relay?sig=temporary","sample_rate":96000})))
         .expect(1).mount(&volta).await;
     let audio = resolver.audio(SPOTIFY).await.unwrap();
-    assert_eq!(audio.rate, 96000);
+    assert_eq!(audio.quality.sample_rate, Some(96000));
     assert!(audio.headers.contains("Cookie: session=bound"));
     assert!(!audio.headers.contains("Authorization"));
 }

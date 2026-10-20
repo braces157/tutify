@@ -1,6 +1,6 @@
 use super::*;
 
-pub(super) fn fixture(dir: &std::path::Path, body: &str) -> Tools {
+pub(crate) fn fixture(dir: &std::path::Path, body: &str) -> Tools {
     let script = dir.join("tool.ps1");
     std::fs::write(
         &script,

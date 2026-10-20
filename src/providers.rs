@@ -16,8 +16,9 @@ pub(crate) fn open(
     config: &Config,
     visualizer: Arc<AudioVisualizer>,
 ) -> Result<Services> {
-    match source {
-        MusicSource::Spotify => Ok(Services {
+    let mut audio_catalog = None;
+    let mut services = match source {
+        MusicSource::Spotify => Ok::<Services, anyhow::Error>(Services {
             catalog: Catalog::new(TokenManager::load(config)?)?,
             playback: Playback::spawn_with_visualizer(
                 TokenManager::load_streaming()?,
@@ -51,6 +52,7 @@ pub(crate) fn open(
         MusicSource::SpotifyVolta => {
             let catalog = Catalog::new(TokenManager::load(config)?)?;
             let client = crate::volta::Client::load()?;
+            audio_catalog = Some(Catalog::volta(client.clone())?);
             Ok(Services {
                 playback: Playback::spawn_spotify_volta(
                     client,
@@ -63,5 +65,13 @@ pub(crate) fn open(
                 library_connected: true,
             })
         }
-    }
+    }?;
+    let deezer = crate::deezer::Client::new()?;
+    services.catalog = services.catalog.with_deezer(deezer.clone());
+    let resolver = audio_catalog
+        .unwrap_or_else(|| services.catalog.clone())
+        .with_deezer(deezer)
+        .with_audio_fallback();
+    services.playback = services.playback.with_catalog(resolver);
+    Ok(services)
 }

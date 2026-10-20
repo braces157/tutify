@@ -1,6 +1,159 @@
 use super::*;
 
+/// Tall-window listening column: metadata, transport and seeking stay together
+/// above the spectrum instead of stretching across a second full-width panel.
+pub(super) fn listening_player(
+    frame: &mut Frame<'_>,
+    app: &App,
+    render: &mut RenderState,
+    area: Rect,
+) {
+    let theme = Theme::from_str(&app.config.theme);
+    let palette = theme.palette();
+    let title = app
+        .ui
+        .listening
+        .sleep
+        .label(std::time::Instant::now())
+        .map_or_else(
+            || " NOW PLAYING ".into(),
+            |timer| format!(" NOW PLAYING · {timer} "),
+        );
+    let outer = block_themed(title, false, theme);
+    let inner = outer.inner(area);
+    frame.render_widget(outer, area);
+    hit(
+        render,
+        Rect::new(area.x + 1, area.y, area.width.saturating_sub(2), 1),
+        MouseTarget::ListeningTools,
+    );
+    let parts = Layout::vertical([
+        Constraint::Length(2),
+        Constraint::Length(if inner.height >= 10 { 2 } else { 1 }),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(2),
+        Constraint::Min(0),
+    ])
+    .split(inner);
+    let track = app.current_track();
+    frame.render_widget(
+        Paragraph::new(
+            track
+                .as_ref()
+                .map_or("Choose a track to start listening", |t| t.name.as_str()),
+        )
+        .style(Style::default().fg(palette.text).bold())
+        .wrap(Wrap { trim: false }),
+        parts[0],
+    );
+    frame.render_widget(
+        Paragraph::new(
+            track
+                .as_ref()
+                .map_or("/ Search for your next song", |t| t.artists.as_str()),
+        )
+        .style(Style::default().fg(palette.text_muted))
+        .wrap(Wrap { trim: false }),
+        parts[1],
+    );
+    let (state, color) = match app.state {
+        State::Playing => ("PLAYING", palette.primary),
+        State::Paused => ("PAUSED", palette.text_muted),
+        State::Loading => ("LOADING", palette.status_warning),
+        State::Failed => ("ERROR", palette.status_error),
+    };
+    let action = if app.state == State::Playing {
+        "Pause"
+    } else {
+        "Play"
+    };
+    frame.render_widget(
+        Paragraph::new(format!("{action} [Space] · {state}"))
+            .style(Style::default().fg(color).bold()),
+        parts[2],
+    );
+    hit(render, parts[2], MouseTarget::PlayPause);
+    let duration = track.as_ref().map_or(0, |t| t.duration_ms);
+    let elapsed = if duration == 0 {
+        app.queue.position_ms
+    } else {
+        app.queue.position_ms.min(duration)
+    };
+    let count = parts[3].width as usize;
+    let filled = if duration == 0 {
+        0
+    } else {
+        (u64::from(elapsed) * count as u64 / u64::from(duration)) as usize
+    };
+    let bars = (0..count)
+        .map(|index| {
+            Span::styled(
+                "■",
+                Style::default().fg(if index < filled {
+                    palette.primary
+                } else {
+                    palette.border
+                }),
+            )
+        })
+        .collect::<Vec<_>>();
+    frame.render_widget(Paragraph::new(Line::from(bars)), parts[3]);
+    hit(render, parts[3], MouseTarget::Seek);
+    let percent = if duration == 0 {
+        0
+    } else {
+        u64::from(elapsed) * 100 / u64::from(duration)
+    };
+    let times = if duration == 0 {
+        format!("{} / --:--", time(elapsed))
+    } else {
+        format!(
+            "{} / {}  {percent}%  -{}",
+            time(elapsed),
+            time(duration),
+            time(duration.saturating_sub(elapsed))
+        )
+    };
+    frame.render_widget(
+        Paragraph::new(times).style(Style::default().fg(palette.text_muted)),
+        parts[4],
+    );
+    let volume = if app.config.volume == 0 {
+        "VOL MUTED".into()
+    } else {
+        format!("VOL {}%", app.config.volume)
+    };
+    let shuffle = if app.queue.smart_shuffle {
+        "SHUF:SMART"
+    } else if app.config.shuffle {
+        "SHUF:ON"
+    } else {
+        "SHUF:OFF"
+    };
+    let repeat = match app.config.repeat {
+        Repeat::Off => "R:Off",
+        Repeat::Queue => "R:Queue",
+        Repeat::Track => "R:Track",
+    };
+    frame.render_widget(
+        Paragraph::new(vec![
+            Line::from(Span::styled(volume, Style::default().fg(palette.text))),
+            Line::from(Span::styled(
+                format!("{shuffle}   {repeat}"),
+                Style::default().fg(palette.text_subtle),
+            )),
+        ]),
+        parts[5],
+    );
+}
+
 pub(super) fn playback(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, area: Rect) {
+    if area.height >= 6 && area.width >= 60 {
+        expanded_playback(frame, app, render, area);
+        return;
+    }
     let theme = Theme::from_str(&app.config.theme);
     let palette = theme.palette();
     let title = app
@@ -14,10 +167,10 @@ pub(super) fn playback(frame: &mut Frame<'_>, app: &App, render: &mut RenderStat
         );
     let mut outer = block_themed(title, false, theme)
         .style(Style::default().fg(palette.text).bg(palette.surface_alt));
-    if let Some(quality) = app.audio_quality {
+    if app.audio_quality.is_some() {
         outer = outer.title_bottom(
             Line::from(Span::styled(
-                format!(" {} ", quality.label()),
+                format!(" {} ", audio_badge(app, area.width)),
                 Style::default().fg(palette.primary_soft).bold(),
             ))
             .alignment(Alignment::Right),
@@ -214,6 +367,210 @@ pub(super) fn playback(frame: &mut Frame<'_>, app: &App, render: &mut RenderStat
         frame.render_widget(
             Paragraph::new(Span::styled(label, Style::default().fg(palette.text_muted))),
             parts[1],
+        );
+    }
+}
+
+fn expanded_playback(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, area: Rect) {
+    let theme = Theme::from_str(&app.config.theme);
+    let palette = theme.palette();
+    let title = app
+        .ui
+        .listening
+        .sleep
+        .label(std::time::Instant::now())
+        .map_or_else(
+            || " NOW PLAYING ".into(),
+            |timer| format!(" NOW PLAYING · {timer} "),
+        );
+    let mut outer = block_themed(title, false, theme)
+        .style(Style::default().fg(palette.text).bg(palette.surface));
+    if app.audio_quality.is_some() {
+        outer = outer.title_bottom(
+            Line::from(Span::styled(
+                format!(" {} ", audio_badge(app, area.width)),
+                Style::default().fg(palette.primary_soft),
+            ))
+            .alignment(Alignment::Right),
+        );
+    }
+    let inner = outer.inner(area);
+    frame.render_widget(outer, area);
+    hit(
+        render,
+        Rect::new(area.x + 1, area.y, area.width.saturating_sub(2), 1),
+        MouseTarget::ListeningTools,
+    );
+    let track = app.current_track();
+    let transport = Rect::new(inner.x + 1, inner.y, 9, inner.height);
+    let action = if app.state == State::Playing {
+        "Pause"
+    } else {
+        "Play"
+    };
+    let button = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(palette.primary_soft))
+        .title_bottom(Line::from(" Space ").alignment(Alignment::Center));
+    let button_inner = button.inner(transport);
+    frame.render_widget(button, transport);
+    frame.render_widget(
+        Paragraph::new(action)
+            .alignment(Alignment::Center)
+            .style(Style::default().fg(palette.primary).bold()),
+        Rect::new(
+            button_inner.x,
+            button_inner.y + button_inner.height.saturating_sub(1) / 2,
+            button_inner.width,
+            1,
+        ),
+    );
+    hit(render, transport, MouseTarget::PlayPause);
+    let content = Rect::new(
+        transport.right() + 2,
+        inner.y,
+        inner.right().saturating_sub(transport.right() + 3),
+        inner.height,
+    );
+    let top = Layout::horizontal([
+        Constraint::Min(12),
+        Constraint::Length(if area.width >= 80 { 35 } else { 12 }),
+    ])
+    .split(Rect::new(content.x, content.y, content.width, 1));
+    frame.render_widget(
+        Paragraph::new(
+            track
+                .as_ref()
+                .map_or("Choose a track to start listening", |t| t.name.as_str()),
+        )
+        .style(Style::default().fg(palette.text).bold()),
+        top[0],
+    );
+    let (state, color) = match app.state {
+        State::Playing => ("▶ PLAYING", palette.primary),
+        State::Paused => ("Ⅱ PAUSED", palette.text_muted),
+        State::Loading => ("… LOADING", palette.status_warning),
+        State::Failed => ("! ERROR", palette.status_error),
+    };
+    let volume = if app.config.volume == 0 {
+        "VOL MUTED".into()
+    } else {
+        format!("VOL {}%", app.config.volume)
+    };
+    frame.render_widget(
+        Paragraph::new(if area.width >= 80 {
+            format!("{state}   {volume}")
+        } else {
+            state.into()
+        })
+        .style(Style::default().fg(color))
+        .alignment(Alignment::Right),
+        top[1],
+    );
+    let second = Layout::horizontal([
+        Constraint::Min(10),
+        Constraint::Length(if area.width >= 80 { 35 } else { 12 }),
+    ])
+    .split(Rect::new(content.x, content.y + 1, content.width, 1));
+    frame.render_widget(
+        Paragraph::new(
+            track
+                .as_ref()
+                .map_or("Search / to find your next song", |t| t.artists.as_str()),
+        )
+        .style(Style::default().fg(palette.text_muted)),
+        second[0],
+    );
+    let shuffle = if app.queue.smart_shuffle {
+        "SHUF:SMART"
+    } else if app.config.shuffle {
+        "SHUF:ON"
+    } else {
+        "SHUF:OFF"
+    };
+    let repeat = match app.config.repeat {
+        Repeat::Off => "R:Off",
+        Repeat::Queue => "R:Queue",
+        Repeat::Track => "R:Track",
+    };
+    frame.render_widget(
+        Paragraph::new(if area.width >= 80 {
+            format!("{shuffle}   {repeat}")
+        } else {
+            volume
+        })
+        .style(Style::default().fg(palette.text_subtle))
+        .alignment(Alignment::Right),
+        second[1],
+    );
+    hit(render, top[1], MouseTarget::PlayPause);
+    let duration = track.as_ref().map_or(0, |t| t.duration_ms);
+    let elapsed = if duration == 0 {
+        app.queue.position_ms
+    } else {
+        app.queue.position_ms.min(duration)
+    };
+    let percent = if duration == 0 {
+        0
+    } else {
+        (u64::from(elapsed) * 100 / u64::from(duration)).min(100)
+    };
+    let progress = Layout::horizontal([
+        Constraint::Length(6),
+        Constraint::Min(1),
+        Constraint::Length(6),
+    ])
+    .split(Rect::new(content.x, content.y + 2, content.width, 1));
+    frame.render_widget(
+        Paragraph::new(time(elapsed)).style(Style::default().fg(palette.text)),
+        progress[0],
+    );
+    frame.render_widget(
+        Paragraph::new(if duration == 0 {
+            "--:--".into()
+        } else {
+            time(duration)
+        })
+        .style(Style::default().fg(palette.text))
+        .alignment(Alignment::Right),
+        progress[2],
+    );
+    let count = progress[1].width as usize;
+    let filled = if duration == 0 {
+        0
+    } else {
+        (u64::from(elapsed) * count as u64 / u64::from(duration)) as usize
+    };
+    let spans = (0..count).map(|index| {
+        Span::styled(
+            "■",
+            Style::default().fg(if index < filled {
+                palette.primary
+            } else {
+                palette.border
+            }),
+        )
+    });
+    frame.render_widget(
+        Paragraph::new(Line::from(spans.collect::<Vec<_>>())),
+        progress[1],
+    );
+    hit(render, progress[1], MouseTarget::Seek);
+    if content.height >= 4 {
+        let details = if duration == 0 {
+            format!("{} / --:--", time(elapsed))
+        } else {
+            format!(
+                "{} / {}  {percent}%  -{}",
+                time(elapsed),
+                time(duration),
+                time(duration.saturating_sub(elapsed))
+            )
+        };
+        frame.render_widget(
+            Paragraph::new(details).style(Style::default().fg(palette.text_subtle)),
+            Rect::new(content.x, content.bottom() - 1, content.width, 1),
         );
     }
 }

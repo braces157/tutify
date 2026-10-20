@@ -32,10 +32,16 @@ pub(crate) enum SessionRequest {
 
 /// Track identities are namespaced; Spotify entity IDs stay strictly validated.
 pub fn valid_track_id(id: &str) -> bool {
-    valid_id(id) || crate::youtube::video_key(id).is_some() || crate::volta::key(id).is_some()
+    valid_id(id)
+        || crate::deezer::key(id).is_some()
+        || crate::youtube::video_key(id).is_some()
+        || crate::volta::key(id).is_some()
 }
 
 pub fn track_url(id: &str) -> Option<String> {
+    if let Some(id) = crate::deezer::key(id) {
+        return Some(format!("https://www.deezer.com/track/{id}"));
+    }
     if crate::volta::key(id).is_some() {
         return Some("https://app.volta-music.com/".into());
     }

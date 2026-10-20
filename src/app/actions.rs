@@ -24,6 +24,9 @@ pub(super) fn apply(
 ) {
     if app.config.source == crate::model::MusicSource::Youtube
         && !app.config.youtube_music
+        && app
+            .selected_track()
+            .is_none_or(|track| crate::deezer::key(&track.id).is_none())
         && matches!(action, Action::ViewAlbum | Action::ViewArtist)
     {
         app.status =
@@ -75,7 +78,8 @@ pub(super) fn apply(
                     return;
                 }
                 if app.catalog.view == View::Search
-                    && app.config.source != crate::model::MusicSource::Youtube
+                    && (app.config.source != crate::model::MusicSource::Youtube
+                        || crate::deezer::key(&track.id).is_some())
                 {
                     tasks.start_radio(app, track, tx);
                     return;

@@ -12,7 +12,11 @@ is a separate demonstration, not the player's frontend.
 | `src/main.rs` | CLI dispatch and two-worker Tokio entry point |
 | `src/launcher.rs` | Session lifecycle, first-run setup, in-app connections and provider handoffs |
 | `src/source.rs`, `src/auth/plan.rs` | Bounded account/entitlement lookup and account-scoped launch policy |
-| `src/providers.rs` | Construction of matching catalog and playback services |
+| `src/providers.rs` | Construction of catalog, recording resolver and playback services |
+| `src/deezer.rs`, `src/catalog/deezer.rs` | Public discovery metadata, related artists and recording mapping to the selected audio provider |
+| `src/app/autoplay.rs` | Bounded queue refills and cancellable end-of-queue continuation |
+| `src/audio_output.rs`, `src/playback/pcm.rs` | Shared native output negotiation and bounded PCM playback |
+| `src/playback/catalog.rs`, `src/playback/fallback.rs` | Catalog identity preservation and cancellable audio-provider fallback |
 | `src/app.rs` | Application state, playback transitions/accounting, queue undo |
 | `src/app/runtime.rs` | One provider session, event scheduling, redraws, ordered shutdown and session requests |
 | `src/app/demo_runtime.rs`, `src/demo.rs` | Credential-free runtime adapter and bundled fictional catalog |
@@ -52,8 +56,10 @@ is a separate demonstration, not the player's frontend.
 ## Boundaries to preserve
 
 - Launch policy selects a matching catalog/playback provider. Catalog results
-  and saved queues stay provider-specific; no Spotify-to-YouTube track mapping
-  occurs. Combined Spotify + Volta retains Spotify catalog IDs and saved state;
+  and saved queues retain their original catalog identities. Deezer results resolve
+  through recording identifiers or strict metadata into the selected audio backend.
+  Volta can fall back to a matching YouTube recording; combined mode can then
+  use an existing Spotify Premium streaming connection. The UI labels fallback audio. Combined Spotify + Volta retains Spotify catalog IDs and saved state;
   Volta resolves only the audio recording, rejecting ambiguous matches. Standalone
   Volta uses separate saved state. Volta secrets stay in Credential Manager or
   process environment; authenticated requests use a fixed origin, and stream

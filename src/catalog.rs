@@ -11,6 +11,7 @@ use std::sync::atomic::{AtomicU8, Ordering};
 use tokio::sync::Mutex;
 
 mod capabilities;
+mod deezer;
 mod discovery;
 mod similarity;
 pub(crate) use discovery::recording as recording_key;
@@ -47,6 +48,7 @@ pub struct Page {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ArtistResultSource {
+    Deezer,
     Volta,
     YoutubeMusic,
     TopTracks,
@@ -56,6 +58,7 @@ pub enum ArtistResultSource {
 impl ArtistResultSource {
     pub fn label(self) -> &'static str {
         match self {
+            Self::Deezer => "Deezer artist tracks",
             Self::Volta => "Volta artist tracks",
             Self::YoutubeMusic => "YouTube Music songs",
             Self::TopTracks => "Top Tracks",
@@ -67,6 +70,7 @@ impl ArtistResultSource {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RecommendationSource {
+    Deezer,
     Volta,
     YoutubeMusic,
     YoutubeSearch,
@@ -78,6 +82,7 @@ pub enum RecommendationSource {
 impl RecommendationSource {
     pub fn label(self) -> &'static str {
         match self {
+            Self::Deezer => "Deezer related artists",
             Self::Volta => "Volta artist search",
             Self::YoutubeMusic => "YouTube Music radio",
             Self::YoutubeSearch => "YouTube search suggestions",
@@ -136,6 +141,8 @@ impl CapabilitySummary {
 
 #[derive(Clone)]
 pub struct Catalog {
+    pub(crate) deezer: Option<crate::deezer::Client>,
+    search_routes: Arc<Mutex<std::collections::HashMap<String, bool>>>,
     volta: Option<crate::volta::Client>,
     youtube: Option<crate::youtube::Tools>,
     client: reqwest::Client,
@@ -283,6 +290,8 @@ impl Catalog {
 
     pub fn new(tokens: TokenManager) -> Result<Self> {
         Ok(Self {
+            deezer: None,
+            search_routes: Arc::new(Mutex::new(std::collections::HashMap::new())),
             volta: None,
             youtube: None,
             client: http_client()?,
@@ -430,6 +439,15 @@ impl Catalog {
         unreachable!()
     }
     pub async fn track(&self, id: &str) -> Result<Track> {
+        if crate::deezer::key(id).is_some() {
+            return Ok(self
+                .deezer
+                .as_ref()
+                .context("Deezer catalog is unavailable")?
+                .recording(id)
+                .await?
+                .0);
+        }
         if let Some(client) = &self.volta {
             return self.observe_volta(client.track(id).await);
         }
@@ -473,6 +491,14 @@ impl Catalog {
             .buffer_unordered(5)
     }
     pub async fn recommendations(&self, seed: &Track) -> Result<Recommendations> {
+        if crate::deezer::key(&seed.id).is_some() {
+            return self
+                .deezer
+                .as_ref()
+                .context("Deezer catalog is unavailable")?
+                .recommendations(seed, &[], 0)
+                .await;
+        }
         if let Some(result) = self.volta_recommendations(seed, &[], 0).await {
             return result;
         }
@@ -528,6 +554,14 @@ impl Catalog {
         excluded: &[Track],
         context: &[Track],
     ) -> Result<Recommendations> {
+        if crate::deezer::key(&seed.id).is_some() {
+            return self
+                .deezer
+                .as_ref()
+                .context("Deezer catalog is unavailable")?
+                .recommendations(seed, excluded, 0)
+                .await;
+        }
         if let Some(result) = self.volta_recommendations(seed, excluded, 0).await {
             return result;
         }
@@ -549,6 +583,42 @@ impl Catalog {
     /// Continuations retain the source established by the first artist page.
     /// A fresh request (offset zero, including F5) probes Top Tracks again.
     pub(crate) async fn page_with_artist_source(
+        &self,
+        browse: &Browse,
+        offset: usize,
+        artist_source: Option<ArtistResultSource>,
+    ) -> Result<Page> {
+        if let Some(deezer) = &self.deezer {
+            match browse {
+                Browse::Album(id) | Browse::Artist(id) if crate::deezer::key(id).is_some() => {
+                    return deezer.page(browse, offset).await;
+                }
+                Browse::Search(query) if crate::deezer::track_id(query).is_some() => {
+                    return deezer.page(browse, offset).await;
+                }
+                Browse::Search(query) if !native_link(query) => {
+                    if offset > 0 && self.search_routes.lock().await.get(query) == Some(&true) {
+                        return self.native_page(browse, offset, artist_source).await;
+                    }
+                    match deezer.page(browse, offset).await {
+                        Ok(page) if !matches!(&page.rows, Rows::Tracks(tracks) if tracks.is_empty()) =>
+                        {
+                            self.health.store(1, Ordering::Relaxed);
+                            self.remember_search_route(query, false).await;
+                            return Ok(page);
+                        }
+                        Ok(page) if query.trim().is_empty() || offset > 0 => return Ok(page),
+                        Err(error) if offset > 0 => return Err(error),
+                        Ok(_) | Err(_) => self.remember_search_route(query, true).await,
+                    }
+                }
+                _ => (),
+            }
+        }
+        self.native_page(browse, offset, artist_source).await
+    }
+
+    pub(crate) async fn native_page(
         &self,
         browse: &Browse,
         offset: usize,
@@ -770,6 +840,13 @@ impl Catalog {
             artist_source: None,
         })
     }
+}
+
+fn native_link(query: &str) -> bool {
+    query.contains("://")
+        || query.starts_with("spotify:")
+        || query.starts_with("youtube:")
+        || query.starts_with("volta:")
 }
 
 pub fn normalize_title(name: &str) -> String {

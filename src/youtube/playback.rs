@@ -1,11 +1,11 @@
 //! Bounded PCM streaming. Pause/seek/stop interrupt resolution and decoding.
 use super::{Stream, Tools, hidden_command};
+use crate::playback::pcm::{CAPACITY, Pcm};
 use crate::{
     playback::{Command, Event},
     visualizer::AudioVisualizer,
 };
 use anyhow::{Context, Result, ensure};
-use rodio::Source;
 use std::{
     process::Stdio,
     sync::{
@@ -16,9 +16,7 @@ use std::{
 };
 use tokio::{io::AsyncReadExt, sync::mpsc, task::JoinHandle};
 
-const RATE: u32 = 44_100;
 const CHANNELS: u16 = 2;
-const CHUNK_BYTES: usize = 35_280; // 100 ms of stereo float PCM
 
 mod preload;
 use preload::{Prepared, Preparer};
@@ -26,52 +24,6 @@ use preload::{Prepared, Preparer};
 enum Update {
     Resolved(u64, Box<Stream>),
     Failed(u64, String),
-}
-
-struct PcmSource {
-    chunks: mpsc::Receiver<Vec<f32>>,
-    current: std::vec::IntoIter<f32>,
-    samples: Arc<AtomicU64>,
-    visualizer: Arc<AudioVisualizer>,
-    left: Option<f32>,
-}
-
-impl Iterator for PcmSource {
-    type Item = f32;
-    fn next(&mut self) -> Option<f32> {
-        if self.current.len() == 0 {
-            match self.chunks.try_recv() {
-                Ok(chunk) => self.current = chunk.into_iter(),
-                // Silence during a short network stall keeps the source alive.
-                // Only decoded samples advance the reported track position.
-                Err(mpsc::error::TryRecvError::Empty) => return Some(0.0),
-                Err(mpsc::error::TryRecvError::Disconnected) => return None,
-            }
-        }
-        let sample = self.current.next()?;
-        self.samples.fetch_add(1, Ordering::Relaxed);
-        if let Some(left) = self.left.take() {
-            self.visualizer.push_sample((left + sample) * 0.5);
-        } else {
-            self.left = Some(sample);
-        }
-        Some(sample)
-    }
-}
-
-impl Source for PcmSource {
-    fn current_frame_len(&self) -> Option<usize> {
-        None
-    }
-    fn channels(&self) -> u16 {
-        CHANNELS
-    }
-    fn sample_rate(&self) -> u32 {
-        RATE
-    }
-    fn total_duration(&self) -> Option<Duration> {
-        None
-    }
 }
 
 struct Active {
@@ -83,7 +35,8 @@ struct Active {
     started: bool,
     samples: Arc<AtomicU64>,
     sink: rodio::Sink,
-    _output: rodio::OutputStream,
+    _output: rodio::cpal::Stream,
+    rate: u32,
     job: JoinHandle<()>,
     stream: Option<Stream>,
 }
@@ -91,8 +44,9 @@ struct Active {
 impl Active {
     fn position(&self) -> u32 {
         self.base_ms.saturating_add(
-            (self.samples.load(Ordering::Relaxed) * 1000 / (u64::from(RATE) * u64::from(CHANNELS)))
-                .min(u64::from(u32::MAX)) as u32,
+            (self.samples.load(Ordering::Relaxed) * 1000
+                / (u64::from(self.rate) * u64::from(CHANNELS)))
+            .min(u64::from(u32::MAX)) as u32,
         )
     }
 }
@@ -125,28 +79,31 @@ fn start(
         super::video_key(&intent.id).is_some(),
         "YouTube mode cannot play a Spotify track; use YouTube search to create a queue"
     );
-    let (output, handle) = rodio::OutputStream::try_default()
-        .context("Cannot open Windows audio output. Select a working default output and press Space to retry")?;
-    let sink = rodio::Sink::try_new(&handle)?;
+    let initial_stream = prepared.as_ref().and_then(Prepared::ready);
+    let output = crate::audio_output::open(
+        initial_stream
+            .as_ref()
+            .and_then(|stream| stream.quality.sample_rate),
+    )?;
+    let rate = output.rate;
+    let sink = output.sink;
     sink.set_volume(f32::from(volume.min(100)) / 100.0);
     if intent.paused {
         sink.pause();
     }
-    let (chunks_tx, chunks_rx) = mpsc::channel(4);
+    let (chunks_tx, chunks_rx) = mpsc::channel(CAPACITY);
     let samples = Arc::new(AtomicU64::new(0));
-    visualizer.set_sample_rate(RATE);
-    sink.append(PcmSource {
-        chunks: chunks_rx,
-        current: Vec::new().into_iter(),
-        samples: samples.clone(),
-        visualizer: visualizer.clone(),
-        left: None,
-    });
+    visualizer.set_sample_rate(rate);
+    sink.append(Pcm::new(
+        chunks_rx,
+        samples.clone(),
+        rate,
+        visualizer.clone(),
+    ));
     let tools = tools.clone();
     let id = intent.id.clone();
     let tx = updates.clone();
     let position = intent.base_ms;
-    let initial_stream = prepared.as_ref().and_then(Prepared::ready);
     let job = tokio::spawn(async move {
         let result: Result<()> = async {
             let stream = if let Some(prepared) = prepared {
@@ -160,7 +117,7 @@ fn start(
             {
                 return Ok(());
             }
-            decode(&tools, &stream, position, chunks_tx).await
+            decode(&tools, &stream, rate, position, chunks_tx).await
         }
         .await;
         if let Err(error) = result {
@@ -176,7 +133,8 @@ fn start(
         started: false,
         samples,
         sink,
-        _output: output,
+        _output: output._stream,
+        rate,
         job,
         stream: initial_stream,
     })
@@ -185,6 +143,7 @@ fn start(
 async fn decode(
     tools: &Tools,
     stream: &Stream,
+    output_rate: u32,
     position_ms: u32,
     chunks: mpsc::Sender<Vec<f32>>,
 ) -> Result<()> {
@@ -207,32 +166,16 @@ async fn decode(
     if !stream.headers.is_empty() {
         command.arg("-headers").arg(&stream.headers);
     }
-    command
-        .arg("-i")
-        .arg(&stream.url)
-        .args([
-            "-vn",
-            "-sn",
-            "-dn",
-            "-ac",
-            "2",
-            "-ar",
-            "44100",
-            "-f",
-            "f32le",
-            "-acodec",
-            "pcm_f32le",
-            "pipe:1",
-        ])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+    command.arg("-i").arg(&stream.url);
+    crate::audio_output::pcm_args(&mut command, output_rate);
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = command
         .spawn()
         .context("Could not start FFmpeg; run 'tuitify youtube setup'")?;
     let mut stdout = child.stdout.take().context("FFmpeg stdout unavailable")?;
     let stderr = child.stderr.take().context("FFmpeg stderr unavailable")?;
     let read_audio = async {
-        let mut buffer = vec![0; CHUNK_BYTES];
+        let mut buffer = vec![0; output_rate as usize / 10 * 8];
         loop {
             let mut filled = 0;
             while filled < buffer.len() {
@@ -331,6 +274,7 @@ pub(crate) async fn worker(
                         None
                     }
                     Command::Stop => { active = None; preparer.cancel(); None }
+                    Command::CancelPreload => { preparer.cancel(); None }
                     Command::Preload { id } => {
                         if active.is_some() { preparer.request(&tools, id); }
                         None
@@ -408,13 +352,7 @@ mod tests {
         let (tx, rx) = mpsc::channel(1);
         let samples = Arc::new(AtomicU64::new(0));
         let visualizer = AudioVisualizer::new();
-        let mut source = PcmSource {
-            chunks: rx,
-            current: Vec::new().into_iter(),
-            samples: samples.clone(),
-            visualizer: visualizer.clone(),
-            left: None,
-        };
+        let mut source = Pcm::new(rx, samples.clone(), 48000, visualizer.clone());
         assert_eq!(source.next(), Some(0.0));
         assert_eq!(samples.load(Ordering::Relaxed), 0);
         tx.try_send(vec![0.2, 0.4]).unwrap();

@@ -1,5 +1,46 @@
 use super::*;
 
+#[test]
+fn held_space_toggles_once_on_windows_and_keeps_text_repeat() {
+    let (mut tasks, _receiver) = tasks();
+    let mut app = App::new(Config::default(), Queue::default());
+    app.loaded = true;
+    app.state = State::Playing;
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let space = |kind| {
+        Input::Key(KeyEvent::new_with_kind(
+            KeyCode::Char(' '),
+            KeyModifiers::NONE,
+            kind,
+        ))
+    };
+    route_input(&mut app, space(KeyEventKind::Press), &mut tasks, &tx);
+    assert!(matches!(rx.try_recv(), Ok(Command::Pause)));
+    for kind in [
+        KeyEventKind::Press,
+        KeyEventKind::Repeat,
+        KeyEventKind::Press,
+    ] {
+        route_input(&mut app, space(kind), &mut tasks, &tx);
+        assert!(rx.try_recv().is_err());
+        assert_eq!(app.state, State::Paused);
+    }
+    route_input(&mut app, space(KeyEventKind::Release), &mut tasks, &tx);
+    route_input(&mut app, space(KeyEventKind::Press), &mut tasks, &tx);
+    assert!(matches!(rx.try_recv(), Ok(Command::Resume)));
+    route_input(&mut app, space(KeyEventKind::Release), &mut tasks, &tx);
+    app.catalog.editing = true;
+    for kind in [
+        KeyEventKind::Press,
+        KeyEventKind::Press,
+        KeyEventKind::Repeat,
+    ] {
+        route_input(&mut app, space(kind), &mut tasks, &tx);
+    }
+    assert_eq!(app.catalog.query, "   ");
+    assert!(rx.try_recv().is_err());
+}
+
 fn route(app: &mut App, tasks: &mut Tasks, event: Input) -> bool {
     let (commands, _receiver) = mpsc::unbounded_channel();
     route_input(app, event, tasks, &commands)

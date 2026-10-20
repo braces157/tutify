@@ -24,7 +24,7 @@ fn identity(v: &Value, keys: &[&str]) -> Option<String> {
         super::valid_key(&raw).then(|| format!("volta:{raw}"))
     })
 }
-pub(super) fn parse_track(value: &Value) -> Option<Track> {
+pub(crate) fn parse_track(value: &Value) -> Option<Track> {
     let v = value
         .get("track")
         .filter(|v| v.is_object())

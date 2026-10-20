@@ -1,9 +1,11 @@
 mod app;
+mod audio_output;
 mod audio_quality;
 mod auth;
 mod build_info;
 mod cache;
 mod catalog;
+mod deezer;
 mod demo;
 mod diagnostics;
 mod discord;

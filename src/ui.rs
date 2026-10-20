@@ -57,6 +57,16 @@ use ratatui::{
 };
 use std::io::{Stdout, stdout};
 
+fn audio_badge(app: &App, width: u16) -> String {
+    match app.audio_quality {
+        Some(quality) if width >= 60 => {
+            format!("{} · {}", app.audio_source_label(), quality.label())
+        }
+        Some(quality) => quality.label(),
+        None => app.audio_source_label().into(),
+    }
+}
+
 /// Native wallpaper windows can retain reflowed text after a resize or view change.
 /// Repaint their complete screen so terminal-side contents cannot outlive our buffer.
 pub fn draw_terminal<B: Backend>(terminal: &mut Terminal<B>, app: &App) -> std::io::Result<()> {
@@ -86,7 +96,7 @@ pub fn draw(frame: &mut Frame<'_>, app: &App, render: &mut RenderState) {
             .style(Style::default().fg(theme.primary())),
             area,
         );
-        background::apply(frame, app, render, theme, None);
+        background::apply(frame, app, render, theme);
         return;
     }
     let compact = area.height < 18;
@@ -105,27 +115,44 @@ pub fn draw(frame: &mut Frame<'_>, app: &App, render: &mut RenderState) {
         ])
         .split(area);
         header(frame, app, vertical[0]);
-        body(frame, app, render, vertical[1]);
+        let _ = body(frame, app, render, vertical[1]);
         footer(frame, app, vertical[2]);
-        background::apply(frame, app, render, theme, None);
+        background::apply(frame, app, render, theme);
         return;
     }
+    let docked = docked_player(app, area);
     let vertical = Layout::vertical([
-        Constraint::Length(if compact { 1 } else { 2 }),
+        Constraint::Length(if compact {
+            1
+        } else if area.height >= 24 {
+            3
+        } else {
+            2
+        }),
         Constraint::Min(3),
-        Constraint::Length(if area.height >= 24 { 5 } else { 4 }),
+        Constraint::Length(if docked {
+            0
+        } else if area.height >= 30 {
+            7
+        } else if area.height >= 24 {
+            6
+        } else {
+            4
+        }),
         Constraint::Length(if compact { 1 } else { 3 }),
     ])
     .split(area);
 
     header(frame, app, vertical[0]);
 
-    body(frame, app, render, vertical[1]);
-    playback(frame, app, render, vertical[2]);
+    let _ = body(frame, app, render, vertical[1]);
+    if !docked {
+        playback(frame, app, render, vertical[2]);
+    }
 
     footer(frame, app, vertical[3]);
     context_menu(frame, app, render, area);
-    background::apply(frame, app, render, theme, Some(vertical[2]));
+    background::apply(frame, app, render, theme);
 }
 
 fn center(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, area: Rect) {

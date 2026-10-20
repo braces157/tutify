@@ -54,7 +54,6 @@ pub(super) fn help(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, a
     t              Cycle Theme (Spotify, Amber CRT, Matrix, Cyberpunk, Monochrome, Glass)\n\
     Glass setup    `tuitify background [IMAGE] --vertical PORTRAIT --dim 48`\n\
                    `--horizontal LANDSCAPE` sets a separate landscape image; no image resets wallpaper\n\
-                   Glass text fades after 20 seconds idle; any input brings it back\n\
     v              Toggle Retro Visualizer (Real-time FFT)\n\
     l              Toggle Synced Real-Time Lyrics View (Lrclib)\n\
     r (lyrics)     Cycle readings: auto / romaji / pinyin / off\n\
@@ -85,6 +84,15 @@ pub(super) fn help(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, a
             .replace("Streaming issue? Reconnect Spotify from F6 Tools.", "Library login: F6 > Connect Google music library. Google password stays in its browser.")
             .replace("No audio? Check Windows default output device and Spotify Premium.", "No audio? Check Windows default output. Public videos need no Spotify login.\n\n    YouTube Music\n    F6 > Connect Google music library; sign in and click Library.\n    2 opens playlists; 3 opens Liked Songs; F3 searches your connected library.\n    Paste YouTube Music playlist links into / search to open them.\n    a opens an album; A opens artist songs when music metadata is available.\n    s cycles Off, Shuffle and our Smart Shuffle with artist balancing.\n    Playlists feed the same queue, repeat, sleep timer, media keys and visualizer.\n    Private playlists need login; audio still uses public playable videos.\n    Use `tuitify youtube logout` to forget the encrypted connection.\n    Just run `tuitify`. Premium and free playback are selected automatically.");
         youtube_help.as_str()
+    } else {
+        text
+    };
+    let deezer_help;
+    let text = if app.config.deezer_search {
+        deezer_help = text
+            .replace("Search Spotify catalog", "Search Deezer catalog")
+            .replace("Search YouTube music", "Search Deezer catalog");
+        deezer_help.as_str()
     } else {
         text
     };

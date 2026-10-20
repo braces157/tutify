@@ -210,6 +210,7 @@ async fn empty_artist_sources_have_distinct_labels_and_failures_do_not_invent_pr
         ArtistResultSource::ArtistSearch,
         ArtistResultSource::Demo,
         ArtistResultSource::Volta,
+        ArtistResultSource::Deezer,
     ] {
         let mut app = App::new(Config::default(), Queue::default());
         let (mut tasks, _) = tasks();
@@ -230,6 +231,7 @@ async fn empty_artist_sources_have_distinct_labels_and_failures_do_not_invent_pr
         );
         let text = draw_text(&app, 100, 30);
         match source {
+            ArtistResultSource::Deezer => assert!(text.contains("No songs returned by Deezer")),
             ArtistResultSource::Volta => assert!(text.contains("No Volta tracks returned")),
             ArtistResultSource::YoutubeMusic => {
                 assert!(text.contains("No songs returned by YouTube Music"))
