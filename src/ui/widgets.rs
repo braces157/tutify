@@ -20,6 +20,8 @@ pub fn generate_bars(frame: u32, count: usize, is_playing: bool) -> String {
     s
 }
 
+/// A framed panel.  Reserved for overlays, modals and inputs, where the
+/// reference contract asks for a clear visual boundary.
 pub(super) fn block_themed(
     title: impl Into<Line<'static>>,
     focused: bool,
@@ -47,23 +49,77 @@ pub(super) fn block_themed(
         )
 }
 
-pub(super) fn selected_row_style(theme: Theme) -> Style {
-    if theme == Theme::Glass {
-        Style::default().bg(theme.palette().surface).bold()
-    } else {
-        Style::default().bg(theme.palette().surface_selected)
-    }
+/// An unframed panel.  Content panels use this: structure comes from spacing
+/// and tone steps instead of a box drawn around every region.
+pub(super) fn panel_block(theme: Theme) -> Block<'static> {
+    let palette = theme.palette();
+    Block::default()
+        .borders(Borders::NONE)
+        .padding(Padding::horizontal(1))
+        .style(Style::default().fg(palette.text))
 }
 
+/// A hairline rule that separates regions without drawing a box.
+pub(super) fn rule(frame: &mut Frame<'_>, area: Rect, theme: Theme) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+    frame.render_widget(
+        Paragraph::new("─".repeat(usize::from(area.width)))
+            .style(Style::default().fg(theme.palette().border)),
+        Rect::new(area.x, area.y, area.width, 1),
+    );
+}
+
+/// A vertical rule used to detach the navigation column from the content.
+pub(super) fn column_rule(frame: &mut Frame<'_>, area: Rect, theme: Theme) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+    frame.render_widget(
+        Paragraph::new("│".repeat(usize::from(area.height)))
+            .style(Style::default().fg(theme.palette().divider)),
+        Rect::new(area.x, area.y, 1, area.height),
+    );
+}
+
+/// The heading of an unframed panel: the subject in the brightest ink, the
+/// supporting count beside it.
+pub(super) fn section_title(title: &str, detail: Option<String>, theme: Theme) -> Line<'static> {
+    let palette = theme.palette();
+    let mut spans = vec![Span::styled(
+        title.to_owned(),
+        Style::default().fg(palette.text).bold(),
+    )];
+    if let Some(detail) = detail {
+        spans.push(Span::styled(
+            format!("  {detail}"),
+            Style::default().fg(palette.text_subtle),
+        ));
+    }
+    Line::from(spans)
+}
+
+pub(super) fn selected_row_style(theme: Theme) -> Style {
+    Style::default().bg(theme.palette().surface_selected)
+}
+
+/// The non-colour marker that keeps the selected row identifiable when the
+/// terminal cannot show the accent colour.
 pub(super) fn selected_marker(theme: Theme) -> Span<'static> {
     Span::styled(
-        if theme == Theme::Glass {
-            "› "
-        } else {
-            "▌ "
-        },
+        selected_marker_text(theme),
         Style::default().fg(theme.palette().primary),
     )
+}
+
+/// The same marker as plain text, for widgets that only take a string.
+pub(super) fn selected_marker_text(theme: Theme) -> &'static str {
+    if theme == Theme::Glass {
+        "› "
+    } else {
+        "▌ "
+    }
 }
 
 pub(super) fn table_header_style(theme: Theme) -> Style {
@@ -74,24 +130,52 @@ pub(super) fn table_header_style(theme: Theme) -> Style {
     }
 }
 
+/// A key in a hint row.  The key carries the accent, the description that
+/// follows it stays muted, so the hint row reads as a single quiet line.
 pub(super) fn key_hint(key: &'static str, theme: Theme, primary: bool) -> Span<'static> {
     let palette = theme.palette();
     Span::styled(
-        format!(" {key} "),
+        key.to_owned(),
         if primary {
-            Style::default()
-                .fg(palette.primary)
-                .bg(palette.surface_selected)
-                .bold()
+            Style::default().fg(palette.primary).bold()
         } else {
-            let bg = if theme == Theme::Glass {
-                palette.surface_selected
-            } else {
-                palette.surface_alt
-            };
-            Style::default().fg(palette.text_muted).bg(bg).bold()
+            Style::default().fg(palette.primary_soft)
         },
     )
+}
+
+/// A filled key cap used for the single primary action of a panel.  It reads
+/// as a button without drawing a border around it.
+pub(super) fn key_cap(key: &str, theme: Theme) -> Span<'static> {
+    let palette = theme.palette();
+    Span::styled(
+        format!(" {key} "),
+        Style::default()
+            .fg(palette.on_primary)
+            .bg(palette.primary_soft)
+            .bold(),
+    )
+}
+
+/// A determinate progress bar drawn as a continuous rule: the elapsed part
+/// carries the accent, the rest sits on the track colour.
+pub(super) fn progress_bar(filled: usize, width: usize, theme: Theme) -> Line<'static> {
+    let palette = theme.palette();
+    let filled = filled.min(width);
+    let mut spans = Vec::with_capacity(2);
+    if filled > 0 {
+        spans.push(Span::styled(
+            "─".repeat(filled),
+            Style::default().fg(palette.primary),
+        ));
+    }
+    if filled < width {
+        spans.push(Span::styled(
+            "─".repeat(width - filled),
+            Style::default().fg(palette.track),
+        ));
+    }
+    Line::from(spans)
 }
 
 pub(super) fn quiet_badge(theme: Theme) -> Style {

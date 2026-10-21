@@ -56,6 +56,7 @@ pub(super) fn help(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, a
                    `--horizontal LANDSCAPE` sets a separate landscape image; no image resets wallpaper\n\
     v              Toggle Retro Visualizer (Real-time FFT)\n\
     l              Toggle Synced Real-Time Lyrics View (Lrclib)\n\
+    L              Toggle the lyrics panel beside the player in tall windows\n\
     r (lyrics)     Cycle readings: auto / romaji / pinyin / off\n\
     S              Toggle local aggregate song statistics overlay\n\n\
     M (Shift-M)    Open Mix Builder (queue or current Spotify playlist)\n\

@@ -225,6 +225,10 @@ impl App {
             config.shuffle = true;
         }
         let restored = !queue.ids.is_empty();
+        let ui = UiState {
+            lyrics_panel: config.lyrics_panel,
+            ..UiState::default()
+        };
         Self {
             undo: VecDeque::new(),
             playback_space_down: false,
@@ -248,7 +252,7 @@ impl App {
             animation_frame: 0,
             visualizer: crate::visualizer::AudioVisualizer::new(),
             stats: SongStats::default(),
-            ui: UiState::default(),
+            ui,
             accounting: PlaybackAccounting::new(),
             radio_epoch: None,
             radio_source: None,
@@ -275,6 +279,22 @@ impl App {
             crate::model::MusicSource::Youtube => "YouTube",
             crate::model::MusicSource::Volta | crate::model::MusicSource::SpotifyVolta => "Volta",
         })
+    }
+
+    /// Whether lyrics are wanted right now: the full view is open, or the
+    /// docked lyrics column is on and the window is tall enough to show it.
+    pub(crate) fn lyrics_requested(&self) -> bool {
+        if self.ui.overlay == Overlay::Lyrics {
+            return true;
+        }
+        if !self.ui.lyrics_panel {
+            return false;
+        }
+        let (width, height) = self.ui.render.borrow().terminal_size;
+        width >= 78
+            && height >= 24
+            && crate::ui::background::orientation_for_size(width, height)
+                == crate::ui::background::Orientation::Vertical
     }
 
     pub(crate) fn open_queue_mix(&mut self) {

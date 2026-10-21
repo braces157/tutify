@@ -1,21 +1,41 @@
 use super::*;
 
+/// The spectrum column.  Bars are drawn with half blocks so the analyser
+/// reads as continuous columns instead of a grid of separate squares, and an
+/// idle analyser shows a flat baseline rather than a dead field of dots.
 pub(super) fn spectrum_panel(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let theme = Theme::from_str(&app.config.theme);
     let palette = theme.palette();
-    let outer = block_themed(" SPECTRUM ", false, theme);
-    let inner = outer.inner(area);
-    frame.render_widget(outer, area);
-    if inner.height < 3 || inner.width < 6 {
+    if area.height == 0 || area.width == 0 {
         return;
     }
+    let inner = Rect::new(
+        area.x + 1,
+        area.y,
+        area.width.saturating_sub(2),
+        area.height,
+    );
+    frame.render_widget(
+        Paragraph::new(Span::styled(
+            "SPECTRUM",
+            Style::default().fg(palette.text_subtle),
+        )),
+        Rect::new(inner.x, inner.y, inner.width, 1),
+    );
+    // One row is reserved for the baseline the bars stand on.
     let graph = Rect::new(
-        inner.x + 1,
+        inner.x,
         inner.y + 1,
-        inner.width.saturating_sub(2),
+        inner.width,
         inner.height.saturating_sub(3),
     );
-    let count = graph.width.div_ceil(2) as usize;
+    if graph.height < 2 || graph.width < 4 {
+        return;
+    }
+    // One cell per frequency band keeps the detail; a blank cell between the
+    // bars keeps them apart.
+    const BAR_CELLS: usize = 1;
+    let count = (usize::from(graph.width) / (BAR_CELLS + 1)).max(1);
     let height = graph.height as usize;
     let live = app.visualizer.has_audio_samples();
     let playing = app.state == State::Playing;
@@ -37,26 +57,52 @@ pub(super) fn spectrum_panel(frame: &mut Frame<'_>, app: &App, area: Rect) {
             .collect();
         (bars.clone(), bars)
     };
-    let mut lines = Vec::new();
-    for row in (1..=height).rev() {
-        let mut spans = Vec::new();
-        for col in 0..count {
-            let lit = bars.get(col).copied().unwrap_or(0) >= row;
-            let peak = peaks.get(col).copied().unwrap_or(0) == row;
+    let idle = bars.iter().all(|bar| *bar == 0);
+    let mut lines = Vec::with_capacity(height);
+    if idle {
+        // A flat baseline: the analyser is waiting, not broken.
+        let mut spans = Vec::with_capacity(count);
+        for _ in 0..count {
             spans.push(Span::styled(
-                if lit { "■ " } else { "· " },
-                Style::default().fg(if peak || (lit && row > height / 2) {
-                    palette.primary
-                } else if lit {
-                    palette.primary_soft
-                } else {
-                    palette.border
-                }),
+                format!("{} ", "▁".repeat(BAR_CELLS)),
+                Style::default().fg(palette.divider),
             ));
         }
         lines.push(Line::from(spans));
+        for _ in 1..height {
+            lines.push(Line::default());
+        }
+    } else {
+        for row in 0..height {
+            let mut spans = Vec::with_capacity(count);
+            for col in 0..count {
+                let bar = bars.get(col).copied().unwrap_or(0);
+                let peak = peaks.get(col).copied().unwrap_or(0);
+                let filled = bar > (height - 1 - row);
+                let symbol = if filled {
+                    format!("{} ", "█".repeat(BAR_CELLS))
+                } else {
+                    " ".repeat(BAR_CELLS + 1)
+                };
+                let color = if !filled {
+                    palette.divider
+                } else if peak == bar && bar == height - row {
+                    palette.primary
+                } else {
+                    palette.primary_soft
+                };
+                spans.push(Span::styled(symbol, Style::default().fg(color)));
+            }
+            lines.push(Line::from(spans));
+        }
     }
     frame.render_widget(Paragraph::new(lines), graph);
+    // The baseline the bars stand on.
+    frame.render_widget(
+        Paragraph::new("─".repeat(usize::from(graph.width)))
+            .style(Style::default().fg(palette.divider)),
+        Rect::new(graph.x, graph.bottom(), graph.width, 1),
+    );
     frame.render_widget(
         Paragraph::new(if live {
             "Live audio · v expand"
@@ -69,6 +115,73 @@ pub(super) fn spectrum_panel(frame: &mut Frame<'_>, app: &App, area: Rect) {
         .alignment(Alignment::Center),
         Rect::new(inner.x, inner.bottom() - 1, inner.width, 1),
     );
+}
+
+/// A compact horizontal analyser for the docked column: one row of level
+/// blocks that reads as a strip instead of a graph.
+pub(super) fn spectrum_strip(frame: &mut Frame<'_>, app: &App, area: Rect) {
+    const BLOCKS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+    const SIMULATED: [char; 8] = [' ', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+    let theme = Theme::from_str(&app.config.theme);
+    let palette = theme.palette();
+    if area.height == 0 || area.width == 0 {
+        return;
+    }
+    let inner = Rect::new(
+        area.x + 1,
+        area.y,
+        area.width.saturating_sub(2),
+        area.height,
+    );
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled("SPECTRUM", Style::default().fg(palette.text_subtle)),
+            Span::styled("   v expand", Style::default().fg(palette.text_subtle)),
+        ])),
+        Rect::new(inner.x, inner.y, inner.width, 1),
+    );
+    let strip = Rect::new(
+        inner.x,
+        inner.y + 1,
+        inner.width,
+        inner.height.saturating_sub(1),
+    );
+    if strip.height == 0 || strip.width == 0 {
+        return;
+    }
+    let count = usize::from(strip.width);
+    let playing = app.state == State::Playing;
+    let levels: Vec<u8> = if app.visualizer.has_audio_samples() {
+        let (bars, _) = app.visualizer.get_bars_and_peaks(count, 8, playing);
+        bars.into_iter()
+            .map(|bar| u8::try_from(bar.min(7)).unwrap_or(0))
+            .collect()
+    } else {
+        generate_bars(app.animation_frame, count, playing)
+            .chars()
+            .map(|symbol| {
+                SIMULATED
+                    .iter()
+                    .position(|block| *block == symbol)
+                    .unwrap_or(0) as u8
+            })
+            .collect()
+    };
+    let spans: Vec<Span<'static>> = levels
+        .into_iter()
+        .map(|level| {
+            let color = match level {
+                0 => palette.divider,
+                1..=4 => palette.primary_soft,
+                _ => palette.primary,
+            };
+            Span::styled(
+                BLOCKS[usize::from(level).min(7)].to_string(),
+                Style::default().fg(color),
+            )
+        })
+        .collect();
+    frame.render_widget(Paragraph::new(Line::from(spans)), strip);
 }
 
 pub(super) fn visualizer(frame: &mut Frame<'_>, app: &App, area: Rect) {

@@ -211,6 +211,58 @@ async fn cold_restore_lyrics_wait_for_real_metadata_and_explicit_open() {
     assert!(app.lyrics.content.is_none());
 }
 #[tokio::test]
+async fn lyrics_for_the_preloaded_track_are_fetched_ahead_and_reused() {
+    let (mut tasks, _) = tasks();
+    let mut q = Queue::default();
+    q.replace(vec![test_track(1).id, test_track(2).id], 0, false);
+    let mut app = App::new(Config::default(), q);
+    app.ui.lyrics_panel = true;
+    // A tall window is where the docked lyrics column lives.
+    app.ui.render.borrow_mut().terminal_size = (84, 80);
+    app.cache.insert(test_track(1).id, test_track(1));
+    app.cache.insert(test_track(2).id, test_track(2));
+    app.last_preloaded_id = Some(test_track(2).id.clone());
+
+    tasks.update_lyrics_preload(&mut app);
+    assert!(tasks.lyrics_preload.is_some());
+    let request = app.lyrics.preload_request;
+    // Drop cancels before the task gets a chance to reach Lrclib.
+    tasks.lyrics_preload.take().unwrap().abort();
+    let lyrics = crate::lyrics::Lyrics {
+        lines: vec![crate::lyrics::LyricLine {
+            position_ms: 0,
+            text: "Preloaded line".into(),
+        }],
+        ..Default::default()
+    };
+    background(
+        &mut app,
+        &mut tasks,
+        Background::LyricsPreload(request, Ok(Some(lyrics))),
+    );
+    assert_eq!(
+        app.lyrics.cached.as_ref().map(|(id, _)| id.as_str()),
+        Some(test_track(2).id.as_str())
+    );
+
+    // When that track starts, its lyrics are already in place.
+    app.queue.replace(vec![test_track(2).id], 0, false);
+    tasks.update_lyrics(&mut app);
+    assert!(app.lyrics.content.is_some());
+    assert!(
+        tasks.lyrics.is_none(),
+        "cached lyrics avoid a second request"
+    );
+    assert!(app.lyrics.cached.is_none());
+
+    // With the panel off, nothing is fetched ahead of time.
+    app.ui.lyrics_panel = false;
+    app.last_preloaded_id = Some(test_track(1).id.clone());
+    app.lyrics.preload_id = None;
+    tasks.update_lyrics_preload(&mut app);
+    assert!(tasks.lyrics_preload.is_none());
+}
+#[tokio::test]
 async fn stale_background_queue_and_lyrics_results_are_rejected() {
     let (mut tasks, _) = tasks();
     let mut app = App::new(Config::default(), Queue::default());

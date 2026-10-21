@@ -71,6 +71,104 @@ pub(super) fn wrap_lyric_line(text: &str, max_width: usize) -> Vec<String> {
     lines
 }
 
+/// The synced lyric lines for the current playback position, styled the same
+/// way for the full view and for the docked panel.  The second value is the
+/// visual index of the line that is singing right now.
+fn synced_lines(app: &App, max_text_width: usize) -> Option<(Vec<Line<'static>>, usize)> {
+    let theme = Theme::from_str(&app.config.theme);
+    let palette = theme.palette();
+    let lyr = app.lyrics.content.as_ref()?;
+    if lyr.lines.is_empty() {
+        return None;
+    }
+    let active = lyr.current_line_index(app.queue.position_ms);
+    let mut all_lines: Vec<Line<'static>> = Vec::new();
+    let mut active_visual_start = 0;
+
+    for (i, l) in lyr.lines.iter().enumerate() {
+        let is_active = Some(i) == active;
+        let is_past = active.is_some_and(|act| i < act);
+        let chunks = wrap_lyric_line(&l.text, max_text_width);
+
+        if is_active {
+            active_visual_start = all_lines.len();
+        }
+
+        for (chunk_idx, chunk) in chunks.into_iter().enumerate() {
+            let prefix = if is_active && chunk_idx == 0 {
+                Span::styled("► ", Style::default().fg(palette.primary).bold())
+            } else {
+                Span::raw("  ")
+            };
+
+            let text_span = if is_active {
+                Span::styled(
+                    chunk,
+                    Style::default()
+                        .fg(palette.text)
+                        .bg(palette.surface_selected)
+                        .bold(),
+                )
+            } else if is_past {
+                Span::styled(chunk, Style::default().fg(palette.text_subtle))
+            } else {
+                Span::styled(chunk, Style::default().fg(palette.text_muted))
+            };
+
+            all_lines.push(Line::from(vec![prefix, text_span]));
+        }
+        if let Some(reading) = lyr
+            .readings
+            .get(i)
+            .and_then(|r| r.get(app.lyrics.reading_mode, lyr.japanese))
+        {
+            let style = if is_active {
+                Style::default()
+                    .fg(palette.primary)
+                    .bg(palette.surface_selected)
+            } else if is_past {
+                Style::default().fg(palette.text_subtle)
+            } else {
+                Style::default().fg(palette.text_muted)
+            };
+            for chunk in wrap_lyric_line(reading, max_text_width) {
+                all_lines.push(Line::from(vec![
+                    Span::raw("  "),
+                    Span::styled(chunk, style),
+                ]));
+            }
+        }
+    }
+
+    Some((all_lines, active_visual_start))
+}
+
+/// The unsynced lyric lines, with their readings.
+fn plain_lines(app: &App) -> Option<Vec<Line<'static>>> {
+    let theme = Theme::from_str(&app.config.theme);
+    let palette = theme.palette();
+    let lyr = app.lyrics.content.as_ref()?;
+    let plain = lyr.plain.as_ref()?;
+    let mut lines = Vec::new();
+    for (i, original) in plain.lines().enumerate() {
+        lines.push(Line::from(Span::styled(
+            original.to_owned(),
+            Style::default().fg(palette.text),
+        )));
+        if let Some(reading) = lyr
+            .plain_readings
+            .get(i)
+            .and_then(|r| r.get(app.lyrics.reading_mode, lyr.japanese))
+        {
+            lines.push(Line::from(Span::styled(
+                reading.to_owned(),
+                Style::default().fg(palette.primary),
+            )));
+        }
+    }
+    Some(lines)
+}
+
 pub(super) fn lyrics(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, area: Rect) {
     let theme = Theme::from_str(&app.config.theme);
     let palette = theme.palette();
@@ -121,96 +219,14 @@ pub(super) fn lyrics(frame: &mut Frame<'_>, app: &App, render: &mut RenderState,
         return;
     }
 
-    let Some(lyr) = &app.lyrics.content else {
-        let p = Paragraph::new("\n  No lyrics available for this track.\n\n  • Press l to return to library view\n  • Songs with available lyrics will sync automatically")
-            .wrap(Wrap { trim: false })
-            .style(Style::default().fg(palette.text_muted));
-        frame.render_widget(p, inner);
-        return;
-    };
-
-    if !lyr.lines.is_empty() {
-        let active = lyr.current_line_index(app.queue.position_ms);
-        let max_text_width = (inner.width as usize).saturating_sub(2).max(1);
-
-        let mut all_lines: Vec<Line<'static>> = Vec::new();
-        let mut active_visual_start = 0;
-
-        for (i, l) in lyr.lines.iter().enumerate() {
-            let is_active = Some(i) == active;
-            let is_past = active.is_some_and(|act| i < act);
-            let chunks = wrap_lyric_line(&l.text, max_text_width);
-
-            if is_active {
-                active_visual_start = all_lines.len();
-            }
-
-            for (chunk_idx, chunk) in chunks.into_iter().enumerate() {
-                let prefix = if is_active && chunk_idx == 0 {
-                    Span::styled("► ", Style::default().fg(palette.primary).bold())
-                } else {
-                    Span::raw("  ")
-                };
-
-                let text_span = if is_active {
-                    Span::styled(
-                        chunk,
-                        Style::default()
-                            .fg(palette.text)
-                            .bg(palette.surface_selected)
-                            .bold(),
-                    )
-                } else if is_past {
-                    Span::styled(chunk, Style::default().fg(palette.text_subtle))
-                } else {
-                    Span::styled(chunk, Style::default().fg(palette.text_muted))
-                };
-
-                all_lines.push(Line::from(vec![prefix, text_span]));
-            }
-            if let Some(reading) = lyr
-                .readings
-                .get(i)
-                .and_then(|r| r.get(app.lyrics.reading_mode, lyr.japanese))
-            {
-                let style = if is_active {
-                    Style::default()
-                        .fg(palette.primary)
-                        .bg(palette.surface_selected)
-                } else if is_past {
-                    Style::default().fg(palette.text_subtle)
-                } else {
-                    Style::default().fg(palette.text_muted)
-                };
-                for chunk in wrap_lyric_line(reading, max_text_width) {
-                    all_lines.push(Line::from(vec![
-                        Span::raw("  "),
-                        Span::styled(chunk, style),
-                    ]));
-                }
-            }
-        }
-
+    let max_text_width = (inner.width as usize).saturating_sub(2).max(1);
+    if let Some((all_lines, active_visual_start)) = synced_lines(app, max_text_width) {
         let height = inner.height as usize;
         let half = height / 2;
         let scroll = active_visual_start.saturating_sub(half);
         let visible: Vec<Line<'static>> = all_lines.into_iter().skip(scroll).take(height).collect();
         frame.render_widget(Paragraph::new(visible), inner);
-    } else if let Some(plain) = &lyr.plain {
-        let mut lines = Vec::new();
-        for (i, original) in plain.lines().enumerate() {
-            lines.push(Line::from(original));
-            if let Some(reading) = lyr
-                .plain_readings
-                .get(i)
-                .and_then(|r| r.get(app.lyrics.reading_mode, lyr.japanese))
-            {
-                lines.push(Line::from(Span::styled(
-                    reading,
-                    Style::default().fg(palette.primary),
-                )));
-            }
-        }
+    } else if let Some(lines) = plain_lines(app) {
         let p = Paragraph::new(lines)
             .wrap(Wrap { trim: true })
             .style(Style::default().fg(palette.text));
@@ -231,4 +247,80 @@ pub(super) fn lyrics(frame: &mut Frame<'_>, app: &App, render: &mut RenderState,
             .style(Style::default().fg(palette.text_muted));
         frame.render_widget(p, inner);
     }
+}
+
+/// The docked lyrics column of tall windows: the singing line in the accent,
+/// the lines around it quieter, and everything inside a single column so it
+/// can live next to the player.
+pub(super) fn lyrics_panel(frame: &mut Frame<'_>, app: &App, area: Rect) {
+    let theme = Theme::from_str(&app.config.theme);
+    let palette = theme.palette();
+    if area.height == 0 || area.width == 0 {
+        return;
+    }
+    let inner = Rect::new(
+        area.x + 1,
+        area.y,
+        area.width.saturating_sub(2),
+        area.height,
+    );
+    frame.render_widget(
+        Paragraph::new(Span::styled(
+            "LYRICS",
+            Style::default().fg(palette.text_subtle),
+        )),
+        Rect::new(inner.x, inner.y, inner.width, 1),
+    );
+    let body = Rect::new(
+        inner.x,
+        inner.y + 1,
+        inner.width,
+        inner.height.saturating_sub(1),
+    );
+    if body.height == 0 || body.width == 0 {
+        return;
+    }
+    if let Some(error) = &app.lyrics.error {
+        frame.render_widget(
+            Paragraph::new(error.as_str())
+                .wrap(Wrap { trim: false })
+                .style(Style::default().fg(palette.status_error)),
+            body,
+        );
+        return;
+    }
+    if app.lyrics.loading {
+        frame.render_widget(
+            Paragraph::new("⟳ Loading lyrics from Lrclib...")
+                .wrap(Wrap { trim: false })
+                .style(Style::default().fg(palette.status_warning).italic()),
+            body,
+        );
+        return;
+    }
+
+    let max_text_width = (body.width as usize).saturating_sub(2).max(1);
+    if let Some((all_lines, active_visual_start)) = synced_lines(app, max_text_width) {
+        let height = body.height as usize;
+        let half = height / 2;
+        let scroll = active_visual_start.saturating_sub(half);
+        let visible: Vec<Line<'static>> = all_lines.into_iter().skip(scroll).take(height).collect();
+        frame.render_widget(Paragraph::new(visible), body);
+        return;
+    }
+    if let Some(lines) = plain_lines(app) {
+        frame.render_widget(
+            Paragraph::new(lines)
+                .wrap(Wrap { trim: true })
+                .style(Style::default().fg(palette.text)),
+            body,
+        );
+        return;
+    }
+    frame.render_widget(
+        Paragraph::new("No lyrics for this track.\n\nL reloads · l opens the full view")
+            .wrap(Wrap { trim: false })
+            .style(Style::default().fg(palette.text_muted)),
+        body,
+    );
 }

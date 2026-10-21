@@ -2,38 +2,51 @@ use super::*;
 
 pub(super) fn navigation(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, area: Rect) {
     let theme = Theme::from_str(&app.config.theme);
+    let palette = theme.palette();
     let selected = if app.catalog.sidebar {
         app.catalog.nav
     } else {
         app.catalog.view.index()
     };
+    frame.render_widget(
+        Block::default().style(Style::default().bg(palette.surface)),
+        area,
+    );
+    let inner = Rect::new(
+        area.x + 1,
+        area.y,
+        area.width.saturating_sub(2),
+        area.height,
+    );
+    let title_row = Rect::new(inner.x, inner.y, inner.width, 1);
+    frame.render_widget(
+        Paragraph::new("LIBRARY").style(Style::default().fg(palette.text_subtle)),
+        title_row,
+    );
+    let list_area = Rect::new(
+        inner.x,
+        inner.y + 1,
+        inner.width,
+        inner.height.saturating_sub(1),
+    );
     let mut state = ListState::default().with_selected(Some(selected));
     frame.render_stateful_widget(
         List::new(View::ALL.iter().map(|view| ListItem::new(view.name())))
-            .block(block_themed(" LIBRARY ", app.catalog.sidebar, theme))
+            .style(Style::default().fg(palette.text))
             .highlight_style(selected_row_style(theme))
-            .highlight_symbol(if theme == Theme::Glass {
-                "› "
-            } else {
-                "▌ "
-            }),
-        area,
+            .highlight_symbol(selected_marker_text(theme)),
+        list_area,
         &mut state,
     );
     for (line, view) in View::ALL
         .iter()
         .skip(state.offset())
-        .take(area.height.saturating_sub(2) as usize)
+        .take(list_area.height as usize)
         .enumerate()
     {
         hit(
             render,
-            Rect::new(
-                area.x + 1,
-                area.y + 1 + line as u16,
-                area.width.saturating_sub(2),
-                1,
-            ),
+            Rect::new(list_area.x, list_area.y + line as u16, list_area.width, 1),
             MouseTarget::Navigation(*view),
         );
     }
@@ -51,6 +64,11 @@ pub(super) fn docked_player(app: &App, area: Rect) -> bool {
         && top_navigation_layout(area)
         && app.ui.overlay == Overlay::None
         && app.catalog.view != View::Help
+}
+
+/// Whether the window is tall enough to host the docked lyrics column.
+pub(super) fn docked_column(area: Rect) -> bool {
+    area.width >= 78 && area.height >= 24 && top_navigation_layout(area)
 }
 
 pub(super) fn body(
@@ -121,10 +139,26 @@ pub(super) fn body(
         ])
         .split(parts[1]);
         center(frame, app, render, columns[0]);
+        if app.ui.lyrics_panel {
+            // Tall windows with the lyrics column: the player, a compact
+            // analyser strip, then the singing lines.
+            let rows = Layout::vertical([
+                Constraint::Length(10),
+                Constraint::Length(2),
+                Constraint::Min(4),
+            ])
+            .split(columns[1]);
+            listening_player(frame, app, render, rows[0]);
+            spectrum_strip(frame, app, rows[1]);
+            lyrics_panel(frame, app, rows[2]);
+            return Some(rows[0]);
+        }
         let listening =
-            Layout::vertical([Constraint::Length(12), Constraint::Min(6)]).split(columns[1]);
+            Layout::vertical([Constraint::Length(10), Constraint::Min(6)]).split(columns[1]);
         listening_player(frame, app, render, listening[0]);
         if app.catalog.view == View::Queue {
+            // In a tall window the analyser takes the whole column: the bars
+            // are grounded on a baseline instead of floating in dead space.
             spectrum_panel(frame, app, listening[1]);
         } else {
             queue(frame, app, render, listening[1], false);
@@ -136,23 +170,18 @@ pub(super) fn body(
     }
 }
 
+/// The tab strip of tall windows: the active view carries the accent and an
+/// underline, the rest stay quiet.
 fn tabs(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, area: Rect) {
     let theme = Theme::from_str(&app.config.theme);
     let palette = theme.palette();
     let tabbed = top_navigation_layout(frame.area());
     frame.render_widget(
-        Block::default()
-            .borders(if area.height > 1 {
-                Borders::BOTTOM
-            } else {
-                Borders::NONE
-            })
-            .border_style(Style::default().fg(palette.border))
-            .style(Style::default().bg(if tabbed {
-                palette.surface
-            } else {
-                palette.background
-            })),
+        Block::default().style(Style::default().bg(if tabbed {
+            palette.surface
+        } else {
+            palette.background
+        })),
         area,
     );
     let nav = View::PRIMARY_TABS
@@ -209,21 +238,18 @@ fn tabs(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, area: Rect) 
             Span::styled(
                 label,
                 Style::default()
-                    .fg(if focused || (active && tabbed) {
+                    .fg(if active {
                         palette.primary
-                    } else if active {
+                    } else if focused {
                         palette.primary_soft
                     } else {
                         palette.text_muted
                     })
-                    .bg(if !tabbed {
-                        palette.background
-                    } else if (focused || active) && theme != Theme::Glass {
-                        palette.surface_selected
+                    .add_modifier(if active {
+                        Modifier::BOLD
                     } else {
-                        palette.surface
-                    })
-                    .bold(),
+                        Modifier::empty()
+                    }),
             )
         })
         .collect::<Vec<_>>();
@@ -250,6 +276,8 @@ fn tabs(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, area: Rect) 
     );
 }
 
+/// The navigation column of wide windows: a tone step and a single hairline
+/// separate it from the content, instead of a box drawn around it.
 fn sidebar_navigation(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, area: Rect) {
     if area.height < 9 {
         navigation(frame, app, render, area);
@@ -257,15 +285,24 @@ fn sidebar_navigation(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
     }
     let theme = Theme::from_str(&app.config.theme);
     let palette = theme.palette();
-    let outer = Block::default()
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(palette.border))
-        .style(Style::default().bg(palette.surface));
-    let inner = outer.inner(area);
-    frame.render_widget(outer, area);
     frame.render_widget(
-        Paragraph::new(" LIBRARY").style(Style::default().fg(palette.text_muted)),
-        Rect::new(inner.x, inner.y, inner.width, 1.min(inner.height)),
+        Block::default().style(Style::default().bg(palette.surface)),
+        area,
+    );
+    let inner = Rect::new(
+        area.x + 1,
+        area.y,
+        area.width.saturating_sub(2),
+        area.height,
+    );
+    column_rule(
+        frame,
+        Rect::new(area.right().saturating_sub(1), area.y, 1, area.height),
+        theme,
+    );
+    frame.render_widget(
+        Paragraph::new("LIBRARY").style(Style::default().fg(palette.text_subtle)),
+        Rect::new(inner.x, inner.y, inner.width, 1),
     );
     let roomy = inner.height >= 12;
     let stride = if roomy { 2 } else { 1 };
@@ -297,11 +334,7 @@ fn sidebar_navigation(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
                     if focused {
                         "› "
                     } else if active {
-                        if theme == Theme::Glass {
-                            "│ "
-                        } else {
-                            "▌ "
-                        }
+                        "▌ "
                     } else {
                         "  "
                     },
@@ -309,37 +342,30 @@ fn sidebar_navigation(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
                 ),
                 Span::styled(
                     format!("{icon}  {label}"),
-                    Style::default().fg(if active || focused {
-                        palette.primary
-                    } else {
-                        palette.text
-                    }),
+                    Style::default()
+                        .fg(if active || focused {
+                            palette.primary
+                        } else {
+                            palette.text
+                        })
+                        .add_modifier(if active {
+                            Modifier::BOLD
+                        } else {
+                            Modifier::empty()
+                        }),
                 ),
             ]))
-            .style(Style::default().bg(
-                if (active || focused) && theme != Theme::Glass {
-                    palette.surface_selected
-                } else {
-                    palette.surface
-                },
-            )),
+            .style(Style::default().bg(if active || focused {
+                palette.surface_selected
+            } else {
+                palette.surface_alt
+            })),
             row,
         );
         hit(
             render,
             Rect::new(inner.x, y, inner.width, stride.min(inner.bottom() - y)),
             MouseTarget::Navigation(*view),
-        );
-    }
-    if inner.height >= 18 {
-        frame.render_widget(
-            Paragraph::new(vec![
-                Line::from("  1–5   views"),
-                Line::from("  Tab   focus"),
-                Line::from("  F6    tools"),
-            ])
-            .style(Style::default().fg(palette.text_subtle)),
-            Rect::new(inner.x, inner.bottom() - 3, inner.width, 3),
         );
     }
 }

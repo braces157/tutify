@@ -17,6 +17,8 @@ pub enum Overlay {
 #[derive(Default)]
 pub struct UiState {
     pub overlay: Overlay,
+    /// Shows synced lyrics in the docked player column of tall windows.
+    pub lyrics_panel: bool,
     pub render: RefCell<RenderState>,
     pub stats: RefCell<StatsView>,
     pub queue: super::queue_filter::QueueFilter,

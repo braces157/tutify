@@ -7,7 +7,7 @@ use help::help;
 mod terminal;
 pub use terminal::{TerminalGuard, set_title};
 mod theme;
-pub use theme::Theme;
+pub use theme::{Palette, Theme};
 mod widgets;
 use widgets::*;
 mod navigation;
@@ -51,21 +51,11 @@ use crossterm::{
 use ratatui::{
     prelude::*,
     widgets::{
-        Block, BorderType, Borders, Cell, Clear, Gauge, List, ListItem, ListState, Paragraph, Row,
-        Table, TableState, Wrap,
+        Block, BorderType, Borders, Cell, Clear, List, ListItem, ListState, Padding, Paragraph,
+        Row, Table, TableState, Wrap,
     },
 };
 use std::io::{Stdout, stdout};
-
-fn audio_badge(app: &App, width: u16) -> String {
-    match app.audio_quality {
-        Some(quality) if width >= 60 => {
-            format!("{} · {}", app.audio_source_label(), quality.label())
-        }
-        Some(quality) => quality.label(),
-        None => app.audio_source_label().into(),
-    }
-}
 
 /// Native wallpaper windows can retain reflowed text after a resize or view change.
 /// Repaint their complete screen so terminal-side contents cannot outlive our buffer.
@@ -122,24 +112,18 @@ pub fn draw(frame: &mut Frame<'_>, app: &App, render: &mut RenderState) {
     }
     let docked = docked_player(app, area);
     let vertical = Layout::vertical([
-        Constraint::Length(if compact {
-            1
-        } else if area.height >= 24 {
-            3
-        } else {
-            2
-        }),
+        Constraint::Length(1),
         Constraint::Min(3),
         Constraint::Length(if docked {
             0
         } else if area.height >= 30 {
-            7
-        } else if area.height >= 24 {
             6
+        } else if area.height >= 24 {
+            5
         } else {
-            4
+            3
         }),
-        Constraint::Length(if compact { 1 } else { 3 }),
+        Constraint::Length(if compact { 1 } else { 2 }),
     ])
     .split(area);
 
@@ -187,7 +171,7 @@ fn row_hits(
     queue: bool,
     header: bool,
 ) {
-    let top = area.y + if header { 3 } else { 1 };
+    let top = area.y + if header { 2 } else { 0 };
     for (line, index) in visible.clone().enumerate() {
         let y = top + line as u16;
         if y >= area.bottom().saturating_sub(1) {

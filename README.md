@@ -402,6 +402,7 @@ text; finish text entry before using playback commands.
 | `R` | Start Track Radio from the selected track |
 | `M` (`Shift+M`) | Open Mix Builder from Queue or an active/selected playlist |
 | `l` / `v` / `S` | Toggle lyrics / visualizer / statistics |
+| `L` (`Shift+L`) | Toggle the lyrics panel beside the player in tall windows (remembered) |
 | `r` in lyrics | Cycle Latin readings: auto / Japanese romaji / Mandarin pinyin / off |
 | `t` | Cycle color themes |
 | `/` or `f` | Filter Queue or loaded Liked Songs/playlist rows; `/` opens search from other views |
@@ -664,6 +665,11 @@ artist, validating the returned title, artist, and duration. Unicode accents are
 preserved. HTTP 502–504 errors can retry once with a short wait; longer server
 cooldowns and HTTP 429 remain explicit errors. Artwork may use Spotify's public oEmbed service when
 catalog artwork is missing. These requests are separate from analytics.
+
+The docked lyrics panel is on by default in tall windows, and the lyrics of the
+track that is queued next are fetched ahead of time so the panel is never
+waiting on the network. Press `L` to turn the panel off; the choice is saved in
+`config.json` and remembered.
 
 Japanese romaji and Mandarin pinyin are generated locally from embedded dictionaries
 for both timed and plain lyrics. Press `r` in the lyrics view to cycle auto,

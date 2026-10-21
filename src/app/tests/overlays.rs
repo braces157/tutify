@@ -27,6 +27,48 @@ async fn lyrics_reading_key_cycles_without_changing_playback() {
 }
 
 #[tokio::test]
+async fn lyrics_panel_key_is_remembered_across_windows() {
+    let mut app = App::new(Config::default(), Queue::default());
+    let (mut tasks, _) = tasks();
+    let (tx, _) = mpsc::unbounded_channel();
+
+    // The panel is on by default.
+    assert!(app.ui.lyrics_panel);
+
+    // A wide window has no docked column, so the setting still applies and
+    // the status says where it shows.
+    app.ui.render.borrow_mut().terminal_size = (120, 35);
+    key(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('L'), KeyModifiers::SHIFT),
+        &mut tasks,
+        &tx,
+    );
+    assert!(!app.ui.lyrics_panel);
+    assert!(!app.config.lyrics_panel);
+    assert!(app.status.contains("Lyrics panel off"));
+
+    // A tall window turns it back on, and the choice is remembered.
+    app.ui.render.borrow_mut().terminal_size = (84, 80);
+    key(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('L'), KeyModifiers::SHIFT),
+        &mut tasks,
+        &tx,
+    );
+    assert!(app.ui.lyrics_panel);
+    assert!(app.config.lyrics_panel);
+    key(
+        &mut app,
+        KeyEvent::new(KeyCode::Char('L'), KeyModifiers::SHIFT),
+        &mut tasks,
+        &tx,
+    );
+    assert!(!app.ui.lyrics_panel);
+    assert!(!app.config.lyrics_panel);
+}
+
+#[tokio::test]
 async fn stats_overlay_toggle_mutual_exclusion_and_esc() {
     let mut app = App::new(Config::default(), Queue::default());
     let (mut tasks, _) = tasks();

@@ -1,5 +1,24 @@
 use super::*;
 
+/// The heading of a content panel.  It names the region in the brightest ink
+/// and replaces the framed block title the panel used to carry.
+fn heading(frame: &mut Frame<'_>, area: Rect, title: &str, theme: Theme) -> Rect {
+    let parts = Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).split(area);
+    frame.render_widget(
+        Paragraph::new(Span::styled(
+            title.to_owned(),
+            Style::default().fg(theme.palette().text).bold(),
+        )),
+        Rect::new(
+            parts[0].x + 1,
+            parts[0].y,
+            parts[0].width.saturating_sub(2),
+            1,
+        ),
+    );
+    parts[1]
+}
+
 pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, area: Rect) {
     let theme = Theme::from_str(&app.config.theme);
     let palette = theme.palette();
@@ -242,12 +261,17 @@ pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
         let matched = app.filtered_indices().len();
         let total = app.raw_len();
         format!(
-            " {} • {} of {} loaded matches{} ",
+            "{} • {} of {} loaded matches{}",
             base_title, matched, total, status_suffix
         )
     } else {
-        format!(" {}{} ", base_title, status_suffix)
+        format!("{base_title}{status_suffix}")
     };
+    let title = title.trim().to_owned();
+    body = heading(frame, body, &title, theme);
+    // Durations are right aligned inside their column, so the header and the
+    // values share one edge.
+    let time_width = if body.width >= 60 { 7 } else { 0 };
 
     match &app.catalog.rows {
         Rows::Tracks(tracks) => {
@@ -255,7 +279,7 @@ pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
             let visible = viewport(
                 app.catalog.selected,
                 indices.len(),
-                body.height.saturating_sub(4) as usize,
+                body.height.saturating_sub(2) as usize,
                 &mut render.catalog_scroll,
             );
             row_hits(render, body, &visible, false, true);
@@ -308,100 +332,100 @@ pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
                 };
                 frame.render_widget(
                     Paragraph::new(empty_msg)
-                        .block(block_themed(title, !app.catalog.sidebar, theme))
                         .style(Style::default().fg(palette.text_muted))
                         .wrap(Wrap { trim: false }),
                     body,
                 );
             } else {
-                let rows: Vec<Row> =
-                    indices
-                        .iter()
-                        .enumerate()
-                        .skip(visible.start)
-                        .take(visible.len())
-                        .filter_map(|(display_idx, &track_idx)| {
-                            let t = tracks.get(track_idx)?;
-                            let current = app.queue.current() == Some(t.id.as_str());
-                            let indicator = if current {
-                                if app.state == State::Playing {
-                                    "►"
-                                } else {
-                                    "||"
-                                }
+                let rows: Vec<Row> = indices
+                    .iter()
+                    .enumerate()
+                    .skip(visible.start)
+                    .take(visible.len())
+                    .filter_map(|(display_idx, &track_idx)| {
+                        let t = tracks.get(track_idx)?;
+                        let current = app.queue.current() == Some(t.id.as_str());
+                        let indicator = if current {
+                            if app.state == State::Playing {
+                                "►"
                             } else {
-                                "  "
-                            };
-                            let num_str = if is_album {
-                                if let Some(num) = t.track_number {
-                                    format!("{num:>3}")
-                                } else {
-                                    format!("{:>3}", display_idx + 1)
-                                }
+                                "||"
+                            }
+                        } else {
+                            "  "
+                        };
+                        let num_str = if is_album {
+                            if let Some(num) = t.track_number {
+                                format!("{num:>3}")
                             } else {
                                 format!("{:>3}", display_idx + 1)
-                            };
-                            let index_cell = Cell::from(format!(" {:>2} {} ", indicator, num_str))
-                                .style(
-                                    Style::default()
-                                        .fg(if current {
-                                            palette.primary
-                                        } else {
-                                            palette.text_subtle
-                                        })
-                                        .bold(),
-                                );
-                            let title_text = format!(
-                                "{}{}",
-                                t.name,
-                                if t.playable { "" } else { " [unavailable]" }
-                            );
-                            let mut title_style = Style::default().fg(if current {
-                                palette.primary
-                            } else if t.playable {
-                                palette.text
-                            } else {
-                                palette.text_subtle
-                            });
-                            if t.playable {
-                                title_style = title_style.bold();
-                            } else {
-                                title_style = title_style.add_modifier(Modifier::DIM);
                             }
-                            let title_cell = Cell::from(title_text).style(title_style);
-
-                            let third_cell = if is_artist {
-                                let album_name = t.album.as_deref().unwrap_or("-");
-                                Cell::from(album_name).style(Style::default().fg(if t.playable {
-                                    palette.text_muted
-                                } else {
-                                    palette.text_subtle
-                                }))
-                            } else {
-                                Cell::from(t.artists.as_str()).style(Style::default().fg(
-                                    if t.playable {
-                                        palette.text_muted
+                        } else {
+                            format!("{:>3}", display_idx + 1)
+                        };
+                        let index_cell = Cell::from(format!(" {:>2} {} ", indicator, num_str))
+                            .style(
+                                Style::default()
+                                    .fg(if current {
+                                        palette.primary
                                     } else {
                                         palette.text_subtle
-                                    },
-                                ))
-                            };
-                            let time_cell = Cell::from(if t.duration_ms > 0 {
-                                time(t.duration_ms)
-                            } else {
-                                "--:--".to_string()
-                            })
-                            .style(Style::default().fg(if t.playable && t.duration_ms > 0 {
+                                    })
+                                    .bold(),
+                            );
+                        let title_text = format!(
+                            "{}{}",
+                            t.name,
+                            if t.playable { "" } else { " [unavailable]" }
+                        );
+                        let mut title_style = Style::default().fg(if current {
+                            palette.primary
+                        } else if t.playable {
+                            palette.text
+                        } else {
+                            palette.text_subtle
+                        });
+                        if t.playable {
+                            title_style = title_style.bold();
+                        } else {
+                            title_style = title_style.add_modifier(Modifier::DIM);
+                        }
+                        let title_cell = Cell::from(title_text).style(title_style);
+
+                        let third_cell = if is_artist {
+                            let album_name = t.album.as_deref().unwrap_or("-");
+                            Cell::from(album_name).style(Style::default().fg(if t.playable {
                                 palette.text_muted
                             } else {
                                 palette.text_subtle
-                            }));
+                            }))
+                        } else {
+                            Cell::from(t.artists.as_str()).style(Style::default().fg(
+                                if t.playable {
+                                    palette.text_muted
+                                } else {
+                                    palette.text_subtle
+                                },
+                            ))
+                        };
+                        let duration = if t.duration_ms > 0 {
+                            time(t.duration_ms)
+                        } else {
+                            "--:--".to_string()
+                        };
+                        let time_cell = Cell::from(format!("{duration:>time_width$}")).style(
+                            Style::default().fg(if t.playable && t.duration_ms > 0 {
+                                palette.text_muted
+                            } else {
+                                palette.text_subtle
+                            }),
+                        );
 
-                            Some(Row::new(vec![
-                                index_cell, title_cell, third_cell, time_cell,
-                            ]))
-                        })
-                        .collect();
+                        Some(Row::new(vec![
+                            index_cell, title_cell, third_cell, time_cell,
+                        ]))
+                    })
+                    .collect();
 
                 let widths = if body.width >= 60 {
                     vec![
@@ -421,13 +445,13 @@ pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
                 let third_header = if is_artist { "ALBUM" } else { "ARTIST" };
                 let header = Row::new(vec![
                     Cell::from(if artist_search {
-                        "  ROW   "
+                        "    ROW "
                     } else {
-                        "   #    "
+                        "      # "
                     }),
                     Cell::from("TITLE"),
                     Cell::from(third_header),
-                    Cell::from(" TIME"),
+                    Cell::from(format!("{:>time_width$}", "TIME")),
                 ])
                 .style(table_header_style(theme))
                 .bottom_margin(1);
@@ -437,7 +461,7 @@ pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
                 frame.render_stateful_widget(
                     Table::new(rows, widths)
                         .header(header)
-                        .block(block_themed(title, !app.catalog.sidebar, theme))
+                        .block(panel_block(theme))
                         .row_highlight_style(selected_row_style(theme))
                         .highlight_symbol(selected_marker(theme)),
                     body,
@@ -450,7 +474,7 @@ pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
             let visible = viewport(
                 app.catalog.selected,
                 indices.len(),
-                body.height.saturating_sub(4) as usize,
+                body.height.saturating_sub(2) as usize,
                 &mut render.catalog_scroll,
             );
             row_hits(render, body, &visible, false, true);
@@ -464,7 +488,6 @@ pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
                 };
                 frame.render_widget(
                     Paragraph::new(empty_msg)
-                        .block(block_themed(title, !app.catalog.sidebar, theme))
                         .style(Style::default().fg(palette.text_muted))
                         .wrap(Wrap { trim: false }),
                     body,
@@ -492,7 +515,7 @@ pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
                     Constraint::Percentage(34),
                 ];
                 let header = Row::new(vec![
-                    Cell::from("  #"),
+                    Cell::from("     # "),
                     Cell::from("PLAYLIST"),
                     Cell::from("OWNER"),
                 ])
@@ -503,7 +526,7 @@ pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
                 frame.render_stateful_widget(
                     Table::new(rows, widths)
                         .header(header)
-                        .block(block_themed(title, !app.catalog.sidebar, theme))
+                        .block(panel_block(theme))
                         .row_highlight_style(selected_row_style(theme))
                         .highlight_symbol(selected_marker(theme)),
                     body,

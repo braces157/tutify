@@ -2080,7 +2080,7 @@ fn test_adversarial_artist_top_tracks_rendering() {
     assert!(
         lines
             .iter()
-            .any(|l| l.contains("   #    ") && l.contains("TITLE") && l.contains("ALBUM")),
+            .any(|l| l.contains("      # ") && l.contains("TITLE") && l.contains("ALBUM")),
         "Header row structure check:\n{all_text}"
     );
 }

@@ -582,6 +582,22 @@ pub(super) fn key(
                 app.status = "Exited lyrics".into();
             }
         }
+        KeyCode::Char('L') => {
+            let (width, height) = app.ui.render.borrow().terminal_size;
+            let portrait = crate::ui::background::orientation_for_size(width, height)
+                == crate::ui::background::Orientation::Vertical;
+            app.ui.lyrics_panel = !app.ui.lyrics_panel;
+            app.config.lyrics_panel = app.ui.lyrics_panel;
+            app.status = if app.ui.lyrics_panel {
+                if portrait {
+                    "Lyrics panel on (L closes it)".into()
+                } else {
+                    "Lyrics panel on (shown in tall windows)".into()
+                }
+            } else {
+                "Lyrics panel off".into()
+            };
+        }
         KeyCode::Char('v') => {
             app.ui.toggle(Overlay::Visualizer);
             if app.ui.overlay == Overlay::Visualizer {

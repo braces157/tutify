@@ -8,6 +8,7 @@ pub(super) enum Background {
     MetadataDone(u64),
     SaveError(String),
     Lyrics(u64, Result<Option<crate::lyrics::Lyrics>>),
+    LyricsPreload(u64, Result<Option<crate::lyrics::Lyrics>>),
     PlaylistPage(u64, u64, Vec<Track>, bool),
     PlaylistError(u64, u64, String),
     Recommendations(u64, Result<Recommendations>),
@@ -26,6 +27,7 @@ pub(super) struct Tasks {
     pub(super) browse: Option<tokio::task::JoinHandle<()>>,
     pub(super) metadata: Option<tokio::task::JoinHandle<()>>,
     pub(super) lyrics: Option<tokio::task::JoinHandle<()>>,
+    pub(super) lyrics_preload: Option<tokio::task::JoinHandle<()>>,
     pub(super) recommendations: Option<tokio::task::JoinHandle<()>>,
     pub(super) playlist: Option<tokio::task::JoinHandle<()>>,
     pub(super) requested: HashSet<String>,
@@ -52,6 +54,7 @@ impl Drop for Tasks {
             &self.browse,
             &self.metadata,
             &self.lyrics,
+            &self.lyrics_preload,
             &self.recommendations,
             &self.autoplay.handle,
             &self.playlist,
@@ -90,6 +93,7 @@ impl Tasks {
             browse: None,
             metadata: None,
             lyrics: None,
+            lyrics_preload: None,
             recommendations: None,
             playlist: None,
             requested: HashSet::new(),
@@ -580,8 +584,15 @@ impl Tasks {
             app.lyrics.error = None;
             app.lyrics.loading = false;
             app.lyrics.scroll = 0;
+            // A track whose lyrics were fetched ahead of time starts with
+            // them already in place, so the panel never waits on the network.
+            if let Some((id, lyrics)) = app.lyrics.cached.take()
+                && app.lyrics.track_id.as_deref() == Some(id.as_str())
+            {
+                app.lyrics.content = Some(lyrics);
+            }
         }
-        if self.demo && app.ui.overlay == Overlay::Lyrics && app.lyrics.content.is_none() {
+        if self.demo && app.lyrics_requested() && app.lyrics.content.is_none() {
             app.lyrics.content = Some(crate::lyrics::Lyrics {
                 lines: Vec::new(),
                 plain: Some(
@@ -593,7 +604,7 @@ impl Tasks {
             app.lyrics.loading = false;
             return;
         }
-        if app.ui.overlay != Overlay::Lyrics
+        if !app.lyrics_requested()
             || app.lyrics.loading
             || app.lyrics.content.is_some()
             || app.lyrics.error.is_some()
@@ -612,6 +623,49 @@ impl Tasks {
         self.lyrics = Some(tokio::spawn(async move {
             let lyr = crate::lyrics::fetch(&client, &track).await;
             let _ = tx.send(Background::Lyrics(request, lyr));
+        }));
+    }
+
+    /// Fetch the lyrics of the track that is queued next while the current
+    /// one is still playing, so the panel has them the moment it starts.
+    pub(super) fn update_lyrics_preload(&mut self, app: &mut App) {
+        if self.demo || !app.lyrics_requested() {
+            return;
+        }
+        let Some(next_id) = app.last_preloaded_id.clone() else {
+            return;
+        };
+        if Some(next_id.as_str()) == app.queue.current() {
+            return;
+        }
+        if app
+            .lyrics
+            .cached
+            .as_ref()
+            .is_some_and(|(id, _)| *id == next_id)
+        {
+            return;
+        }
+        if app.lyrics.preload_id.as_deref() == Some(next_id.as_str()) {
+            return;
+        }
+        let Some(track) = app.cache.get(&next_id).cloned() else {
+            return;
+        };
+        if track.name.is_empty() || track.artists.is_empty() || track.duration_ms == 0 {
+            return;
+        }
+        if let Some(task) = self.lyrics_preload.take() {
+            task.abort();
+        }
+        app.lyrics.preload_id = Some(next_id);
+        app.lyrics.preload_request += 1;
+        let request = app.lyrics.preload_request;
+        let client = self.http.clone();
+        let tx = self.tx.clone();
+        self.lyrics_preload = Some(tokio::spawn(async move {
+            let lyr = crate::lyrics::fetch(&client, &track).await;
+            let _ = tx.send(Background::LyricsPreload(request, lyr));
         }));
     }
     pub(super) fn enqueue_playlist(&mut self, app: &mut App, playlist_id: String, name: String) {
@@ -1277,6 +1331,15 @@ pub(super) fn background(app: &mut App, tasks: &mut Tasks, event: Background) ->
                     app.ui.diagnostics.history.record(Subsystem::Lyrics, &e);
                     app.lyrics.error = Some(format!("Lyrics request failed: {e:#}. F5 retries."))
                 }
+            }
+        }
+        Background::LyricsPreload(request, result) if request == app.lyrics.preload_request => {
+            // A failed preload keeps its marker so the same track is not
+            // requested again; the track fetches its own lyrics when it plays.
+            if let Ok(Some(lyrics)) = result
+                && let Some(id) = app.lyrics.preload_id.take()
+            {
+                app.lyrics.cached = Some((id, lyrics));
             }
         }
         Background::PlaylistPage(epoch, request, tracks, done)

@@ -36,6 +36,8 @@ pub struct Config {
     pub native_glass: bool,
     pub discord_rpc: bool,
     pub discord_client_id: Option<String>,
+    /// Shows synced lyrics beside the player in tall windows.
+    pub lyrics_panel: bool,
 }
 
 impl Default for Config {
@@ -57,6 +59,7 @@ impl Default for Config {
             native_glass: false,
             discord_rpc: true,
             discord_client_id: None,
+            lyrics_panel: true,
         }
     }
 }

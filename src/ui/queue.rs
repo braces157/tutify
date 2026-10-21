@@ -10,24 +10,64 @@ pub(super) fn queue(
     hit(render, area, MouseTarget::QueueScroll);
     let theme = Theme::from_str(&app.config.theme);
     let palette = theme.palette();
+    if area.height == 0 || area.width == 0 {
+        return;
+    }
     let spacious = main && area.height >= 12;
-    let area = if spacious {
-        let parts = Layout::vertical([Constraint::Length(2), Constraint::Min(1)]).split(area);
-        frame.render_widget(
-            Paragraph::new(Line::from(vec![
-                Span::styled("  Your queue", Style::default().fg(palette.text).bold()),
-                Span::styled(
-                    format!("   {} tracks", app.queue.ids.len()),
-                    Style::default().fg(palette.text_subtle),
-                ),
-            ]))
-            .style(Style::default().bg(palette.surface)),
-            parts[0],
-        );
-        parts[1]
+    let title_rows = if spacious { 2 } else { 1 };
+    let split = Layout::vertical([Constraint::Length(title_rows), Constraint::Min(1)]).split(area);
+
+    let mut source = if app.queue.smart_shuffle {
+        " | Smart Shuffle • ✦ suggested".into()
+    } else if app.radio_epoch == Some(app.queue.epoch) {
+        if let Some(error) = &app.radio_error {
+            format!(" | Radio unavailable (R retries): {error}")
+        } else {
+            app.radio_source
+                .map(|source| format!(" | {}", source.label()))
+                .unwrap_or_else(|| " | Track Radio".into())
+        }
     } else {
-        area
+        String::new()
     };
+    if app.autoplay_epoch == Some(app.queue.epoch) {
+        source.push_str(if app.autoplay_error.is_some() {
+            " | Autoplay unavailable (R retries)"
+        } else {
+            " | Autoplay"
+        });
+    }
+
+    // The heading names the region and counts what is in it; the right-hand
+    // side carries the mode the list is currently in.
+    let title = if main {
+        section_title(
+            "Your queue",
+            Some(format!("{} tracks", app.queue.ids.len())),
+            theme,
+        )
+    } else {
+        section_title("Queue", Some(app.queue.ids.len().to_string()), theme)
+    };
+    let title_area = Rect::new(
+        split[0].x + 1,
+        split[0].y,
+        split[0].width.saturating_sub(2),
+        1,
+    );
+    let source = source.trim_start_matches(" | ").to_owned();
+    let source_width = source.chars().count() as u16;
+    let title_split = Layout::horizontal([Constraint::Min(8), Constraint::Length(source_width)])
+        .split(title_area);
+    frame.render_widget(Paragraph::new(title), title_split[0]);
+    if !source.is_empty() && source_width + 12 < title_area.width {
+        frame.render_widget(
+            Paragraph::new(source).style(Style::default().fg(palette.text_subtle)),
+            title_split[1],
+        );
+    }
+
+    let area = split[1];
     let filtered = main.then(|| app.queue_rows());
     let len = filtered
         .as_ref()
@@ -59,11 +99,11 @@ pub(super) fn queue(
             parts[0],
         );
         frame.render_widget(
-            Paragraph::new(" Esc Clear").style(
-                Style::default()
-                    .fg(palette.primary_soft)
-                    .bg(palette.surface_selected),
-            ),
+            Paragraph::new(Line::from(vec![
+                key_hint("Esc", theme, true),
+                Span::styled(" Clear", Style::default().fg(palette.text_muted)),
+            ]))
+            .style(Style::default().bg(palette.surface_selected)),
             parts[1],
         );
         hit(render, parts[0], MouseTarget::QueueFilter);
@@ -74,15 +114,21 @@ pub(super) fn queue(
     };
     let compact = area.height < 4;
     let header = main && area.height >= 6;
-    let outer = |title| {
-        if compact {
-            Block::default().style(Style::default().fg(palette.text).bg(palette.surface))
+    // Durations are right aligned inside their column, so the header and the
+    // values share one edge.
+    let time_width = if main {
+        if area.width < 45 {
+            0
+        } else if area.width >= 60 {
+            7
         } else {
-            block_themed(title, main && !app.catalog.sidebar, theme)
+            6
         }
+    } else {
+        5
     };
     if len == 0 {
-        render.queue_height = area.height.saturating_sub(if compact { 0 } else { 2 }) as usize;
+        render.queue_height = area.height as usize;
         render.queue_scroll = 0;
         let missing = app.ui.queue.missing(&app.queue, &app.cache);
         let message;
@@ -102,8 +148,8 @@ pub(super) fn queue(
         };
         frame.render_widget(
             Paragraph::new(msg)
-                .block(outer(" QUEUE ".to_owned()))
-                .style(Style::default().fg(palette.text_muted)),
+                .style(Style::default().fg(palette.text_muted))
+                .wrap(Wrap { trim: false }),
             area,
         );
         return;
@@ -120,31 +166,24 @@ pub(super) fn queue(
     let height = (area.height.saturating_sub(if compact {
         0
     } else if header {
-        4
-    } else {
         2
+    } else {
+        0
     }) / stride) as usize;
     render.queue_height = height;
     let visible = viewport(selected, len, height, &mut render.queue_scroll);
     if filtering && !visible.is_empty() {
         render.queue_filter_metadata_start = Some(filtered.as_ref().unwrap()[visible.start]);
     }
+    let first_row = if header { 2 } else { 0 };
     for (line, row) in visible.clone().enumerate() {
         let at = filtered.as_ref().map_or(row, |rows| rows[row]);
         hit(
             render,
             Rect::new(
-                area.x + u16::from(!compact),
-                area.y
-                    + if compact {
-                        0
-                    } else if header {
-                        3
-                    } else {
-                        1
-                    }
-                    + line as u16 * stride,
-                area.width.saturating_sub(if compact { 0 } else { 2 }),
+                area.x + 1,
+                area.y + first_row + line as u16 * stride,
+                area.width.saturating_sub(2),
                 stride,
             ),
             MouseTarget::Queue(at),
@@ -159,7 +198,7 @@ pub(super) fn queue(
             let is_current = app.queue.cursor == Some(at);
             let indicator = if is_current {
                 if app.state == State::Playing {
-                    "►"
+                    "► "
                 } else {
                     "||"
                 }
@@ -196,10 +235,14 @@ pub(super) fn queue(
                 ("Loading track info...", "—", "--:--".to_string(), true)
             };
 
-            let index = if main && area.width < 60 {
-                format!("{indicator} {:>2}", at + 1)
+            let index = if main {
+                if area.width < 60 {
+                    format!("{indicator} {:>2}", at + 1)
+                } else {
+                    format!(" {indicator} {:>3} ", at + 1)
+                }
             } else {
-                format!(" {:>2} {:>3} ", indicator, at + 1)
+                format!("{indicator}{:>3} ", at + 1)
             };
             let index_cell = Cell::from(index).style(
                 Style::default()
@@ -230,65 +273,28 @@ pub(super) fn queue(
                     } else {
                         palette.text_muted
                     }));
-                let time_cell =
-                    Cell::from(duration).style(Style::default().fg(if is_placeholder {
+                let time_cell = Cell::from(format!("{duration:>time_width$}")).style(
+                    Style::default().fg(if is_placeholder {
                         palette.text_subtle
                     } else {
                         palette.text_muted
-                    }));
+                    }),
+                );
                 Row::new(vec![index_cell, name_cell, artist_cell, time_cell])
                     .bottom_margin(stride - 1)
             } else {
-                let time_cell =
-                    Cell::from(duration).style(Style::default().fg(if is_placeholder {
+                let time_cell = Cell::from(format!("{duration:>time_width$}")).style(
+                    Style::default().fg(if is_placeholder {
                         palette.text_subtle
                     } else {
                         palette.text_muted
-                    }));
+                    }),
+                );
                 Row::new(vec![index_cell, name_cell, time_cell])
             }
         })
         .collect();
 
-    let mut source = if app.queue.smart_shuffle {
-        " | Smart Shuffle • ✦ suggested".into()
-    } else if app.radio_epoch == Some(app.queue.epoch) {
-        if let Some(error) = &app.radio_error {
-            format!(" | Radio unavailable (R retries): {error}")
-        } else {
-            app.radio_source
-                .map(|source| format!(" | {}", source.label()))
-                .unwrap_or_else(|| " | Track Radio".into())
-        }
-    } else {
-        String::new()
-    };
-    if app.autoplay_epoch == Some(app.queue.epoch) {
-        source.push_str(if app.autoplay_error.is_some() {
-            " | Autoplay unavailable (R retries)"
-        } else {
-            " | Autoplay"
-        });
-    }
-    let title = if filtering {
-        let missing = app.ui.queue.missing(&app.queue, &app.cache);
-        format!(
-            " QUEUE • {len}/{} matches{}{} ",
-            app.queue.ids.len(),
-            if missing > 0 {
-                format!(" · {missing} without info")
-            } else {
-                String::new()
-            },
-            source
-        )
-    } else if spacious {
-        format!(" / Filter{source} ")
-    } else if main {
-        format!(" QUEUE • {} · / Filter{} ", app.queue.ids.len(), source)
-    } else {
-        format!(" QUEUE • {}{} ", app.queue.ids.len(), source)
-    };
     let mut state = TableState::default().with_selected(if main {
         Some(selected.saturating_sub(visible.start))
     } else {
@@ -319,21 +325,17 @@ pub(super) fn queue(
             ]
         };
         let header_row = Row::new(vec![
-            Cell::from("   #    "),
+            Cell::from("      # "),
             Cell::from("TRACK"),
             Cell::from("ARTIST"),
-            Cell::from(" TIME"),
+            Cell::from(format!("{:>time_width$}", "TIME")),
         ])
         .style(table_header_style(theme))
         .bottom_margin(1);
 
         let mut table = Table::new(rows, widths)
-            .column_spacing(if top_navigation_layout(frame.area()) {
-                2
-            } else {
-                1
-            })
-            .block(outer(title))
+            .column_spacing(2)
+            .block(panel_block(theme))
             .row_highlight_style(selected_row_style(theme))
             .highlight_symbol(selected_marker(theme));
         if header {
@@ -343,7 +345,7 @@ pub(super) fn queue(
         // Ratatui applies a row highlight to its bottom margin too. Leave the
         // breathing room between tracks on the ordinary surface.
         if stride > 1 {
-            let top = area.y + if header { 3 } else { 1 };
+            let top = area.y + first_row;
             for line in 0..visible.len() {
                 let y = top + line as u16 * stride + 1;
                 if y >= area.bottom().saturating_sub(1) {
@@ -352,19 +354,19 @@ pub(super) fn queue(
                 for x in area.x + 1..area.right().saturating_sub(1) {
                     frame.buffer_mut()[(x, y)]
                         .set_symbol(" ")
-                        .set_style(Style::default().fg(palette.text).bg(palette.surface));
+                        .set_style(Style::default().fg(palette.text).bg(palette.background));
                 }
             }
         }
     } else {
         let widths = vec![
-            Constraint::Length(8),
-            Constraint::Fill(1),
             Constraint::Length(6),
+            Constraint::Fill(1),
+            Constraint::Length(5),
         ];
         frame.render_stateful_widget(
             Table::new(rows, widths)
-                .block(outer(title))
+                .block(panel_block(theme))
                 .row_highlight_style(selected_row_style(theme))
                 .highlight_symbol(selected_marker(theme)),
             area,

@@ -18,137 +18,107 @@ pub(super) fn header(frame: &mut Frame<'_>, app: &App, area: Rect) {
     } else {
         format!("v{}", env!("CARGO_PKG_VERSION"))
     };
-    if area.height >= 3 {
-        frame.render_widget(
-            Block::default()
-                .borders(Borders::BOTTOM)
-                .border_style(Style::default().fg(palette.border))
-                .style(Style::default().bg(palette.surface)),
-            area,
-        );
-        let row = Rect::new(area.x + 2, area.y, area.width.saturating_sub(4), 1);
-        let quality = audio_badge(app, area.width);
-        if !top_navigation_layout(frame.area()) {
-            let parts = Layout::horizontal([
-                Constraint::Min(10),
-                Constraint::Length(if area.width >= 100 { 26 } else { 23 }),
-                Constraint::Length(quality.chars().count() as u16 + 5),
-            ])
-            .split(row);
-            frame.render_widget(
-                Paragraph::new(Line::from(vec![
-                    Span::styled("TUITIFY", Style::default().fg(palette.primary).bold()),
-                    Span::styled(
-                        format!("   {version}"),
-                        Style::default().fg(palette.text_subtle),
-                    ),
-                ])),
-                parts[0],
-            );
-            frame.render_widget(
-                Paragraph::new(if area.width >= 100 {
-                    "F6 Tools  ? Help  q Quit "
-                } else {
-                    "F6 Tools ? Help q Quit "
-                })
-                .style(Style::default().fg(palette.text_muted))
-                .alignment(Alignment::Right),
-                parts[1],
-            );
-            frame.render_widget(
-                Paragraph::new(format!("{quality}  ▥"))
-                    .style(Style::default().fg(palette.primary_soft))
-                    .alignment(Alignment::Right),
-                parts[2],
-            );
-            return;
-        }
-        let parts = Layout::horizontal([
-            Constraint::Min(10),
-            Constraint::Length(quality.chars().count() as u16 + 5),
-        ])
-        .split(row);
-        frame.render_widget(
-            Paragraph::new(Line::from(vec![
-                Span::styled("TUITIFY", Style::default().fg(palette.primary).bold()),
-                Span::styled(
-                    format!("   {version}"),
-                    Style::default().fg(palette.text_subtle),
-                ),
-            ])),
-            parts[0],
-        );
-        frame.render_widget(
-            Paragraph::new(format!("{quality}  ▥"))
-                .style(Style::default().fg(palette.primary_soft))
-                .alignment(Alignment::Right),
-            parts[1],
-        );
-        let second = Rect::new(row.x, row.y + 1, row.width, 1);
-        frame.render_widget(
-            Paragraph::new(format!("t  {}", theme.name()))
-                .style(Style::default().fg(palette.text_subtle)),
-            second,
-        );
-        frame.render_widget(
-            Paragraph::new("F6 Tools   ? Help   q Quit ")
-                .alignment(Alignment::Right)
-                .style(Style::default().fg(palette.text_muted)),
-            second,
-        );
+    if area.height == 0 || area.width == 0 {
         return;
     }
-
+    // The title bar is a tone step, not a box: the band itself separates it
+    // from the content below.
     frame.render_widget(
-        Block::default().style(Style::default().bg(palette.surface_alt)),
+        Block::default().style(Style::default().bg(palette.surface)),
         area,
     );
+    let row = Rect::new(area.x + 1, area.y, area.width.saturating_sub(2), 1);
+    let available = usize::from(row.width);
 
-    if area.width >= 58 {
-        let command_width = if area.width >= 86 { 38 } else { 24 };
-        let parts = Layout::horizontal([Constraint::Min(24), Constraint::Length(command_width)])
-            .split(area);
-        let identity = Line::from(vec![
-            Span::styled(" TUITIFY", Style::default().fg(palette.primary).bold()),
-            Span::styled(
-                format!("  {version}"),
-                Style::default().fg(palette.text_muted),
-            ),
-            Span::styled(
-                format!(" / Theme: {}", theme.name()),
-                Style::default().fg(palette.text_subtle),
-            ),
-        ]);
-        let commands = if area.width >= 86 {
-            "F6 Tools   ? Help   t Theme   q Quit "
-        } else {
-            "F6 Tools ? Help q Quit "
-        };
-        frame.render_widget(Paragraph::new(identity), parts[0]);
+    // Right-hand facts, most informative first; the longest that fits wins.
+    // The quit hint is a universal affordance and rides along when it fits.
+    let source = app.audio_source_label();
+    let quality = app.audio_quality.as_ref().map(|q| q.label().to_owned());
+    // The theme is only worth naming when it is not already the source word.
+    let theme_fact = if theme.name() == source {
+        String::new()
+    } else {
+        format!("{} theme", theme.name())
+    };
+    let mut candidates: Vec<String> = Vec::new();
+    if let Some(quality) = quality.as_ref() {
+        let with_theme = format!("{source} · {quality}   {theme_fact}");
+        candidates.push(with_theme.trim_end().to_owned());
+        candidates.push(format!("{source} · {quality}"));
+        candidates.push(quality.clone());
+    }
+    let source_with_theme = format!("{source}   {theme_fact}");
+    candidates.push(source_with_theme.trim_end().to_owned());
+    candidates.push(source.to_owned());
+    if !theme_fact.is_empty() {
+        candidates.push(theme_fact);
+    }
+    let fits = |text: &str| text.chars().count() + 9 <= available;
+    let facts = candidates
+        .iter()
+        .find(|candidate| fits(candidate))
+        .cloned()
+        .unwrap_or_default();
+    let with_quit = format!("{facts}   q Quit");
+    let right = if !facts.is_empty() && fits(&with_quit) {
+        with_quit
+    } else if facts.is_empty() && fits("q Quit") {
+        "q Quit".to_owned()
+    } else {
+        facts
+    };
+
+    let wordmark = "TUITIFY";
+    let version_text = format!("  {version}");
+    let show_version =
+        wordmark.chars().count() + version_text.chars().count() + right.chars().count() + 3
+            <= available;
+
+    let parts = Layout::horizontal([
+        Constraint::Min(8),
+        Constraint::Length(right.chars().count() as u16),
+    ])
+    .split(row);
+    let mut identity = vec![Span::styled(
+        wordmark,
+        Style::default().fg(palette.primary).bold(),
+    )];
+    if show_version {
+        identity.push(Span::styled(
+            version_text,
+            Style::default().fg(palette.text_subtle),
+        ));
+    }
+    frame.render_widget(Paragraph::new(Line::from(identity)), parts[0]);
+    if !right.is_empty() {
         frame.render_widget(
-            Paragraph::new(commands)
-                .style(Style::default().fg(palette.text_muted))
-                .alignment(Alignment::Right),
+            Paragraph::new(right).style(Style::default().fg(palette.text_muted)),
             parts[1],
         );
+    }
+}
+
+/// The right-hand context of the status row: where the user is and how much
+/// is loaded.
+fn footer_context(app: &App) -> String {
+    let view = app.catalog.view.name();
+    if app.catalog.view == View::Queue {
+        return format!("{view} · {} tracks", app.queue.ids.len());
+    }
+    let loaded = app.raw_len();
+    if loaded > 0 {
+        format!("{view} · {loaded}")
     } else {
-        frame.render_widget(
-            Paragraph::new(Line::from(vec![
-                Span::styled(" TUITIFY", Style::default().fg(palette.primary).bold()),
-                Span::styled(
-                    format!("  {version}"),
-                    Style::default().fg(palette.text_muted),
-                ),
-                Span::styled("   F6 Tools", Style::default().fg(palette.text_muted)),
-            ])),
-            area,
-        );
+        view.to_owned()
     }
 }
 
 pub(super) fn footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let theme = Theme::from_str(&app.config.theme);
     let palette = theme.palette();
+    if area.height == 0 || area.width == 0 {
+        return;
+    }
     if app.ui.overlay == Overlay::Diagnostics {
         let view = &app.ui.diagnostics;
         let message = if view.notice.is_empty() {
@@ -161,10 +131,19 @@ pub(super) fn footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
             .as_ref()
             .map_or_else(String::new, |name| format!(" {name}"));
         frame.render_widget(
+            Block::default().style(Style::default().bg(palette.surface)),
+            area,
+        );
+        frame.render_widget(
             Paragraph::new(format!("{message}{filename}"))
                 .style(Style::default().fg(palette.text_muted))
                 .wrap(Wrap { trim: true }),
-            area,
+            Rect::new(
+                area.x + 1,
+                area.y,
+                area.width.saturating_sub(2),
+                area.height,
+            ),
         );
         return;
     }
@@ -180,7 +159,7 @@ pub(super) fn footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
                 } else {
                     "  Spotify login expired. F6 > Connect Spotify account."
                 },
-                Style::default().fg(palette.status_warning).bold(),
+                Style::default().fg(palette.text_muted),
             ),
         ])
     } else if app.state == State::Failed {
@@ -193,7 +172,7 @@ pub(super) fn footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
         ])
     } else if app.catalog.busy {
         Line::from(vec![
-            Span::styled(" … LOADING ", warning_badge(theme)),
+            Span::styled(" … ", Style::default().fg(palette.status_warning).bold()),
             Span::styled(
                 format!("  {}", app.status),
                 Style::default().fg(palette.status_warning),
@@ -201,13 +180,40 @@ pub(super) fn footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
         ])
     } else {
         Line::from(vec![
-            Span::styled(" ● ", Style::default().fg(palette.primary_soft)),
-            Span::styled(&app.status, Style::default().fg(palette.text_muted)),
+            Span::styled("● ", Style::default().fg(palette.primary_soft)),
+            Span::styled(
+                format!(" {}", app.status),
+                Style::default().fg(palette.text_muted),
+            ),
         ])
+    };
+
+    frame.render_widget(
+        Block::default().style(Style::default().bg(palette.surface)),
+        area,
+    );
+    let context = footer_context(app);
+    let status_width = status_line.width() as u16;
+    let context_width = context.chars().count() as u16;
+    let status_area = if status_width + context_width + 2 <= area.width {
+        let parts = Layout::horizontal([Constraint::Min(4), Constraint::Length(context_width)])
+            .split(status_split[0]);
+        frame.render_widget(
+            Paragraph::new(context).style(Style::default().fg(palette.text_subtle)),
+            parts[1],
+        );
+        parts[0]
+    } else {
+        status_split[0]
     };
     frame.render_widget(
         Paragraph::new(status_line).wrap(Wrap { trim: true }),
-        status_split[0],
+        Rect::new(
+            status_area.x + 1,
+            status_area.y,
+            status_area.width.saturating_sub(1),
+            status_area.height,
+        ),
     );
 
     if status_split[1].height == 0 {
@@ -253,6 +259,19 @@ pub(super) fn footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
             theme,
         );
         push_hint(&mut hints, "Tab", "Focus", false, theme);
+        if docked_column(frame.area()) {
+            push_hint(
+                &mut hints,
+                "L",
+                if app.ui.lyrics_panel {
+                    "Hide lyrics"
+                } else {
+                    "Lyrics"
+                },
+                false,
+                theme,
+            );
+        }
         if area.width >= 80 {
             push_hint(&mut hints, "1–5", "Views", false, theme);
         }
@@ -265,7 +284,15 @@ pub(super) fn footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
             push_hint(&mut hints, "t", "Theme", false, theme);
         }
     }
-    frame.render_widget(Paragraph::new(Line::from(hints)), status_split[1]);
+    frame.render_widget(
+        Paragraph::new(Line::from(hints)),
+        Rect::new(
+            status_split[1].x + 1,
+            status_split[1].y,
+            status_split[1].width.saturating_sub(1),
+            status_split[1].height,
+        ),
+    );
 }
 
 fn push_hint(
@@ -307,7 +334,7 @@ pub(super) fn context_menu(frame: &mut Frame<'_>, app: &App, render: &mut Render
                 .block(block_themed(" ACTIONS  ·  Esc close ", true, theme))
                 .style(Style::default().fg(palette.text).bg(menu_bg))
                 .highlight_style(selected_row_style(theme))
-                .highlight_symbol("▌ "),
+                .highlight_symbol(selected_marker_text(theme)),
             rect,
             &mut state,
         );

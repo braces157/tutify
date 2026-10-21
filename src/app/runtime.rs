@@ -242,6 +242,7 @@ pub async fn run_session(
             tasks.refill_smart_shuffle(&app);
             tasks.update_autoplay(&mut app, &playback.commands);
             if lyrics_dirty { tasks.update_lyrics(&mut app); lyrics_dirty = false; }
+            tasks.update_lyrics_preload(&mut app);
             if dirty && last_draw.elapsed() >= Duration::from_millis(33) {
                 app.interpolate_position();
                 app.account_playback_time(Instant::now());

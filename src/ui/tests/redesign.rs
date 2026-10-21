@@ -94,7 +94,7 @@ fn wide_windows_keep_sidebar_and_bottom_player_while_tall_windows_dock_controls(
                 .map(|x| terminal.backend().buffer()[(x, 1)].symbol())
                 .collect();
             assert!(
-                second_header.trim().is_empty(),
+                !second_header.contains("TUITIFY"),
                 "wide windows must retain their single-line header"
             );
         }
@@ -131,11 +131,16 @@ fn queue_selection_leaves_spacing_clear_and_glass_wallpaper_visible() {
                 if theme == Theme::Glass {
                     Color::Reset
                 } else {
-                    palette.surface
+                    palette.background
                 }
             );
             if theme == Theme::Glass {
-                assert_eq!(terminal.backend().buffer()[(x, row.y)].bg, Color::Reset);
+                // The selection stays an opaque accent band so the row is
+                // still identifiable over the wallpaper.
+                assert_eq!(
+                    terminal.backend().buffer()[(x, row.y)].bg,
+                    palette.surface_selected
+                );
             }
         }
         let marker = &terminal.backend().buffer()[(row.x, row.y)];
@@ -294,10 +299,141 @@ fn redesigned_layout_preserves_queue_mouse_rows_and_seek_at_responsive_sizes() {
             let cells: Vec<_> = terminal.backend().buffer().content.iter().map(|cell| {
                 serde_json::json!({"symbol": cell.symbol(), "fg": cell.fg.to_string(), "bg": cell.bg.to_string(), "bold": cell.modifier.contains(Modifier::BOLD)})
             }).collect();
-            previews.push(serde_json::json!({"width": width, "height": height, "cells": cells}));
+            previews.push(serde_json::json!({"name": "queue", "width": width, "height": height, "cells": cells}));
         }
     }
     if let Some(path) = std::env::var_os("TUITIFY_UI_PREVIEW") {
         std::fs::write(path, serde_json::to_vec(&previews).unwrap()).unwrap();
     }
+}
+
+/// Exports one frame per main view so the redesigned screens can be reviewed
+/// as images.  Only runs when `TUITIFY_UI_PREVIEW` points at a file.
+#[test]
+fn ui_preview_covers_the_main_views() {
+    let Some(path) = std::env::var_os("TUITIFY_UI_PREVIEW") else {
+        return;
+    };
+    let mut previews = Vec::new();
+    for (name, view) in [
+        ("search", View::Search),
+        ("liked", View::Liked),
+        ("playlists", View::Playlists),
+        ("help", View::Help),
+    ] {
+        let mut app = crate::demo::app();
+        app.catalog.view = view;
+        app.catalog.title = match view {
+            View::Search => "Search".into(),
+            View::Liked => "Liked Songs".into(),
+            View::Playlists => "Playlists".into(),
+            View::Help => "Help".into(),
+            _ => String::new(),
+        };
+        let mut terminal = Terminal::new(TestBackend::new(120, 35)).unwrap();
+        terminal
+            .draw(|frame| draw(frame, &app, &mut app.ui.render.borrow_mut()))
+            .unwrap();
+        let cells: Vec<_> = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| {
+                serde_json::json!({"symbol": cell.symbol(), "fg": cell.fg.to_string(), "bg": cell.bg.to_string(), "bold": cell.modifier.contains(Modifier::BOLD)})
+            })
+            .collect();
+        previews
+            .push(serde_json::json!({"name": name, "width": 120, "height": 35, "cells": cells}));
+    }
+    std::fs::write(path, serde_json::to_vec(&previews).unwrap()).unwrap();
+}
+
+/// Exports the tall window with the lyrics column beside the player.
+#[test]
+fn portrait_lyrics_panel_swaps_the_tall_analyser_for_lyrics() {
+    let mut app = crate::demo::app();
+    app.catalog.view = View::Queue;
+    let mut terminal = Terminal::new(TestBackend::new(84, 80)).unwrap();
+    let render = |terminal: &mut Terminal<TestBackend>, app: &crate::app::App| {
+        terminal
+            .draw(|frame| draw(frame, app, &mut app.ui.render.borrow_mut()))
+            .unwrap();
+        terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>()
+    };
+
+    // The panel is on by default: the lyrics column replaces the tall analyser.
+    let text = render(&mut terminal, &app);
+    assert!(text.contains("LYRICS"));
+    assert!(
+        text.contains("v expand"),
+        "the compact strip replaces the graph"
+    );
+    assert!(!text.contains("Paused · v expand"));
+
+    app.ui.lyrics_panel = false;
+    let text = render(&mut terminal, &app);
+    assert!(text.contains("SPECTRUM"));
+    assert!(
+        text.contains("v expand"),
+        "the tall analyser stays when the panel is closed"
+    );
+    assert!(!text.contains("LYRICS"));
+}
+
+/// Exports the tall window with the lyrics column beside the player.
+#[test]
+fn ui_preview_covers_the_portrait_lyrics_column() {
+    let Some(path) = std::env::var_os("TUITIFY_UI_PREVIEW") else {
+        return;
+    };
+    let mut app = crate::demo::app();
+    app.catalog.view = View::Queue;
+    app.ui.lyrics_panel = true;
+    app.queue.position_ms = 62_000;
+    app.lyrics.content = Some(crate::lyrics::Lyrics {
+        lines: vec![
+            crate::lyrics::LyricLine {
+                position_ms: 0,
+                text: "Neon rain on a midnight train".into(),
+            },
+            crate::lyrics::LyricLine {
+                position_ms: 30_000,
+                text: "A borrowed beat comes home again".into(),
+            },
+            crate::lyrics::LyricLine {
+                position_ms: 60_000,
+                text: "Pin the spark and turn the page".into(),
+            },
+            crate::lyrics::LyricLine {
+                position_ms: 90_000,
+                text: "Build tomorrow on this stage".into(),
+            },
+        ],
+        ..Default::default()
+    });
+    let mut terminal = Terminal::new(TestBackend::new(84, 80)).unwrap();
+    terminal
+        .draw(|frame| draw(frame, &app, &mut app.ui.render.borrow_mut()))
+        .unwrap();
+    let cells: Vec<_> = terminal
+        .backend()
+        .buffer()
+        .content
+        .iter()
+        .map(|cell| {
+            serde_json::json!({"symbol": cell.symbol(), "fg": cell.fg.to_string(), "bg": cell.bg.to_string(), "bold": cell.modifier.contains(Modifier::BOLD)})
+        })
+        .collect();
+    std::fs::write(
+        path,
+        serde_json::to_vec(&serde_json::json!([{"name": "portrait-lyrics", "width": 84, "height": 80, "cells": cells}])).unwrap(),
+    )
+    .unwrap();
 }
