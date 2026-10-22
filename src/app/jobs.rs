@@ -427,7 +427,7 @@ impl Tasks {
             let _ = self.tx.send(event);
             return;
         }
-        let catalog = self.catalog.clone();
+        let catalog = self.catalog.personalized(&app.stats);
         let tx = self.tx.clone();
         let source_ids: HashSet<_> = app
             .mix
@@ -487,12 +487,8 @@ impl Tasks {
             self.job_epoch = epoch;
         }
     }
-    pub(super) fn fetch_recommendations(
-        &mut self,
-        track: &Track,
-        epoch: u64,
-        excluded: Vec<Track>,
-    ) {
+    pub(super) fn fetch_recommendations(&mut self, track: &Track, app: &App, excluded: Vec<Track>) {
+        let epoch = app.queue.epoch;
         self.sync_queue_epoch(epoch);
         if let Some(t) = self.recommendations.take() {
             t.abort();
@@ -512,7 +508,7 @@ impl Tasks {
         let seed = self.radio_seed.get_or_insert_with(|| track.clone()).clone();
         let round = self.radio_round;
         self.radio_round += 1;
-        let catalog = self.catalog.clone();
+        let catalog = self.catalog.personalized(&app.stats);
         let tx = self.tx.clone();
         self.recommendations = Some(tokio::spawn(async move {
             let res = catalog.radio_recommendations(&seed, &excluded, round).await;
@@ -533,7 +529,7 @@ impl Tasks {
         app.radio_error = None;
         app.radio_suggestions.clear();
         app.load(tx);
-        self.fetch_recommendations(&track, app.queue.epoch, vec![]);
+        self.fetch_recommendations(&track, app, vec![]);
         self.radio_active = true;
         app.status = format!("Track Radio: {} - finding related tracks...", track.name);
     }
@@ -563,7 +559,7 @@ impl Tasks {
                 .filter_map(|id| app.cache.get(id))
                 .cloned()
                 .collect();
-            self.fetch_recommendations(&track, app.queue.epoch, excluded);
+            self.fetch_recommendations(&track, app, excluded);
         }
     }
 
@@ -1136,6 +1132,12 @@ pub(super) fn background(app: &mut App, tasks: &mut Tasks, event: Background) ->
                     .record_text(Subsystem::Recommendations, error);
             }
             app.mix.loading_recommendations = false;
+            let profile =
+                crate::recommendation::Profile::new(&app.stats, crate::recommendation::now());
+            let mut candidates = candidates;
+            candidates.retain(|candidate| profile.accepts(&candidate.track));
+            candidates
+                .sort_by_cached_key(|candidate| std::cmp::Reverse(profile.score(&candidate.track)));
             app.mix.recommendation_candidates = candidates;
             app.mix.recommendation_error = error;
             app.mix.refresh();
@@ -1412,7 +1414,7 @@ pub(super) fn background(app: &mut App, tasks: &mut Tasks, event: Background) ->
                         .map(crate::catalog::recording_key)
                         .collect();
                     let mut added = 0;
-                    for track in batch.tracks {
+                    for track in app.personalized_candidates(batch.tracks) {
                         if track.playable
                             && seen.insert(track.id.clone())
                             && recordings.insert(crate::catalog::recording_key(&track))

@@ -13,6 +13,7 @@ use std::{
 };
 use tokio::sync::Mutex;
 
+mod recommendations;
 #[cfg(test)]
 pub(crate) mod tests;
 
@@ -71,6 +72,7 @@ pub(crate) struct Client {
     http: reqwest::Client,
     base: String,
     state: Arc<Mutex<State>>,
+    preferences: Option<Arc<crate::recommendation::Profile>>,
 }
 
 impl Client {
@@ -83,7 +85,18 @@ impl Client {
                 .build()?,
             base: "https://api.deezer.com".into(),
             state: Arc::new(Mutex::new(State::default())),
+            preferences: None,
         })
+    }
+
+    pub(crate) fn personalized(&self, stats: &crate::stats::SongStats) -> Self {
+        Self {
+            preferences: Some(Arc::new(crate::recommendation::Profile::new(
+                stats,
+                crate::recommendation::now(),
+            ))),
+            ..self.clone()
+        }
     }
 
     #[cfg(test)]
@@ -238,83 +251,6 @@ impl Client {
                 .then_some(ArtistResultSource::Deezer),
         })
     }
-
-    pub async fn recommendations(
-        &self,
-        seed: &Track,
-        excluded: &[Track],
-        round: usize,
-    ) -> Result<Recommendations> {
-        let artist = seed
-            .artist_ids
-            .iter()
-            .find_map(|id| key(id))
-            .context("Deezer artist metadata is unavailable; refresh the track")?;
-        let related = self
-            .get(
-                &format!("/artist/{artist}/related"),
-                &[("limit", "30".into())],
-            )
-            .await?;
-        let artists = related["data"]
-            .as_array()
-            .ok_or_else(|| ServiceFailure::new(Provider::Deezer, FailureKind::InvalidResponse))?;
-        let mut groups = Vec::new();
-        let ids = artists
-            .iter()
-            .filter_map(|artist| identity(&artist["id"]))
-            .collect::<Vec<_>>();
-        let ids = if ids.is_empty() {
-            vec![format!("deezer:{artist}")]
-        } else {
-            ids
-        };
-        for step in 0..ids.len().min(5) {
-            let id = &ids[(round * 5 + step) % ids.len()];
-            let page = self
-                .page(
-                    &Browse::Artist(id.clone()),
-                    (round / ids.len().div_ceil(5)) * 3,
-                )
-                .await?;
-            let Rows::Tracks(tracks) = page.rows else {
-                unreachable!()
-            };
-            groups.push(tracks);
-        }
-        let mut seen: HashSet<_> = excluded
-            .iter()
-            .chain(std::iter::once(seed))
-            .map(|track| track.id.clone())
-            .collect();
-        let mut recordings: HashSet<_> = excluded
-            .iter()
-            .chain(std::iter::once(seed))
-            .map(crate::catalog::recording_key)
-            .collect();
-        let mut tracks = Vec::new();
-        for at in 0..PAGE_SIZE {
-            for group in &groups {
-                if let Some(track) = group.get(at)
-                    && track.playable
-                    && seen.insert(track.id.clone())
-                    && recordings.insert(crate::catalog::recording_key(track))
-                {
-                    tracks.push(track.clone());
-                    if tracks.len() == 15 {
-                        break;
-                    }
-                }
-            }
-            if tracks.len() == 15 {
-                break;
-            }
-        }
-        Ok(Recommendations {
-            tracks,
-            source: RecommendationSource::Deezer,
-        })
-    }
 }
 
 fn identity(value: &Value) -> Option<String> {
@@ -354,7 +290,9 @@ pub(crate) fn parse_track(value: &Value) -> Option<Track> {
             .as_u64()?
             .saturating_mul(1000)
             .min(u32::MAX as u64) as u32,
-        playable: value["readable"].as_bool().unwrap_or(true),
+        // Deezer supplies metadata only. Its regional `readable` flag says
+        // nothing about the selected audio provider; resolve audio on playback.
+        playable: true,
         album: value["album"]["title"].as_str().map(clean),
         album_id: identity(&value["album"]["id"]),
         album_art_url: value["album"]["cover_medium"].as_str().map(clean),

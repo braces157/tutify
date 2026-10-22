@@ -18,6 +18,7 @@ mod model;
 mod playback;
 mod providers;
 mod queue;
+mod recommendation;
 mod service;
 mod source;
 pub mod stats;

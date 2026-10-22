@@ -226,6 +226,14 @@ pub(super) fn validate_config(config: &Config) -> Result<()> {
 }
 pub(super) fn validate_stats(stats: &crate::stats::SongStats) -> Result<()> {
     ensure!(
+        stats.feedback.len() <= crate::stats::MAX_FEEDBACK_EVENTS
+            && stats
+                .feedback
+                .iter()
+                .all(|event| crate::model::valid_track_id(&event.id)),
+        "Recommendation feedback must be bounded and contain valid track IDs"
+    );
+    ensure!(
         stats.tracks.len() <= crate::stats::MAX_STATS_ENTRIES,
         "Statistics exceed 50,000 entries"
     );

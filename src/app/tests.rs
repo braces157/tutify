@@ -17,6 +17,7 @@ mod persistence;
 mod queue;
 mod queue_filter;
 mod radio_discovery;
+mod recommendations;
 mod refactor;
 mod search_history;
 mod smart_shuffle;

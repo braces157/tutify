@@ -684,6 +684,60 @@ impl App {
             fallback_artists,
             &mut self.stats,
         );
+        self.record_recommendation_feedback(false);
+    }
+
+    fn record_recommendation_feedback(&mut self, early_skip: bool) {
+        if self.accounting.feedback_recorded || self.accounting.generation != self.generation {
+            return;
+        }
+        let listened = self.accounting.generation_listened_ms;
+        let duration = u64::from(self.accounting.duration_ms);
+        let engaged = if duration > 0 {
+            (duration * 3 / 5).clamp(3_000, 90_000)
+        } else {
+            90_000
+        };
+        let skip_limit = if duration > 0 {
+            (duration / 3).min(30_000)
+        } else {
+            30_000
+        };
+        let kind = if listened >= engaged {
+            crate::stats::FeedbackKind::Enjoyed
+        } else if early_skip && listened >= 3_000 && listened < skip_limit {
+            crate::stats::FeedbackKind::EarlySkip
+        } else {
+            return;
+        };
+        let Some(track) = self
+            .accounting
+            .track_id
+            .as_deref()
+            .and_then(|id| self.cache.get(id))
+        else {
+            return;
+        };
+        let revision = self.stats.revision;
+        self.stats
+            .record_feedback(track, kind, crate::recommendation::now());
+        self.accounting.feedback_recorded = self.stats.revision != revision;
+    }
+
+    fn personalized_candidates(&self, tracks: Vec<Track>) -> Vec<Track> {
+        let tail: Vec<_> = self
+            .queue
+            .order
+            .iter()
+            .rev()
+            .take(3)
+            .filter_map(|&index| self.cache.get(&self.queue.ids[index]).cloned())
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect();
+        crate::recommendation::Profile::new(&self.stats, crate::recommendation::now())
+            .rank(tracks, &tail)
     }
     pub fn finalize_playback_accounting(&mut self) {
         if self.state == State::Playing {
@@ -865,6 +919,10 @@ impl App {
                 }
             }
             MediaAction::Next => {
+                if self.state == State::Playing {
+                    self.account_playback_time(Instant::now());
+                    self.record_recommendation_feedback(true);
+                }
                 if self.queue.advance(self.config.repeat, false) {
                     self.load(tx);
                 } else {

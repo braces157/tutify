@@ -37,7 +37,7 @@ pub(crate) fn recording(track: &Track) -> (String, String) {
     )
 }
 
-fn special_version(track: &Track) -> bool {
+pub(crate) fn special_version(track: &Track) -> bool {
     let name = track.name.to_lowercase();
     [
         "remix",
@@ -76,7 +76,7 @@ fn add_artists(artists: &mut Vec<Track>, track: &Track) {
     }
 }
 
-pub(super) fn unique_tracks(tracks: impl IntoIterator<Item = Track>) -> Vec<Track> {
+pub(crate) fn unique_tracks(tracks: impl IntoIterator<Item = Track>) -> Vec<Track> {
     let mut ids = HashSet::new();
     let mut recordings = HashSet::new();
     tracks

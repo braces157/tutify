@@ -12,7 +12,7 @@ use tokio::sync::Mutex;
 
 mod capabilities;
 mod deezer;
-mod discovery;
+pub(crate) mod discovery;
 mod similarity;
 pub(crate) use discovery::recording as recording_key;
 #[cfg(test)]
@@ -157,6 +157,15 @@ pub struct Catalog {
 }
 
 impl Catalog {
+    pub(crate) fn personalized(&self, stats: &crate::stats::SongStats) -> Self {
+        let mut catalog = self.clone();
+        catalog.deezer = self
+            .deezer
+            .as_ref()
+            .map(|client| client.personalized(stats));
+        catalog
+    }
+
     pub(crate) fn volta(client: crate::volta::Client) -> Result<Self> {
         Ok(Self {
             volta: Some(client),

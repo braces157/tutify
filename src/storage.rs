@@ -372,6 +372,16 @@ mod tests {
         let id = "0".repeat(22);
         stats.add_listened_ms(&id, 12345, "Track Name", "Artist Name");
         stats.add_play(&id, "Track Name", "Artist Name");
+        stats.record_feedback(
+            &crate::model::Track {
+                id: id.clone(),
+                name: "Track Name".into(),
+                artists: "Artist Name".into(),
+                ..Default::default()
+            },
+            crate::stats::FeedbackKind::EarlySkip,
+            12345,
+        );
         store.save_stats(&stats).unwrap();
         store.save(&Config::default(), &Queue::default()).unwrap();
 
@@ -380,6 +390,11 @@ mod tests {
         let s = loaded.tracks.get(&id).unwrap();
         assert_eq!(s.play_count, 1);
         assert_eq!(s.listened_ms, 12345);
+        assert_eq!(loaded.feedback.len(), 1);
+        assert_eq!(
+            loaded.feedback[0].kind,
+            crate::stats::FeedbackKind::EarlySkip
+        );
 
         store.clear_stats().unwrap();
         store.clear_stats().unwrap();
@@ -387,6 +402,7 @@ mod tests {
         assert!(store.root.join("config.json").exists());
         assert!(store.root.join("queue.json").exists());
         assert_eq!(store.stats().unwrap().len(), 0);
+        assert!(store.stats().unwrap().feedback.is_empty());
     }
     #[test]
     fn stats_corruption_and_bounds() {

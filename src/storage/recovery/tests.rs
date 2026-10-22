@@ -86,6 +86,7 @@ fn inspection_reports_file_version_and_invariant_without_raw_values_or_writes() 
         (StateFile::Config, br#"{"version":1,"volume":"private-secret"}"#.as_slice(), StateFailureKind::Malformed, "Invalid field type"),
         (StateFile::Queue, br#"{"version":1,"ids":["0000000000000000000000"],"order":[2]}"#.as_slice(), StateFailureKind::Invariant, "invalid order"),
         (StateFile::Stats, br#"{"version":1,"tracks":{"private-secret":{"id":"0000000000000000000000","name":"Name","artists":"Artist","play_count":1,"listened_ms":1}}}"#.as_slice(), StateFailureKind::Invariant, "matching their entry ID"),
+        (StateFile::Stats, br#"{"version":1,"tracks":{},"feedback":[{"id":"private-secret","name":"Name","artists":"Artist","artist_ids":[],"at":1,"kind":"EarlySkip"}]}"#.as_slice(), StateFailureKind::Invariant, "feedback must be bounded"),
         (StateFile::Recipes, br#"{"version":1,"recipes":[{"name":"private-secret","source":"Queue","settings":{"target_minutes":0}}]}"#.as_slice(), StateFailureKind::Invariant, "Mix target"),
     ] {
         fs::write(store.root.join(file.name()), bytes).unwrap();

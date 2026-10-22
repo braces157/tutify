@@ -349,7 +349,7 @@ impl Tasks {
             ));
             return;
         }
-        let catalog = self.catalog.clone();
+        let catalog = self.catalog.personalized(&app.stats);
         let excluded = app
             .queue
             .ids
@@ -381,7 +381,8 @@ impl Tasks {
         self.smart.checked = None;
         match result {
             Ok(batch) => {
-                let selected = diverse_candidates(app, &batch.tracks);
+                let tracks = app.personalized_candidates(batch.tracks);
+                let selected = diverse_candidates(app, &tracks);
                 let ids = selected.iter().map(|track| track.id.clone()).collect();
                 let added: HashSet<_> = app.queue.add_smart_suggestions(ids).into_iter().collect();
                 for track in selected {

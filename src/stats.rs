@@ -9,6 +9,25 @@ use std::{
 pub const MAX_STATS_ENTRIES: usize = 50_000;
 pub const MAX_ACCOUNTING_INTERVAL: Duration = Duration::from_secs(5);
 pub const PLAY_TIME_THRESHOLD_MS: u64 = 30_000;
+pub const MAX_FEEDBACK_EVENTS: usize = 256;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FeedbackKind {
+    Enjoyed,
+    EarlySkip,
+}
+
+/// Small, local listening history. Wall-clock times allow preferences to decay
+/// across restarts without retaining an unbounded playback log.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ListeningFeedback {
+    pub id: String,
+    pub name: String,
+    pub artists: String,
+    pub artist_ids: Vec<String>,
+    pub at: u64,
+    pub kind: FeedbackKind,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TrackStat {
@@ -25,6 +44,8 @@ pub struct SongStats {
     pub version: u32,
     #[serde(default, alias = "entries")]
     pub tracks: HashMap<String, TrackStat>,
+    #[serde(default)]
+    pub feedback: Vec<ListeningFeedback>,
     #[serde(skip)]
     pub revision: u64,
 }
@@ -34,6 +55,7 @@ impl Default for SongStats {
         Self {
             version: 1,
             tracks: HashMap::new(),
+            feedback: Vec::new(),
             revision: 0,
         }
     }
@@ -80,6 +102,11 @@ impl SongStats {
                 "Song statistics exceed {MAX_STATS_ENTRIES} entries; preserve stats.json and move it aside to reset"
             );
         }
+        if self.feedback.len() > MAX_FEEDBACK_EVENTS
+            || self.feedback.iter().any(|event| !valid_id(&event.id))
+        {
+            bail!("Invalid recommendation feedback; preserve stats.json and update Tuitify");
+        }
         for (key, stat) in &self.tracks {
             if !valid_id(key) || !valid_id(&stat.id) || key != &stat.id {
                 bail!(
@@ -88,6 +115,28 @@ impl SongStats {
             }
         }
         Ok(())
+    }
+
+    pub fn record_feedback(&mut self, track: &crate::model::Track, kind: FeedbackKind, at: u64) {
+        if !valid_id(&track.id)
+            || is_placeholder(&track.name, &track.id)
+            || track.artists.trim().is_empty()
+        {
+            return;
+        }
+        if self.feedback.len() >= MAX_FEEDBACK_EVENTS {
+            self.feedback
+                .drain(..self.feedback.len() + 1 - MAX_FEEDBACK_EVENTS);
+        }
+        self.feedback.push(ListeningFeedback {
+            id: track.id.clone(),
+            name: track.name.clone(),
+            artists: track.artists.clone(),
+            artist_ids: track.artist_ids.clone(),
+            at,
+            kind,
+        });
+        self.revision = self.revision.wrapping_add(1);
     }
 
     pub fn trim(&mut self) {
@@ -283,6 +332,7 @@ pub struct PlaybackAccounting {
     pub generation_listened_ms: u64,
     pub play_credited: bool,
     pub last_accounted_at: Option<Instant>,
+    pub feedback_recorded: bool,
 }
 
 impl PlaybackAccounting {
@@ -302,6 +352,7 @@ impl PlaybackAccounting {
         self.generation_listened_ms = 0;
         self.play_credited = false;
         self.last_accounted_at = None;
+        self.feedback_recorded = false;
     }
 
     pub fn on_playing(

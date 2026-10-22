@@ -79,6 +79,7 @@ async fn volta_resolves_deezer_isrc_without_a_spotify_lookup() {
     let native = MockServer::start().await;
     let primary = MockServer::start().await;
     let mut song = item(1, "Song");
+    song["readable"] = json!(false);
     song["isrc"] = json!("USABC2400001");
     Mock::given(path("/track/1"))
         .respond_with(ResponseTemplate::new(200).set_body_json(song))
@@ -91,6 +92,7 @@ async fn volta_resolves_deezer_isrc_without_a_spotify_lookup() {
         .with_deezer(crate::deezer::Client::mock(&primary.uri()));
     let (track, id) = catalog.resolve_playback_track("deezer:1").await.unwrap();
     assert_eq!(track.id, "deezer:1");
+    assert!(track.playable);
     assert_eq!(id, "volta:USABC2400001");
 }
 

@@ -137,7 +137,7 @@ impl Tasks {
             .filter_map(|id| app.cache.get(id))
             .cloned()
             .collect::<Vec<_>>();
-        let catalog = self.catalog.clone();
+        let catalog = self.catalog.personalized(&app.stats);
         let sender = self.tx.clone();
         self.autoplay.handle = Some(tokio::spawn(async move {
             // A restored queue can already contain the whole first discovery
@@ -183,7 +183,7 @@ impl Tasks {
                     .map(crate::catalog::recording_key)
                     .collect();
                 let mut added = 0;
-                for track in batch.tracks {
+                for track in app.personalized_candidates(batch.tracks) {
                     if track.playable
                         && seen.insert(track.id.clone())
                         && recordings.insert(crate::catalog::recording_key(&track))

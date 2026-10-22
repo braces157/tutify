@@ -114,8 +114,8 @@ workflow inside Windows Terminal—no Electron shell and no background service.
   requires another rate, FFmpeg uses a bandlimited 64-tap converter for Volta and
   YouTube, with no forced 44.1 kHz intermediate step.
 - **Discord Rich Presence** with track artwork, audio quality and playback state; easy to disable.
-- **Local listening statistics** with aggregate play counts and listening time—no
-  analytics service or timestamped listening history.
+- **Local listening statistics and taste learning** with aggregate play counts,
+  listening time, and up to 256 recent listening/skip signals. No analytics service.
 - **Resilient sessions** with a persisted queue, atomic state writes, metadata
   caching, credential refresh, and paused-on-start restoration.
 
@@ -620,6 +620,15 @@ anchored to the original artist across refills. The queue identifies the source
 as "Similar artists • Deezer". This is artist similarity, not Spotify's private
 personalization or a guarantee of matching a song's mood and energy.
 
+Radio, Autoplay, Smart Shuffle and Mix Builder rank these related candidates
+using your local listening statistics. Sustained listening strengthens artist
+preferences, recently heard recordings get less priority, and an intentional
+early skip lowers a song's score. Repeated early skips give that recording a
+seven-day cooldown; listening to it again can clear the cooldown. Preferences
+decay over time. Artist spacing, recording deduplication and the original seed
+still constrain the results. Deezer ranks songs within each artist's pool before
+applying its artist caps, so fresher recordings can replace familiar top tracks.
+
 Latin accent differences between catalogs, such as "Minh Vương M4U" and
 "Minh Vuong M4u", are accepted only after confirming a matching seed recording.
 Exact names remain preferred, and ambiguous artist identities are rejected.
@@ -633,6 +642,8 @@ reports an error and preserves the queue instead of filling it with one artist.
 
 See [`docs/smart-shuffle-validation.md`](docs/smart-shuffle-validation.md) for the
 discovery rules, live acceptance seeds, privacy boundaries, and retry behavior.
+See [`docs/personalized-recommendation-validation.md`](docs/personalized-recommendation-validation.md)
+for local taste learning, feedback thresholds, saved data and validation results.
 
 Spotify limits some Web API endpoints for newer or development-mode applications.
 Tuitify reports restricted playlist and recommendation responses instead of trying
@@ -650,11 +661,13 @@ Application state lives under `%LOCALAPPDATA%\Tuitify`:
 | `config.json` | Public client ID and player preferences |
 | `queue.json` | Queue order, selection, and saved position |
 | `cache.json` | Bounded, expiring Spotify track metadata |
-| `stats.json` | Aggregate play counts and listening time |
+| `stats.json` | Aggregate plays/time and up to 256 timestamped taste signals |
 | `mix-recipes.json` | Named Mix Builder source and preference recipes |
 
-Tuitify does not collect analytics, store your Spotify password, keep a timestamped
-listening history, or provide an offline audio cache. Discord presence is enabled
+Tuitify does not collect analytics, store your Spotify password, or provide an
+offline audio cache. The bounded taste signals stay in your local `stats.json`
+and saved-state backups; they are never sent to recommendation providers.
+Pauses, seeks and playback failures do not count as early skips. Discord presence is enabled
 by default: song details, artwork, and timing go to the local Discord client, which
 may show them to other people according to your Discord privacy settings. To
 disable it, close Tuitify, set `"discord_rpc": false` in `config.json`, and restart.
@@ -701,7 +714,7 @@ replace, remove, or unchanged action. It prints a complete command with
 `--confirm` and a token to apply that exact preview. If the backup, destination,
 or current files change, generate a new preview before applying it. Backups
 preserve duplicate queue occurrences, queue order/position, settings, Mix recipes,
-and existing aggregate statistics. Missing snapshots explicitly restore the
+and existing statistics and taste signals. Missing snapshots explicitly restore the
 default state by removing that saved file; they do not merge with current state.
 Existing backup files are never overwritten.
 

@@ -1,5 +1,8 @@
 # Smart Shuffle and Track Radio validation
 
+For the native Deezer catalog path added after the historical Spotify checks
+below, see [Deezer recommendation validation — 2026-10-21](deezer-recommendation-validation.md).
+
 Updated for v0.3.1 on 2026-09-30, Windows x64.
 
 ## What was wrong

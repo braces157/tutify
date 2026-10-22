@@ -11,6 +11,17 @@ pub(crate) fn item(id: u64, title: &str) -> Value {
 }
 
 #[test]
+fn deezer_readability_does_not_gate_external_audio() {
+    for readable in [json!(false), json!(true), Value::Null] {
+        let mut song = item(1, "Song");
+        song["readable"] = readable;
+        let track = parse_track(&song).unwrap();
+        assert!(track.playable);
+        assert_eq!(track.id, "deezer:1");
+    }
+}
+
+#[test]
 fn identities_links_and_recording_codes_remain_scoped() {
     for id in ["deezer:1", "deezer:138547415"] {
         assert!(crate::model::valid_track_id(id));
@@ -115,15 +126,18 @@ async fn album_tracks_inherit_album_and_related_artists_drive_radio() {
     assert_eq!(tracks[0].album.as_deref(), Some("Album"));
     let recs = client.recommendations(&tracks[0], &[], 0).await.unwrap();
     assert_eq!(recs.source, RecommendationSource::Deezer);
-    assert_eq!(recs.tracks.len(), 8);
+    assert_eq!(recs.tracks.len(), 6);
     assert_ne!(recs.tracks[0].artists, recs.tracks[1].artists);
+    let remaining = client
+        .recommendations(&tracks[0], &recs.tracks, 0)
+        .await
+        .unwrap()
+        .tracks;
+    assert_eq!(remaining.len(), 2);
     assert!(
-        client
-            .recommendations(&tracks[0], &recs.tracks, 0)
-            .await
-            .unwrap()
-            .tracks
-            .is_empty()
+        remaining
+            .iter()
+            .all(|track| !recs.tracks.iter().any(|old| old.id == track.id))
     );
     let mut q = crate::queue::Queue::default();
     q.replace(
