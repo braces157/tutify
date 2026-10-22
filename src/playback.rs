@@ -21,6 +21,7 @@ use tokio::sync::mpsc;
 mod catalog;
 mod fallback;
 pub(crate) mod pcm;
+mod recovery;
 
 #[derive(Debug, Clone)]
 pub enum Command {
@@ -68,6 +69,11 @@ pub enum Event {
         generation: u64,
         position_ms: u32,
     },
+    Recovering {
+        generation: u64,
+        position_ms: u32,
+        attempt: u8,
+    },
     TimeToPreload {
         generation: u64,
     },
@@ -87,9 +93,82 @@ pub struct Playback {
     task: tokio::task::JoinHandle<()>,
 }
 
+/// Shared PCM/FFmpeg transport; each resolver owns only recording lookup.
+#[derive(Clone)]
+pub(crate) enum HttpResolver {
+    Volta(Arc<crate::volta::matching::Resolver>),
+    Monochrome(Arc<crate::monochrome::Resolver>),
+}
+
+impl HttpResolver {
+    pub(crate) fn source(&self) -> &'static str {
+        match self {
+            Self::Volta(_) => "Volta",
+            Self::Monochrome(_) => "Monochrome",
+        }
+    }
+    pub(crate) fn accepts(&self, id: &str) -> bool {
+        match self {
+            Self::Volta(resolver) => resolver.accepts(id),
+            Self::Monochrome(_) => crate::model::valid_track_id(id),
+        }
+    }
+    pub(crate) async fn audio(
+        &self,
+        id: &str,
+    ) -> Result<(crate::volta::Audio, Option<crate::model::Track>)> {
+        match self {
+            Self::Volta(resolver) => Ok((resolver.audio(id).await?, None)),
+            Self::Monochrome(resolver) => {
+                let (audio, track) = resolver.audio(id).await?;
+                Ok((audio, Some(track)))
+            }
+        }
+    }
+}
+
 impl Playback {
+    pub(crate) fn with_recovery(self, catalog: crate::catalog::Catalog) -> Self {
+        recovery::spawn(self, catalog)
+    }
     pub(crate) fn with_catalog(self, catalog: crate::catalog::Catalog) -> Self {
         catalog::spawn(self, catalog)
+    }
+    pub(crate) fn with_audio_catalog(
+        self,
+        catalog: crate::catalog::Catalog,
+        origin: crate::catalog::Catalog,
+    ) -> Self {
+        catalog::spawn_from(self, catalog, Some(origin))
+    }
+    pub(crate) fn with_fallback(self, fallback: Self, source: &'static str) -> Self {
+        fallback::spawn_any(self, fallback, source)
+    }
+    pub(crate) fn spawn_monochrome(
+        catalog: crate::catalog::Catalog,
+        volume: u8,
+        visualizer: Arc<crate::visualizer::AudioVisualizer>,
+    ) -> Result<Self> {
+        Self::spawn_http(
+            HttpResolver::Monochrome(crate::monochrome::Resolver::new(catalog)?.into()),
+            volume,
+            visualizer,
+        )
+    }
+    pub(crate) fn spawn_volta_only(
+        client: crate::volta::Client,
+        volume: u8,
+        visualizer: Arc<crate::visualizer::AudioVisualizer>,
+    ) -> Result<Self> {
+        Self::spawn_http(
+            HttpResolver::Volta(crate::volta::matching::Resolver::new(client, None).into()),
+            volume,
+            visualizer,
+        )
+    }
+    /// Retry the original discovery identity, including failures before audio loads.
+    pub(crate) fn with_deezer_fallback(self, fallback: Self, source: &'static str) -> Self {
+        fallback::spawn_deezer(self, fallback, source)
     }
     pub(crate) fn spawn_volta(
         client: crate::volta::Client,
@@ -135,6 +214,14 @@ impl Playback {
         visualizer: Arc<crate::visualizer::AudioVisualizer>,
     ) -> Result<Self> {
         let resolver = resolver.with_youtube(crate::youtube::Tools::discover().ok());
+        Self::spawn_http(HttpResolver::Volta(resolver.into()), volume, visualizer)
+    }
+    fn spawn_http(
+        resolver: HttpResolver,
+        volume: u8,
+        visualizer: Arc<crate::visualizer::AudioVisualizer>,
+    ) -> Result<Self> {
+        let source = resolver.source();
         let ffmpeg = crate::volta::playback::ffmpeg()?;
         let (commands, rx) = mpsc::unbounded_channel();
         let (tx, events) = mpsc::unbounded_channel();
@@ -155,9 +242,9 @@ impl Playback {
                     let _ = errors.send(Event::Error(format!("{error:#}")));
                 }
                 Err(_) => {
-                    let _ = errors.send(Event::Error(
-                        "Volta audio worker exited unexpectedly; restart Tuitify".into(),
-                    ));
+                    let _ = errors.send(Event::Error(format!(
+                        "{source} audio worker exited unexpectedly; restart Tuitify"
+                    )));
                 }
             }
         });

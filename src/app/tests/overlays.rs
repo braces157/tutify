@@ -1,5 +1,125 @@
 use super::*;
 
+fn scrolling_lyrics_app(timed: bool) -> App {
+    let mut app = App::new(Config::default(), Queue::default());
+    let track = test_track(0);
+    app.queue.replace(vec![track.id.clone()], 0, false);
+    app.cache.insert(track.id.clone(), track);
+    app.ui.overlay = Overlay::Lyrics;
+    app.lyrics.reading_mode = crate::lyrics::ReadingMode::Off;
+    app.lyrics.content = Some(if timed {
+        crate::lyrics::Lyrics {
+            lines: (0..100)
+                .map(|i| crate::lyrics::LyricLine {
+                    position_ms: i * 2_000,
+                    text: format!("Verse {i:03}"),
+                })
+                .collect(),
+            ..Default::default()
+        }
+    } else {
+        crate::lyrics::Lyrics {
+            plain: Some(
+                (0..100)
+                    .map(|i| format!("Verse {i:03}"))
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            ),
+            ..Default::default()
+        }
+    });
+    app.queue.position_ms = 100_000;
+    app
+}
+
+#[tokio::test]
+async fn lyrics_manual_navigation_starts_at_the_visible_offset_and_a_resumes() {
+    for timed in [false, true] {
+        let mut app = scrolling_lyrics_app(timed);
+        let (mut tasks, _) = tasks();
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        draw_mouse(&app, 80, 24);
+        let original = app.ui.render.borrow().lyrics_scroll;
+        assert!(original > 0);
+        key(
+            &mut app,
+            KeyEvent::new(KeyCode::Up, KeyModifiers::NONE),
+            &mut tasks,
+            &tx,
+        );
+        assert!(app.lyrics.manual_scroll);
+        assert_eq!(app.lyrics.scroll, original - 1);
+        key(
+            &mut app,
+            KeyEvent::new(KeyCode::PageDown, KeyModifiers::NONE),
+            &mut tasks,
+            &tx,
+        );
+        assert_eq!(
+            app.lyrics.scroll,
+            (original + 9).min(app.ui.render.borrow().lyrics_length - 1)
+        );
+        app.queue.position_ms = 0;
+        draw_mouse(&app, 80, 24);
+        assert_eq!(app.ui.render.borrow().lyrics_scroll, app.lyrics.scroll);
+        key(
+            &mut app,
+            KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE),
+            &mut tasks,
+            &tx,
+        );
+        assert!(!app.lyrics.manual_scroll);
+        draw_mouse(&app, 80, 24);
+        assert_eq!(app.ui.render.borrow().lyrics_scroll, 0);
+        assert_eq!(app.queue.position_ms, 0);
+        assert!(
+            rx.try_recv().is_err(),
+            "scroll controls must not change playback"
+        );
+    }
+}
+
+#[tokio::test]
+async fn lyrics_wheel_scrolling_works_without_catalog_mouse_targets() {
+    for timed in [false, true] {
+        let mut app = scrolling_lyrics_app(timed);
+        let (mut tasks, _) = tasks();
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        draw_mouse(&app, 80, 24);
+        let original = app.ui.render.borrow().lyrics_scroll;
+        app.ui.render.borrow_mut().mouse_hits.clear();
+        assert!(mouse(
+            &mut app,
+            MouseEvent {
+                kind: MouseEventKind::ScrollDown,
+                column: 40,
+                row: 10,
+                modifiers: KeyModifiers::NONE
+            },
+            &mut tasks,
+            &tx
+        ));
+        assert!(app.lyrics.manual_scroll);
+        assert_eq!(app.lyrics.scroll, original + 3);
+        assert_eq!(app.queue.selected, 0);
+        assert!(rx.try_recv().is_err());
+    }
+}
+
+#[tokio::test]
+async fn changing_tracks_restores_lyrics_auto_scroll() {
+    let mut app = scrolling_lyrics_app(false);
+    app.ui.overlay = Overlay::None;
+    app.lyrics.manual_scroll = true;
+    app.lyrics.scroll = 25;
+    app.lyrics.track_id = Some(test_track(1).id);
+    let (mut tasks, _) = tasks();
+    tasks.update_lyrics(&mut app);
+    assert!(!app.lyrics.manual_scroll);
+    assert_eq!(app.lyrics.scroll, 0);
+    assert!(tasks.lyrics.is_none());
+}
+
 #[tokio::test]
 async fn lyrics_reading_key_cycles_without_changing_playback() {
     use crate::lyrics::ReadingMode;

@@ -3,6 +3,7 @@ use crate::{model::Track, queue::Queue, storage::Config};
 use ratatui::backend::TestBackend;
 mod diagnostics;
 mod listening;
+mod lyrics_scroll;
 mod queue_filter;
 mod redesign;
 
@@ -135,6 +136,7 @@ fn help_and_plain_lyrics_can_scroll_to_last_line_in_small_terminal() {
         ..crate::lyrics::Lyrics::default()
     });
     app.lyrics.scroll = usize::MAX;
+    app.lyrics.manual_scroll = true;
     terminal
         .draw(|f| draw(f, &app, &mut app.ui.render.borrow_mut()))
         .unwrap();
@@ -1059,6 +1061,7 @@ fn plain_readings_wrap_and_scroll_to_the_last_pronunciation() {
     content.prepare_readings();
     app.lyrics.content = Some(content);
     app.lyrics.scroll = usize::MAX;
+    app.lyrics.manual_scroll = true;
     let mut terminal = Terminal::new(TestBackend::new(24, 10)).unwrap();
     terminal
         .draw(|frame| lyrics(frame, &app, &mut app.ui.render.borrow_mut(), frame.area()))
@@ -1072,6 +1075,8 @@ fn plain_readings_wrap_and_scroll_to_the_last_pronunciation() {
         .collect();
     assert!(text.contains("shì jiè"), "{text}");
     assert!(app.ui.render.borrow().lyrics_length > 40);
+    let render = app.ui.render.borrow();
+    assert_eq!(render.lyrics_scroll, render.lyrics_length - 1);
 }
 
 #[test]

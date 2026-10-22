@@ -3,19 +3,23 @@ use crate::{
     auth::TokenManager, catalog::Catalog, model::MusicSource, playback::Playback, storage::Config,
     visualizer::AudioVisualizer, youtube,
 };
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::sync::Arc;
 pub(crate) struct Services {
     pub catalog: Catalog,
     pub playback: Playback,
     pub music_catalog: bool,
     pub library_connected: bool,
+    pub primary_audio: Option<&'static str>,
 }
 pub(crate) fn open(
     source: MusicSource,
     config: &Config,
     visualizer: Arc<AudioVisualizer>,
 ) -> Result<Services> {
+    if config.automatic_audio {
+        return open_automatic(source, config, visualizer);
+    }
     let mut audio_catalog = None;
     let mut services = match source {
         MusicSource::Spotify => Ok::<Services, anyhow::Error>(Services {
@@ -24,10 +28,11 @@ pub(crate) fn open(
                 TokenManager::load_streaming()?,
                 config.client_id.clone(),
                 config.volume,
-                visualizer,
+                visualizer.clone(),
             ),
             music_catalog: false,
             library_connected: true,
+            primary_audio: None,
         }),
         MusicSource::Youtube => {
             let tools = youtube::Tools::discover()?;
@@ -35,18 +40,20 @@ pub(crate) fn open(
             let library_connected = tools.music.as_ref().is_some_and(|music| music.connected());
             Ok(Services {
                 catalog: Catalog::youtube(tools.clone())?,
-                playback: Playback::spawn_youtube(tools, config.volume, visualizer),
+                playback: Playback::spawn_youtube(tools, config.volume, visualizer.clone()),
                 music_catalog,
                 library_connected,
+                primary_audio: None,
             })
         }
         MusicSource::Volta => {
             let client = crate::volta::Client::load()?;
             Ok(Services {
                 catalog: Catalog::volta(client.clone())?,
-                playback: Playback::spawn_volta(client, config.volume, visualizer)?,
+                playback: Playback::spawn_volta(client, config.volume, visualizer.clone())?,
                 music_catalog: false,
                 library_connected: true,
+                primary_audio: None,
             })
         }
         MusicSource::SpotifyVolta => {
@@ -58,11 +65,12 @@ pub(crate) fn open(
                     client,
                     catalog.clone(),
                     config.volume,
-                    visualizer,
+                    visualizer.clone(),
                 )?,
                 catalog,
                 music_catalog: false,
                 library_connected: true,
+                primary_audio: None,
             })
         }
     }?;
@@ -70,8 +78,184 @@ pub(crate) fn open(
     services.catalog = services.catalog.with_deezer(deezer.clone());
     let resolver = audio_catalog
         .unwrap_or_else(|| services.catalog.clone())
-        .with_deezer(deezer)
-        .with_audio_fallback();
+        .with_deezer(deezer.clone());
     services.playback = services.playback.with_catalog(resolver);
+    if matches!(source, MusicSource::Volta | MusicSource::SpotifyVolta) {
+        // Each retry resolves the original Deezer recording independently. A
+        // translated Volta ID must not make another provider depend on Volta.
+        if let Ok(tools) = youtube::Tools::discover() {
+            let catalog = Catalog::youtube(tools.clone())?.with_deezer(deezer.clone());
+            let fallback = Playback::spawn_youtube(tools, config.volume, visualizer.clone())
+                .with_catalog(catalog);
+            services.playback = services.playback.with_deezer_fallback(fallback, "YouTube");
+        }
+        // Standalone Volta settings do not contain Spotify's catalog client ID.
+        let spotify_config = if source == MusicSource::Volta {
+            crate::storage::Storage::local_read_only()
+                .and_then(|store| store.config())
+                .ok()
+        } else {
+            Some(config.clone())
+        };
+        if let Ok(Some(tokens)) = TokenManager::load_optional_streaming()
+            && let Some(spotify_config) = spotify_config
+            && let Ok(Some(catalog_tokens)) = TokenManager::load_optional(&spotify_config)
+        {
+            let catalog = Catalog::new(catalog_tokens)?.with_deezer(deezer);
+            let fallback = Playback::spawn_with_visualizer(
+                tokens,
+                crate::auth::STREAMING_CLIENT_ID.into(),
+                config.volume,
+                visualizer,
+            )
+            .with_catalog(catalog);
+            services.playback = services.playback.with_deezer_fallback(fallback, "Spotify");
+        }
+    }
+    services.playback = services.playback.with_recovery(services.catalog.clone());
     Ok(services)
+}
+
+fn open_automatic(
+    source: MusicSource,
+    config: &Config,
+    visualizer: Arc<AudioVisualizer>,
+) -> Result<Services> {
+    let deezer = crate::deezer::Client::new()?;
+    let spotify_config = if matches!(source, MusicSource::Volta | MusicSource::Youtube) {
+        crate::storage::Storage::local_read_only()
+            .and_then(|store| store.config())
+            .ok()
+    } else {
+        Some(config.clone())
+    };
+    let spotify_catalog = spotify_config
+        .as_ref()
+        .and_then(|config| TokenManager::load_optional(config).ok().flatten())
+        .map(Catalog::new)
+        .transpose()?
+        .map(|catalog| catalog.with_deezer(deezer.clone()));
+    let volta = crate::volta::Client::load().ok();
+    let volta_catalog = volta
+        .as_ref()
+        .map(|client| Catalog::volta(client.clone()))
+        .transpose()?
+        .map(|catalog| catalog.with_deezer(deezer.clone()));
+    let tools = youtube::Tools::discover().ok();
+    let youtube_catalog = tools
+        .as_ref()
+        .map(|tools| Catalog::youtube(tools.clone()))
+        .transpose()?
+        .map(|catalog| catalog.with_deezer(deezer.clone()));
+    let library_connected = match source {
+        MusicSource::Spotify | MusicSource::SpotifyVolta => spotify_catalog.is_some(),
+        MusicSource::Volta => volta_catalog.is_some(),
+        MusicSource::Youtube => tools
+            .as_ref()
+            .and_then(|tools| tools.music.as_ref())
+            .is_some_and(|music| music.connected()),
+    };
+    let catalog = match source {
+        MusicSource::Spotify | MusicSource::SpotifyVolta => spotify_catalog.clone(),
+        MusicSource::Volta => volta_catalog.clone(),
+        MusicSource::Youtube => youtube_catalog.clone(),
+    }
+    .unwrap_or(Catalog::offline()?)
+    .with_deezer(deezer);
+    let mut candidates = vec![(
+        "Monochrome",
+        Playback::spawn_monochrome(catalog.clone(), config.volume, visualizer.clone()),
+    )];
+    // Wrap in priority order. Each provider receives the original queue ID and
+    // resolves independently; Volta's internal YouTube retry is bypassed here.
+    if let (Some(client), Some(target)) = (volta, volta_catalog) {
+        let next = Playback::spawn_volta_only(client, config.volume, visualizer.clone())
+            .map(|playback| playback.with_audio_catalog(target, catalog.clone()));
+        candidates.push(("Volta", next));
+    }
+    if let Some(target) = spotify_catalog
+        && let Ok(Some(tokens)) = TokenManager::load_optional_streaming()
+    {
+        let next = Playback::spawn_with_visualizer(
+            tokens,
+            crate::auth::STREAMING_CLIENT_ID.into(),
+            config.volume,
+            visualizer.clone(),
+        )
+        .with_audio_catalog(target, catalog.clone());
+        candidates.push(("Spotify", Ok(next)));
+    }
+    if let (Some(tools), Some(target)) = (tools.clone(), youtube_catalog) {
+        let next = Playback::spawn_youtube(tools, config.volume, visualizer)
+            .with_audio_catalog(target, catalog.clone());
+        candidates.push(("YouTube", Ok(next)));
+    }
+    let (playback, primary_audio) = audio_chain(candidates)?;
+    Ok(Services {
+        playback: playback.with_recovery(catalog.clone()),
+        catalog,
+        music_catalog: source == MusicSource::Youtube
+            && tools.is_some_and(|tools| tools.music.is_some()),
+        library_connected,
+        primary_audio: Some(primary_audio),
+    })
+}
+
+fn audio_chain(
+    candidates: Vec<(&'static str, Result<Playback>)>,
+) -> Result<(Playback, &'static str)> {
+    let mut chain = None;
+    for (source, candidate) in candidates {
+        if let Ok(candidate) = candidate {
+            chain = Some(match chain {
+                Some((primary, label)) => {
+                    (Playback::with_fallback(primary, candidate, source), label)
+                }
+                None => (candidate, source),
+            });
+        }
+    }
+    chain.context("No audio provider could start. Run 'tuitify youtube setup' to install playback tools, or 'tuitify auth --streaming' to connect Spotify streaming.")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn idle() -> Playback {
+        Playback::spawn_with_visualizer(
+            TokenManager::offline().unwrap(),
+            String::new(),
+            0,
+            AudioVisualizer::new(),
+        )
+    }
+    #[tokio::test]
+    async fn unavailable_initial_providers_do_not_block_later_services_or_mislabel_them() {
+        let names = ["Monochrome", "Volta", "Spotify", "YouTube"];
+        for first_available in 0..names.len() {
+            let candidates = names
+                .iter()
+                .enumerate()
+                .map(|(index, name)| {
+                    (
+                        *name,
+                        if index < first_available {
+                            Err(anyhow::anyhow!("tools unavailable"))
+                        } else {
+                            Ok(idle())
+                        },
+                    )
+                })
+                .collect();
+            let (_, primary) = audio_chain(candidates).unwrap();
+            assert_eq!(primary, names[first_available]);
+        }
+        assert!(
+            audio_chain(vec![
+                ("Monochrome", Err(anyhow::anyhow!("missing FFmpeg"))),
+                ("Volta", Err(anyhow::anyhow!("missing FFmpeg")))
+            ])
+            .is_err()
+        );
+    }
 }

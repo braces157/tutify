@@ -66,7 +66,7 @@ pub(super) fn rule(frame: &mut Frame<'_>, area: Rect, theme: Theme) {
     }
     frame.render_widget(
         Paragraph::new("─".repeat(usize::from(area.width)))
-            .style(Style::default().fg(theme.palette().border)),
+            .style(Style::default().fg(theme.palette().divider)),
         Rect::new(area.x, area.y, area.width, 1),
     );
 }
@@ -76,11 +76,11 @@ pub(super) fn column_rule(frame: &mut Frame<'_>, area: Rect, theme: Theme) {
     if area.width == 0 || area.height == 0 {
         return;
     }
-    frame.render_widget(
-        Paragraph::new("│".repeat(usize::from(area.height)))
-            .style(Style::default().fg(theme.palette().divider)),
-        Rect::new(area.x, area.y, 1, area.height),
-    );
+    for y in area.y..area.bottom() {
+        frame.buffer_mut()[(area.x, y)]
+            .set_symbol("│")
+            .set_fg(theme.palette().divider);
+    }
 }
 
 /// The heading of an unframed panel: the subject in the brightest ink, the
@@ -162,16 +162,19 @@ pub(super) fn key_cap(key: &str, theme: Theme) -> Span<'static> {
 pub(super) fn progress_bar(filled: usize, width: usize, theme: Theme) -> Line<'static> {
     let palette = theme.palette();
     let filled = filled.min(width);
-    let mut spans = Vec::with_capacity(2);
+    let mut spans = Vec::with_capacity(3);
     if filled > 0 {
         spans.push(Span::styled(
             "─".repeat(filled),
             Style::default().fg(palette.primary),
         ));
     }
-    if filled < width {
+    if width > 0 && filled < width {
+        spans.push(Span::styled("●", Style::default().fg(palette.primary)));
+    }
+    if filled + 1 < width {
         spans.push(Span::styled(
-            "─".repeat(width - filled),
+            "─".repeat(width - filled - 1),
             Style::default().fg(palette.track),
         ));
     }

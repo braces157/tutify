@@ -181,17 +181,7 @@ mod tests {
         );
         let mut cache = Preparer::default();
         cache.request(&tools, "youtube:dQw4w9WgXcQ".into());
-        tokio::time::timeout(Duration::from_secs(10), async {
-            while !marker.exists() {
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        })
-        .await
-        .unwrap();
-        let pid = std::fs::read_to_string(&marker)
-            .unwrap()
-            .parse::<u32>()
-            .unwrap();
+        let pid = super::super::super::tests::fixture_pid(&marker).await;
         cache.cancel();
         tokio::time::sleep(Duration::from_millis(50)).await;
         use windows::Win32::{

@@ -28,9 +28,13 @@ struct Intent {
 }
 
 pub(super) fn spawn(inner: Playback, catalog: Catalog) -> Playback {
+    spawn_from(inner, catalog, None)
+}
+
+pub(super) fn spawn_from(inner: Playback, catalog: Catalog, origin: Option<Catalog>) -> Playback {
     let (commands, rx) = mpsc::unbounded_channel();
     let (tx, events) = mpsc::unbounded_channel();
-    let task = tokio::spawn(route(inner, catalog, rx, tx));
+    let task = tokio::spawn(route(inner, catalog, origin, rx, tx));
     Playback {
         commands,
         events,
@@ -38,13 +42,19 @@ pub(super) fn spawn(inner: Playback, catalog: Catalog) -> Playback {
     }
 }
 
-fn resolve(catalog: &Catalog, id: String, preload: bool) -> Pending {
+fn resolve(catalog: &Catalog, origin: &Option<Catalog>, id: String, preload: bool) -> Pending {
     let client = catalog.clone();
+    let origin = origin.clone();
     let query = id.clone();
     Pending {
         id,
         preload,
-        task: tokio::spawn(async move { client.resolve_playback_track(&query).await }),
+        task: tokio::spawn(async move {
+            match origin {
+                Some(origin) => client.resolve_audio_track(&origin, &query).await,
+                None => client.resolve_playback_track(&query).await,
+            }
+        }),
     }
 }
 
@@ -74,12 +84,16 @@ fn load(
 async fn route(
     mut inner: Playback,
     catalog: Catalog,
+    origin: Option<Catalog>,
     mut commands: mpsc::UnboundedReceiver<Command>,
     events: mpsc::UnboundedSender<Event>,
 ) {
     let mut pending: Option<Pending> = None;
     let mut intent: Option<Intent> = None;
     let mut matches: HashMap<String, (Track, String)> = HashMap::new();
+    let translate = |id: &str| {
+        crate::deezer::key(id).is_some() || (origin.is_some() && !catalog.native_audio_identity(id))
+    };
     loop {
         tokio::select! {
             biased;
@@ -88,8 +102,8 @@ async fn route(
                 match command {
                     Command::Load { id, position_ms, generation } => {
                         intent = Some(Intent { id: id.clone(), generation, position: position_ms, paused: false,
-                            resolving: crate::deezer::key(&id).is_some(), metadata: None });
-                        if crate::deezer::key(&id).is_none() {
+                            resolving: translate(&id), metadata: None });
+                        if !translate(&id) {
                             pending = None;
                             let _ = inner.commands.send(Command::Load { id, position_ms, generation });
                         } else if let Some(resolved) = matches.get(&id).cloned() {
@@ -100,13 +114,13 @@ async fn route(
                             if let Some(job) = pending.as_mut().filter(|job| job.id == id) {
                                 job.preload = false;
                             } else {
-                                pending = Some(resolve(&catalog, id, false));
+                                pending = Some(resolve(&catalog, &origin, id, false));
                             }
                         }
                     }
                     Command::Preload { id } => {
                         if intent.as_ref().is_some_and(|current| current.resolving) { continue; }
-                        if crate::deezer::key(&id).is_none() {
+                        if !translate(&id) {
                             pending = None;
                             let _ = inner.commands.send(Command::Preload { id });
                         } else if let Some((_, audio)) = matches.get(&id) {
@@ -114,7 +128,7 @@ async fn route(
                             let _ = inner.commands.send(Command::Preload { id: audio.clone() });
                         } else if pending.as_ref().is_none_or(|job| job.id != id) {
                             let _ = inner.commands.send(Command::CancelPreload);
-                            pending = Some(resolve(&catalog, id, true));
+                            pending = Some(resolve(&catalog, &origin, id, true));
                         }
                     }
                     Command::CancelPreload => {

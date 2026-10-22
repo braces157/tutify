@@ -4,6 +4,74 @@ use serde_json::json;
 use std::time::Duration;
 use wiremock::{Mock, MockServer, ResponseTemplate, matchers::path};
 
+#[tokio::test]
+async fn fallback_translates_native_spotify_identity_using_the_original_catalog() {
+    let spotify = MockServer::start().await;
+    let volta = MockServer::start().await;
+    let id = "0000000000000000000001";
+    Mock::given(path(format!("/tracks/{id}")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id":id,"name":"Song","artists":[{"name":"Artist"}],"duration_ms":200000,
+            "external_ids":{"isrc":"USABC2400001"}
+        })))
+        .expect(1)
+        .mount(&spotify)
+        .await;
+    Mock::given(path("/oauth/token"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "access_token":"volta_at_test","expires_in":3600,"scope":"catalog:read stream:read"
+        })))
+        .mount(&volta)
+        .await;
+    Mock::given(path("/track/USABC2400001"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id":"USABC2400001","name":"Song","artist":"Artist","duration_ms":200000
+        })))
+        .expect(1)
+        .mount(&volta)
+        .await;
+    let target = Catalog::volta(crate::volta::Client::mock(&volta.uri())).unwrap();
+    let (inner, mut commands, events) = backend();
+    let mut player = inner.with_audio_catalog(target, Catalog::mock(&spotify.uri()));
+    player
+        .commands
+        .send(Command::Load {
+            id: id.into(),
+            position_ms: 0,
+            generation: 9,
+        })
+        .unwrap();
+    player.commands.send(Command::Pause).unwrap();
+    player.commands.send(Command::Seek(5000)).unwrap();
+    loop {
+        if let Command::Load {
+            id,
+            position_ms,
+            generation,
+        } = recv(&mut commands).await
+        {
+            assert_eq!(id, "volta:USABC2400001");
+            assert_eq!((position_ms, generation), (5000, 9));
+            break;
+        }
+    }
+    assert!(matches!(recv(&mut commands).await, Command::Pause));
+    events
+        .send(Event::Playing {
+            generation: 9,
+            position_ms: 5000,
+        })
+        .unwrap();
+    loop {
+        match recv(&mut player.events).await {
+            Event::Metadata { track, .. } => assert_eq!(track.id, id),
+            Event::Playing { generation: 9, .. } => break,
+            Event::TrackError { message, .. } => panic!("{message}"),
+            _ => (),
+        }
+    }
+}
+
 fn backend() -> (
     Playback,
     mpsc::UnboundedReceiver<Command>,

@@ -170,16 +170,17 @@ fn row_hits(
     visible: &std::ops::Range<usize>,
     queue: bool,
     header: bool,
+    stride: u16,
 ) {
     let top = area.y + if header { 2 } else { 0 };
     for (line, index) in visible.clone().enumerate() {
-        let y = top + line as u16;
-        if y >= area.bottom().saturating_sub(1) {
+        let y = top + line as u16 * stride;
+        if y + stride > area.bottom() {
             break;
         }
         hit(
             render,
-            Rect::new(area.x + 1, y, area.width.saturating_sub(2), 1),
+            Rect::new(area.x + 1, y, area.width.saturating_sub(2), stride),
             if queue {
                 MouseTarget::Queue(index)
             } else {

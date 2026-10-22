@@ -1,5 +1,6 @@
 //! A cancellable FLAC-capable player; resolution and decoding stay off the UI thread.
-use super::{Audio, Client, matching::Resolver};
+use super::{Audio, Client};
+use crate::playback::HttpResolver as Resolver;
 use crate::playback::pcm::{CAPACITY, Pcm};
 use crate::{
     audio_output::Output,
@@ -33,6 +34,7 @@ struct Active {
     started: bool,
     samples: Arc<AtomicU64>,
     audio: Option<Audio>,
+    metadata: Option<Box<crate::model::Track>>,
     output: Option<Output>,
     job: JoinHandle<()>,
 }
@@ -55,7 +57,13 @@ impl Drop for Active {
 }
 enum Update {
     Quality(u64, crate::audio_quality::AudioQuality),
-    Resolved(u64, Audio, mpsc::Receiver<Vec<f32>>, oneshot::Sender<u32>),
+    Resolved(
+        u64,
+        Audio,
+        Option<Box<crate::model::Track>>,
+        mpsc::Receiver<Vec<f32>>,
+        oneshot::Sender<u32>,
+    ),
     Failed(u64, String),
 }
 struct Intent {
@@ -85,14 +93,20 @@ fn start(
     let updates = updates.clone();
     let job = tokio::spawn(async move {
         let result: Result<()> = async {
-            let audio = match cached.filter(Audio::fresh) {
-                Some(a) => a,
+            let (audio, metadata) = match cached.filter(Audio::fresh) {
+                Some(a) => (a, None),
                 None => resolver.audio(&next_id).await?,
             };
             let (tx, rx) = mpsc::channel(CAPACITY);
             let (format_tx, format_rx) = oneshot::channel();
             if updates
-                .send(Update::Resolved(ticket, audio.clone(), rx, format_tx))
+                .send(Update::Resolved(
+                    ticket,
+                    audio.clone(),
+                    metadata.map(Box::new),
+                    rx,
+                    format_tx,
+                ))
                 .is_err()
             {
                 return Ok(());
@@ -124,6 +138,7 @@ fn start(
         started: false,
         samples: Arc::new(AtomicU64::new(0)),
         audio: None,
+        metadata: None,
         output: None,
         job,
     }
@@ -175,6 +190,10 @@ async fn decode(
         "-nostdin",
         "-rw_timeout",
         "20000000",
+        "-reconnect",
+        "1",
+        "-reconnect_delay_max",
+        "5",
         "-protocol_whitelist",
         "http,https,tcp,tls,crypto",
     ]);
@@ -205,7 +224,7 @@ async fn decode(
                     stdout.read(&mut buffer[filled..]),
                 )
                 .await
-                .context("Volta audio stalled; press Space to reconnect")??;
+                .context("Audio stream stalled; press Space to reconnect")??;
                 if count == 0 {
                     break;
                 }
@@ -251,7 +270,7 @@ async fn decode(
             used += count;
             ensure!(
                 used <= 64 * 1024,
-                "Volta decoder diagnostics exceeded the size limit"
+                "Audio decoder diagnostics exceeded the size limit"
             );
             if !reported
                 && let Some(quality) = audio.quality.decoded(&String::from_utf8_lossy(&line))
@@ -268,7 +287,7 @@ async fn decode(
     // FFmpeg stderr may contain signed URLs/cookies; retain only a safe message.
     ensure!(
         child.wait().await?.success(),
-        "Volta audio connection failed; press Space for a fresh playback link"
+        "Audio connection failed; press Space for a fresh playback link"
     );
     Ok(())
 }
@@ -304,9 +323,10 @@ pub(crate) async fn worker(
                                 output.sink.play();
                             }
                             if let Some(audio) = &next.audio {
+                                if audio.source != resolver.source() || audio.source == "Monochrome" { let _ = events.send(Event::Fallback { generation, source: audio.source }); }
                                 let _ = events.send(Event::Quality { generation, quality: audio.quality });
-                                if audio.source != "Volta" { let _ = events.send(Event::Fallback { generation, source: audio.source }); }
                             }
+                            if let Some(track) = &next.metadata { let _ = events.send(Event::Metadata { generation, track: track.as_ref().clone() }); }
                             active = Some(next);
                             None
                         } else { Some((id, generation, position_ms, false, None)) }
@@ -343,15 +363,19 @@ pub(crate) async fn worker(
                 }
             }
             Some(update) = rx.recv() => match update {
-                Update::Resolved(t, audio, chunks, format) if active.as_ref().is_some_and(|a| a.ticket == t) => {
+                Update::Resolved(t, audio, metadata, chunks, format) if active.as_ref().is_some_and(|a| a.ticket == t) => {
                     let quality = audio.quality;
                     let source = audio.source;
                     if let Some(a) = &mut active {
+                        if let Some(track) = metadata {
+                            let _ = events.send(Event::Metadata { generation: a.generation, track: track.as_ref().clone() });
+                            a.metadata = Some(track);
+                        }
                         match open(a, audio, chunks, volume, &visualizer) {
                             Ok(rate) => {
                                 let _ = format.send(rate);
+                                if source != resolver.source() || source == "Monochrome" { let _ = events.send(Event::Fallback { generation: a.generation, source }); }
                                 let _ = events.send(Event::Quality { generation: a.generation, quality });
-                                if source != "Volta" { let _ = events.send(Event::Fallback { generation: a.generation, source }); }
                             }
                             Err(error) => {
                                 let generation = a.generation; active = None; let _ = events.send(Event::TrackError { generation, message: format!("{error:#}") });
@@ -359,8 +383,9 @@ pub(crate) async fn worker(
                         }
                     }
                 }
-                Update::Resolved(t, audio, chunks, format) if prepared.as_ref().is_some_and(|a| a.ticket == t) => {
+                Update::Resolved(t, audio, metadata, chunks, format) if prepared.as_ref().is_some_and(|a| a.ticket == t) => {
                     if let Some(next) = &mut prepared {
+                        next.metadata = metadata;
                         match open(next, audio, chunks, volume, &visualizer) {
                             Ok(rate) => { let _ = format.send(rate); }
                             Err(_) => prepared = None,
@@ -389,8 +414,9 @@ pub(crate) async fn worker(
                         let _ = events.send(Event::TimeToPreload { generation: a.generation });
                     }
                     if a.output.as_ref().is_some_and(|o| o.sink.empty()) && a.job.is_finished() {
+                        let _ = events.send(Event::Position { generation: a.generation, position_ms: a.position() });
                         let generation = a.generation; let started = a.started; active = None;
-                        let _ = events.send(if started { Event::Completed(generation) } else { Event::TrackError { generation, message: "Volta returned no audio; choose another track".into() } });
+                        let _ = events.send(if started { Event::Completed(generation) } else { Event::TrackError { generation, message: "Audio stream returned no audio; choose another track".into() } });
                     } else if a.started && !a.paused { let _ = events.send(Event::Position { generation: a.generation, position_ms: a.position() }); }
                 }
             }
@@ -772,7 +798,7 @@ mod tests {
                 let (tx, commands) = mpsc::unbounded_channel();
                 let (events, mut rx) = mpsc::unbounded_channel();
                 let worker = tokio::task::spawn_local(worker(
-                    Resolver::new(client, None),
+                    Resolver::Volta(crate::volta::matching::Resolver::new(client, None).into()),
                     PathBuf::from("unused.exe"),
                     0,
                     commands,
@@ -863,7 +889,7 @@ mod tests {
                 let (commands, rx) = mpsc::unbounded_channel();
                 let (events, mut output) = mpsc::unbounded_channel();
                 let task = tokio::task::spawn_local(worker(
-                    Resolver::new(client, None),
+                    Resolver::Volta(crate::volta::matching::Resolver::new(client, None).into()),
                     ffmpeg,
                     0,
                     rx,

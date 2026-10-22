@@ -13,6 +13,7 @@ use tokio::sync::Mutex;
 mod capabilities;
 mod deezer;
 pub(crate) mod discovery;
+mod presence;
 mod similarity;
 pub(crate) use discovery::recording as recording_key;
 #[cfg(test)]

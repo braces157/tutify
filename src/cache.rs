@@ -36,7 +36,7 @@ impl Default for MetadataCache {
     }
 }
 
-fn now() -> u64 {
+pub(crate) fn now() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -108,10 +108,18 @@ impl MetadataCache {
         self.revision = self.revision.wrapping_add(1);
     }
     pub fn get(&self, id: &str) -> Option<&Track> {
+        self.get_at(id, now())
+    }
+    pub(crate) fn get_at(&self, id: &str, at: u64) -> Option<&Track> {
         self.entries
             .get(id)
-            .filter(|e| now().saturating_sub(e.fetched_at) < TTL_SECS)
+            .filter(|e| at.saturating_sub(e.fetched_at) < TTL_SECS)
             .map(|e| &e.track)
+    }
+    pub(crate) fn expires_at(&self, id: &str) -> Option<u64> {
+        self.entries
+            .get(id)
+            .map(|entry| entry.fetched_at.saturating_add(TTL_SECS))
     }
     pub fn contains_key(&self, id: &str) -> bool {
         self.get(id).is_some()

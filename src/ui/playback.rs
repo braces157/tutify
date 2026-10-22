@@ -70,10 +70,15 @@ pub(super) fn listening_player(
 ) {
     let theme = Theme::from_str(&app.config.theme);
     let palette = theme.palette();
+    frame.render_widget(
+        Block::default().style(Style::default().bg(palette.surface)),
+        area,
+    );
+    column_rule(frame, Rect::new(area.x, area.y, 1, area.height), theme);
     let inner = Rect::new(
-        area.x + 1,
+        area.x + 2,
         area.y,
-        area.width.saturating_sub(2),
+        area.width.saturating_sub(4),
         area.height,
     );
     if inner.height == 0 || inner.width == 0 {
@@ -101,7 +106,11 @@ pub(super) fn listening_player(
         MouseTarget::ListeningTools,
     );
     let parts = Layout::vertical([
+        Constraint::Length(1),
         Constraint::Length(2),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
         Constraint::Length(1),
         Constraint::Length(1),
         Constraint::Length(1),
@@ -124,7 +133,7 @@ pub(super) fn listening_player(
         )
         .style(Style::default().fg(palette.text).bold())
         .wrap(Wrap { trim: false }),
-        parts[0],
+        parts[1],
     );
     frame.render_widget(
         Paragraph::new(
@@ -134,12 +143,12 @@ pub(super) fn listening_player(
         )
         .style(Style::default().fg(palette.text_muted))
         .wrap(Wrap { trim: false }),
-        parts[1],
+        parts[2],
     );
     let (state, color) = state_label(app, &palette);
     frame.render_widget(
         Paragraph::new(state).style(Style::default().fg(color).bold()),
-        parts[2],
+        parts[3],
     );
     let (elapsed, duration) = elapsed_and_duration(app);
     let ratio = if duration == 0 {
@@ -147,41 +156,42 @@ pub(super) fn listening_player(
     } else {
         elapsed as f64 / duration as f64
     };
-    let count = parts[3].width as usize;
+    let count = parts[4].width as usize;
     let filled = (ratio * count as f64) as usize;
-    frame.render_widget(Paragraph::new(progress_bar(filled, count, theme)), parts[3]);
-    hit(render, parts[3], MouseTarget::Seek);
-    let percent = if duration == 0 {
-        0
-    } else {
-        u64::from(elapsed) * 100 / u64::from(duration)
-    };
+    frame.render_widget(Paragraph::new(progress_bar(filled, count, theme)), parts[4]);
+    hit(render, parts[4], MouseTarget::Seek);
     frame.render_widget(
         Paragraph::new(if duration == 0 {
             format!("{} / --:--", time(elapsed))
         } else {
-            format!(
-                "{} / {}  {percent}%  -{}",
-                time(elapsed),
-                time(duration),
-                time(duration.saturating_sub(elapsed))
-            )
+            format!("{} / {}", time(elapsed), time(duration))
         })
         .style(Style::default().fg(palette.text_muted)),
-        parts[4],
+        parts[5],
+    );
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            key_cap("Space", theme),
+            Span::styled(
+                format!("  {}", action_label(app)),
+                Style::default().fg(palette.primary).bold(),
+            ),
+        ])),
+        parts[7],
+    );
+    hit(render, parts[7], MouseTarget::PlayPause);
+    frame.render_widget(
+        Paragraph::new(volume_label(app)).style(Style::default().fg(palette.text_muted)),
+        parts[8],
     );
     let mut meta = vec![Span::styled(
-        volume_label(app),
-        Style::default().fg(palette.text),
-    )];
-    meta.push(Span::styled(
-        format!("  {}", shuffle_label(app)),
+        shuffle_label(app),
         Style::default().fg(if app.config.shuffle {
             palette.primary
         } else {
             palette.text_subtle
         }),
-    ));
+    )];
     meta.push(Span::styled(
         format!("  {}", repeat_label(app)),
         Style::default().fg(if app.config.repeat == Repeat::Off {
@@ -190,7 +200,7 @@ pub(super) fn listening_player(
             palette.primary
         }),
     ));
-    frame.render_widget(Paragraph::new(Line::from(meta)), parts[5]);
+    frame.render_widget(Paragraph::new(Line::from(meta)), parts[9]);
 }
 
 /// The bottom band of wide windows.  The track that is sounding is the
@@ -384,6 +394,10 @@ fn expanded_playback(frame: &mut Frame<'_>, app: &App, render: &mut RenderState,
     if area.height == 0 || area.width == 0 {
         return;
     }
+    frame.render_widget(
+        Block::default().style(Style::default().bg(palette.surface)),
+        area,
+    );
     let parts = Layout::vertical([
         Constraint::Length(1),
         Constraint::Length(1),
@@ -397,9 +411,9 @@ fn expanded_playback(frame: &mut Frame<'_>, app: &App, render: &mut RenderState,
     rule(frame, parts[0], theme);
 
     let inner = Rect::new(
-        parts[1].x + 1,
+        parts[1].x + 2,
         parts[1].y,
-        parts[1].width.saturating_sub(2),
+        parts[1].width.saturating_sub(4),
         parts[1].height,
     );
     let track = app.current_track();
@@ -433,9 +447,9 @@ fn expanded_playback(frame: &mut Frame<'_>, app: &App, render: &mut RenderState,
 
     // Artist on the left, transport facts on the right.
     let artist_area = Rect::new(
-        parts[2].x + 1,
+        parts[2].x + 2,
         parts[2].y,
-        parts[2].width.saturating_sub(2),
+        parts[2].width.saturating_sub(4),
         parts[2].height,
     );
     let (state, color) = state_label(app, &palette);
@@ -479,9 +493,9 @@ fn expanded_playback(frame: &mut Frame<'_>, app: &App, render: &mut RenderState,
 
     // Progress: one continuous rule instead of a row of square blocks.
     let bar_area = Rect::new(
-        parts[3].x + 1,
+        parts[3].x + 2,
         parts[3].y,
-        parts[3].width.saturating_sub(2),
+        parts[3].width.saturating_sub(4),
         parts[3].height,
     );
     let (elapsed, duration) = elapsed_and_duration(app);
@@ -497,9 +511,9 @@ fn expanded_playback(frame: &mut Frame<'_>, app: &App, render: &mut RenderState,
 
     // Times on the left, the remaining transport switches on the right.
     let times_area = Rect::new(
-        parts[4].x + 1,
+        parts[4].x + 2,
         parts[4].y,
-        parts[4].width.saturating_sub(2),
+        parts[4].width.saturating_sub(4),
         parts[4].height,
     );
     let percent = if duration == 0 {

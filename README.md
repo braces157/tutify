@@ -5,7 +5,7 @@
 
   **A fast, keyboard-first music player for the Windows terminal.**
 
-  Discover songs through Deezer and play through connected Volta, Spotify Premium, or free YouTube Music. Browse your library,
+  Discover songs through Deezer and play through Monochrome, connected Volta, Spotify Premium, or free YouTube Music. Browse your library,
   manage the queue, view synchronized lyrics, and control playback from one native TUI.
 
   [![Validate](https://github.com/braces157/tutify/actions/workflows/ci.yml/badge.svg)](https://github.com/braces157/tutify/actions/workflows/ci.yml)
@@ -17,7 +17,7 @@
 ---
 
 Tuitify is a standalone music client built with Rust and Ratatui, using librespot
-for Spotify, yt-dlp/FFmpeg for YouTube Music, and Volta's personal API with FFmpeg
+for Spotify, yt-dlp/FFmpeg for YouTube Music, and Monochrome or Volta with FFmpeg
 for lossless playback. It plays audio through the Windows
 audio stack and keeps the whole listening
 workflow inside Windows Terminal—no Electron shell and no background service.
@@ -25,8 +25,8 @@ workflow inside Windows Terminal—no Electron shell and no background service.
 > [!IMPORTANT]
 > Spotify Premium is required for **Spotify** audio playback. YouTube Music
 > mode plays public videos without a Spotify login or subscription. Plain
-> `tuitify` prefers connected Volta lossless playback, then Spotify Premium,
-> then YouTube Music for free accounts or users without a Spotify login.
+> `tuitify` tries Monochrome FLAC audio first, then connected Volta, Spotify
+> Premium, and YouTube Music, skipping services that are not connected or installed.
 > Tuitify is an independent,
 > personal-use project and is not affiliated with or endorsed by Spotify.
 
@@ -83,12 +83,12 @@ workflow inside Windows Terminal—no Electron shell and no background service.
 - **Continuous listening** fetches related songs near the end of the queue, with cancellation when you pause, stop, or choose another queue.
 
 - **Direct playback** through librespot and WASAPI; Spotify Desktop can stay closed.
-- **Automatic source selection** preferring connected Volta lossless, then Spotify
+- **Automatic audio fallback** trying Monochrome FLAC, connected Volta, Spotify
   Premium, then free YouTube Music, with
   account connections inside F6 Tools and no source choice required.
 - **YouTube Music** with search, video links, its own saved queue,
   playback controls, lyrics, visualizer, and Windows media keys.
-- **Personal Volta playback** selected automatically after connection, using the supported API and
+- **Personal Volta playback** used after Monochrome when connected, using the supported API and
   FLAC audio relay. Each user supplies their own application credentials;
   connected Spotify playlists, the original queue and discovery algorithm remain
   available while Volta supplies audio. See [Volta setup](docs/volta.md).
@@ -104,7 +104,7 @@ workflow inside Windows Terminal—no Electron shell and no background service.
   audio visualizer, and a wallpaper-backed Glass theme. On Windows Terminal,
   Glass uses a dedicated native profile so the wallpaper stays at full display
   resolution; other terminals fall back to the Unicode cell renderer.
-- **Synchronized lyrics** from LRCLIB with automatic scrolling, plus offline Japanese romaji and Mandarin pinyin beneath the original lines.
+- **Synchronized lyrics** from LRCLIB, NetEase Cloud Music, and QQ Music with automatic scrolling and recording-checked search, plus lyrics.ovh plain-text fallback and offline Japanese romaji and Mandarin pinyin beneath the original lines.
 - **Windows integration** for media keys, system media controls, metadata, and the
   playback timeline.
 - **Audio quality** in Now Playing and Discord: source codec, bit depth/sample rate
@@ -113,7 +113,8 @@ workflow inside Windows Terminal—no Electron shell and no background service.
   32-bit Windows output. FLAC decoding retains 24-bit detail. When the endpoint
   requires another rate, FFmpeg uses a bandlimited 64-tap converter for Volta and
   YouTube, with no forced 44.1 kHz intermediate step.
-- **Discord Rich Presence** with track artwork, audio quality and playback state; easy to disable.
+- **Discord Rich Presence** with clickable song titles, artist and album links,
+  track artwork, audio quality and a clear paused state; easy to disable.
 - **Local listening statistics and taste learning** with aggregate play counts,
   listening time, and up to 256 recent listening/skip signals. No analytics service.
 - **Resilient sessions** with a persisted queue, atomic state writes, metadata
@@ -121,10 +122,10 @@ workflow inside Windows Terminal—no Electron shell and no background service.
 
 ### Current release
 
-The current release is **v0.7.0**. Just launch `tuitify`: connected Volta is preferred
-for lossless playback; otherwise confirmed Spotify Premium accounts use Spotify,
-and free accounts and users without a Spotify login use YouTube
-Music. F6 Tools connects accounts and updates playback tools inside the app.
+The current release is **v0.7.0**. Just launch `tuitify`: audio tries Monochrome
+FLAC first, then connected Volta, Spotify Premium, and YouTube Music, skipping
+services that are not connected or installed. F6 Tools connects accounts and
+updates playback tools inside the app.
 This update adds Deezer discovery, automatic queue continuation, prepared next-track audio, responsive player layouts, and clearer audio-provider badges. Optional Google libraries and independent provider queues remain available. Bounded parsed caches and idle helper
 shutdown reduce retained memory. Existing queue tools, recovery, diagnostics,
 lyrics, Glass themes and Windows media controls remain available.
@@ -150,6 +151,11 @@ and [changelog](CHANGELOG.md) for the complete update.
 No Rust installation is needed when using a release build. Consolas and Cascadia
 Mono work out of the box; an icon font is not required.
 Use 80 columns × 24 rows or larger; the minimum supported layout is 32 × 10.
+The interface adapts to the window: landscape keeps the library sidebar and
+bottom player, while portrait uses top tabs and a docked player with optional
+lyrics. Narrow track lists put artists below song titles. The queue header
+shows its track count, known duration, and a clickable filter shortcut; partial
+durations are marked **loaded** while more track information arrives.
 At 32 × 10, Mix Builder shows the selected preview track, pin state, compact
 apply/cancel controls, and a scrollable details shortcut; use a larger window to
 inspect multiple preview rows comfortably.
@@ -166,13 +172,13 @@ The native demo needs no Spotify account or audio device.
 .\tuitify.exe
 ```
 
-Just run **`tuitify`**. With Spotify and Volta connected, your Spotify playlists,
-Liked Songs, queue, radio and Smart Shuffle use the existing discovery algorithm,
-while Volta supplies the highest available lossless audio for matched recordings.
-The header shows **Spotify + Volta**. With only Volta connected, its own catalogue
-opens instead. Without Volta credentials and FFmpeg,
-a connected Spotify Premium account plays Spotify; free accounts and users
-without a Spotify login get YouTube Music automatically.
+Just run **`tuitify`**. Audio tries **Monochrome → Volta → Spotify → YouTube** for
+each song, using connected accounts and installed playback tools. Monochrome uses
+its public Tracks API without an API key. Rate limits and unavailable recordings
+advance to the next provider; a rate-limit cooldown avoids repeated requests.
+Connected Spotify playlists, Liked Songs, queue, radio and Smart Shuffle keep
+their existing catalog identities and discovery algorithm. The header continues
+to identify the connected catalog; Now Playing identifies the actual audio source.
 Missing playback tools and the isolated music adapter are prepared on first
 launch (Python 3.10+ for the music adapter). Public search needs no account.
 Press **F6** and choose **Connect Spotify account** or **Connect Google music
@@ -187,14 +193,16 @@ An expired login, denied access or failed check shows its cause and opens free
 music. Only a confirmed Spotify membership change updates the cached plan.
 Restored queues always start paused; press Space to resume.
 
-Volta prepares the next queue entry while the current song plays, keeping a
+Monochrome and Volta prepare the next queue entry while the current song plays, keeping a
 small decoded audio buffer ready for the transition. Changing the next song or
-stopping playback cancels that preparation. If Volta cannot supply a recording,
-playback tries a matching YouTube recording using installed YouTube tools.
-In Spotify + Volta mode, an existing Spotify streaming login provides a further
-fallback if YouTube is unavailable (Spotify Premium is required). Queue IDs and
+stopping playback cancels that preparation. Each fallback independently matches
+the original recording, using ISRC when available and strict title, artist and
+duration checks otherwise. Spotify audio requires an existing streaming login
+and Premium. Queue IDs and
 order stay intact; the playback status identifies fallback audio, and Now Playing
-reports the audio provider beside its actual source quality. Explicit `--source youtube` selects YouTube even when Volta is connected; plain `tuitify` uses automatic selection. Each new song tries Volta first.
+reports the audio provider beside its actual source quality. Explicit `--source youtube`,
+`--source spotify`, and `--source volta` retain their selected playback modes;
+plain `tuitify` uses the automatic chain. Each new song tries Monochrome first.
 
 For high-resolution Volta playback, use a compatible DAC and select its desired
 24-bit/high-rate default format in Windows Sound settings. Playback uses Windows
@@ -202,7 +210,8 @@ shared audio; its mixer, device format, volume, and enhancements can affect the
 final signal, so this is not an exclusive or bit-perfect output mode. Now Playing
 reports the source quality, not the DAC format. Spotify's current playback backend
 uses up to 320 kbps and YouTube streams remain lossy; FLAC/high-resolution quality
-depends on the recording supplied by Volta.
+depends on the recording supplied by Monochrome or Volta. Monochrome source
+bit depth and sample rate are read from the FLAC header before playback.
 
 To install the executable for your Windows user and add it to `PATH`, run:
 
@@ -672,17 +681,57 @@ by default: song details, artwork, and timing go to the local Discord client, wh
 may show them to other people according to your Discord privacy settings. To
 disable it, close Tuitify, set `"discord_rpc": false` in `config.json`, and restart.
 
-Opening lyrics sends the track title, artists, and duration to LRCLIB; Spotify
-tokens are not sent there. A missing full-credit match can retry the primary
-artist, validating the returned title, artist, and duration. Unicode accents are
-preserved. HTTP 502–504 errors can retry once with a short wait; longer server
-cooldowns and HTTP 429 remain explicit errors. Artwork may use Spotify's public oEmbed service when
+In the Discord activity card, click the song title or the first button to open
+the song, the artist line to open the primary artist when catalog metadata is
+available, or the cover to open the album (falling back to the song).
+Discord prefers a matching Spotify recording for song details, artwork, and
+links, then falls back to Deezer.
+Spotify lookups use an existing Spotify connection; matching requires the title,
+artist, and duration to agree. Results are cached for five minutes. If neither
+catalog matches, Discord keeps the original track details and links (native
+Volta tracks use a Spotify song search). While playing, the member-list status
+shows the song title; pausing adds a visible
+`Paused` label and removes the moving timer.
+
+Lyrics lookup uses LRCLIB, NetEase Cloud Music, and QQ Music. LRCLIB receives
+the track title, artists, and duration; the Chinese catalogs receive a title/artist
+search and matched song IDs for lyrics. Spotify tokens, playback credentials, and
+cookies are not sent to these services. For metadata containing Han characters,
+all three run concurrently; the first matching synchronized result is used. Other
+tracks start with LRCLIB and consult the Chinese catalogs if synchronized lyrics
+are missing. If no usable result is found, the title and artist are sent to
+lyrics.ovh for plain text.
+
+Matches require title, artist, and duration agreement, allowing up to five seconds
+of search duration drift. Version words and Unicode accents are preserved;
+Simplified/Traditional Chinese conversion is used only for Chinese catalog queries
+and matching, retaining the original queue metadata and lyrics. Explicit artist
+aliases and verified primary credits can match, but unrelated covers and versions
+are rejected. NetEase/QQ LRC timestamps are retained; all-zero or out-of-range
+timing is displayed as plain text instead. Existing local pinyin works with these
+sources too.
+
+Each request has a six-second deadline; LRCLIB has a fourteen-second total budget,
+NetEase and QQ each have eight seconds, and lyrics.ovh has eight seconds. Usable
+plain lyrics survive later errors or deadlines while searching for synchronized
+lyrics. HTTP 502–504 can retry once with a short wait; longer cooldowns and HTTP
+429 stop requests to that provider, allowing the other sources to run. When all
+sources are exhausted, service failures remain distinct from missing lyrics.
+Artwork may use Spotify's public oEmbed service when
 catalog artwork is missing. These requests are separate from analytics.
 
 The docked lyrics panel is on by default in tall windows, and the lyrics of the
 track that is queued next are fetched ahead of time so the panel is never
 waiting on the network. Press `L` to turn the panel off; the choice is saved in
 `config.json` and remembered.
+
+Lyrics auto-scroll in both the full view and the docked panel. Timed lyrics follow
+their timestamps; plain lyrics scroll approximately with song progress and are
+labelled **estimated**, without marking a guessed current line. Pausing freezes
+the position and seeking moves the viewport. In the full view, `a` toggles
+auto-scroll; arrows, `j`/`k`, Page Up/Down, or the mouse wheel pause following for
+manual browsing. Press `a` to resume. Each new track starts with auto-scroll on.
+Plain lyrics need a known track duration for estimated scrolling.
 
 Japanese romaji and Mandarin pinyin are generated locally from embedded dictionaries
 for both timed and plain lyrics. Press `r` in the lyrics view to cycle auto,
@@ -885,9 +934,11 @@ not run build/test checks and is intended for package regression checks.
 - **Radio unavailable:** press `R` to start a fresh Radio session. Available
   suggestions depend on the provider's artist coverage; a restored queue does
   not rerun discovery after an update.
-- **Lyrics unavailable:** press `F5` in the lyrics view. A 503 is a temporary
-  LRCLIB server failure; percent-encoded Vietnamese/Japanese characters in a URL
-  are normal. A missing result can mean the provider has no lyrics for that recording.
+- **Lyrics unavailable:** press `F5` in the lyrics view. Tuitify checks LRCLIB,
+  NetEase Cloud Music, and QQ Music, then lyrics.ovh plain text. A 503 is a temporary
+  service failure; a missing result can mean no source has a matching recording.
+  Provider coverage varies, and the NetEase/QQ web interfaces can change. Plain
+  lyrics have no timestamps; auto-scroll uses estimated song progress instead.
 - **Invalid config, queue, statistics, or recipes:** Tuitify reports the path and preserves the file.
   Close the player and move it aside before restarting to reset that state.
 

@@ -11,6 +11,56 @@ fn app() -> App {
 }
 
 #[tokio::test]
+async fn automatic_mode_labels_the_first_available_provider_and_return_from_fallback() {
+    let mut app = app();
+    app.config.automatic_audio = true;
+    app.config.primary_audio = Some("Spotify");
+    app.generation = 7;
+    let (tx, _) = mpsc::unbounded_channel();
+    assert_eq!(app.audio_source_label(), "Spotify");
+    app.playback_event(
+        Event::Fallback {
+            generation: 7,
+            source: "YouTube",
+        },
+        &tx,
+    );
+    assert_eq!(app.audio_source_label(), "YouTube");
+    app.playback_event(
+        Event::Fallback {
+            generation: 7,
+            source: "Spotify",
+        },
+        &tx,
+    );
+    assert_eq!(app.audio_source_label(), "Spotify");
+    assert!(app.playback_fallback.is_none());
+}
+
+#[tokio::test]
+async fn automatic_audio_labels_follow_fallbacks_and_clear_stale_quality() {
+    let mut app = app();
+    app.config.automatic_audio = true;
+    app.loaded = true;
+    app.generation = 7;
+    let (tx, _) = mpsc::unbounded_channel();
+    assert_eq!(app.audio_source_label(), "Monochrome");
+    for source in ["Volta", "Spotify", "YouTube", "Monochrome"] {
+        app.audio_quality = Some(crate::audio_quality::AudioQuality::default());
+        app.playback_event(
+            Event::Fallback {
+                generation: 7,
+                source,
+            },
+            &tx,
+        );
+        assert_eq!(app.audio_source_label(), source);
+        assert!(app.audio_quality.is_none());
+    }
+    assert!(app.playback_fallback.is_none());
+}
+
+#[tokio::test]
 async fn spotify_playlists_keep_original_ids_and_queue_order_with_volta_audio() {
     let mut app = app();
     let (mut tasks, _bg) = tasks();

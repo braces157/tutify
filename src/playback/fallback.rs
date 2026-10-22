@@ -7,14 +7,37 @@ struct Intent {
     generation: u64,
     position: u32,
     paused: bool,
-    spotify: bool,
+    using_fallback: bool,
     primary_error: String,
 }
 
-pub(super) fn spawn(primary: Playback, spotify: Playback) -> Playback {
+pub(super) fn spawn(primary: Playback, secondary: Playback) -> Playback {
+    spawn_with_source(primary, secondary, "Spotify", crate::model::valid_id)
+}
+
+pub(super) fn spawn_deezer(
+    primary: Playback,
+    fallback: Playback,
+    source: &'static str,
+) -> Playback {
+    spawn_with_source(primary, fallback, source, |id| {
+        crate::deezer::key(id).is_some()
+    })
+}
+
+pub(super) fn spawn_any(primary: Playback, fallback: Playback, source: &'static str) -> Playback {
+    spawn_with_source(primary, fallback, source, crate::model::valid_track_id)
+}
+
+fn spawn_with_source(
+    primary: Playback,
+    fallback: Playback,
+    source: &'static str,
+    accepts: fn(&str) -> bool,
+) -> Playback {
     let (commands, rx) = mpsc::unbounded_channel();
     let (tx, events) = mpsc::unbounded_channel();
-    let task = tokio::spawn(route(primary, spotify, rx, tx));
+    let task = tokio::spawn(route(primary, fallback, rx, tx, source, accepts));
     Playback {
         commands,
         events,
@@ -30,6 +53,7 @@ fn generation(event: &Event) -> Option<u64> {
         | Event::Playing { generation, .. }
         | Event::Paused { generation, .. }
         | Event::Position { generation, .. }
+        | Event::Recovering { generation, .. }
         | Event::TimeToPreload { generation }
         | Event::TrackError { generation, .. }
         | Event::Completed(generation) => Some(*generation),
@@ -39,13 +63,16 @@ fn generation(event: &Event) -> Option<u64> {
 
 async fn route(
     mut primary: Playback,
-    mut spotify: Playback,
+    mut secondary: Playback,
     mut commands: mpsc::UnboundedReceiver<Command>,
     events: mpsc::UnboundedSender<Event>,
+    source: &'static str,
+    accepts: fn(&str) -> bool,
 ) {
     let mut intent: Option<Intent> = None;
-    let mut spotify_available = true;
-    let mut spotify_open = true;
+    let mut primary_open = true;
+    let mut fallback_available = true;
+    let mut fallback_open = true;
     loop {
         tokio::select! {
             biased;
@@ -53,24 +80,32 @@ async fn route(
                 let Some(command) = command else { break; };
                 match &command {
                     Command::Load { id, position_ms, generation } => {
-                        let _ = spotify.commands.send(Command::Stop);
-                        intent = Some(Intent { id: id.clone(), generation: *generation, position: *position_ms, paused: false, spotify: false, primary_error: String::new() });
+                        let _ = secondary.commands.send(Command::Stop);
+                        intent = Some(Intent { id: id.clone(), generation: *generation, position: *position_ms, paused: false, using_fallback: false, primary_error: String::new() });
+                        if !primary_open {
+                            if fallback_available && accepts(id) {
+                                switch(intent.as_mut().unwrap(), &primary, &secondary, &events, source, "Primary audio worker stopped".into());
+                            } else {
+                                let _ = events.send(Event::TrackError { generation: *generation, message: "Audio playback worker stopped; restart Tuitify".into() });
+                            }
+                            continue;
+                        }
                     }
                     Command::Stop => {
                         intent = None;
                         let _ = primary.commands.send(Command::Stop);
-                        let _ = spotify.commands.send(Command::Stop);
+                        let _ = secondary.commands.send(Command::Stop);
                         continue;
                     }
                     Command::Volume(_) => {
                         let _ = primary.commands.send(command.clone());
-                        let _ = spotify.commands.send(command);
+                        let _ = secondary.commands.send(command);
                         continue;
                     }
                     Command::Preload { .. } | Command::CancelPreload => {
                         let _ = primary.commands.send(command.clone());
-                        if intent.as_ref().is_some_and(|current| current.spotify) {
-                            let _ = spotify.commands.send(command);
+                        if intent.as_ref().is_some_and(|current| current.using_fallback) {
+                            let _ = secondary.commands.send(command);
                         }
                         continue;
                     }
@@ -80,56 +115,62 @@ async fn route(
                     #[cfg(test)]
                     Command::SimulateDisconnect => (),
                 }
-                let backend = if intent.as_ref().is_some_and(|current| current.spotify) { &spotify } else { &primary };
+                let backend = if intent.as_ref().is_some_and(|current| current.using_fallback) { &secondary } else { &primary };
                 let _ = backend.commands.send(command);
             }
-            event = primary.events.recv() => {
+            event = primary.events.recv(), if primary_open => {
                 let Some(event) = event else {
-                    let _ = events.send(Event::Error("Volta playback worker stopped; restart Tuitify".into()));
-                    break;
+                    primary_open = false;
+                    if let Some(current) = &mut intent && !current.using_fallback {
+                        if fallback_available && accepts(&current.id) {
+                            switch(current, &primary, &secondary, &events, source, "Primary audio worker stopped".into());
+                        } else {
+                            let _ = events.send(Event::TrackError { generation: current.generation, message: "Audio playback worker stopped; restart Tuitify".into() });
+                        }
+                    }
+                    continue;
                 };
                 // Both backends receive volume commands; acknowledge exactly once.
                 if matches!(event, Event::Volume(_)) {
                     let _ = events.send(event);
                     continue;
                 }
-                if intent.as_ref().is_some_and(|current| current.spotify) { continue; }
+                if intent.as_ref().is_some_and(|current| current.using_fallback) { continue; }
                 if generation(&event).is_some_and(|g| intent.as_ref().is_none_or(|current| current.generation != g)) { continue; }
                 if matches!(event, Event::TrackError { .. } | Event::Error(_))
                     && let Some(current) = &mut intent
-                    && spotify_available && crate::model::valid_id(&current.id)
+                    && fallback_available && accepts(&current.id)
                 {
-                    current.primary_error = match event { Event::TrackError { message, .. } | Event::Error(message) => message, _ => unreachable!() };
-                    current.spotify = true;
-                    let _ = primary.commands.send(Command::Stop);
-                    let _ = events.send(Event::Fallback { generation: current.generation, source: "Spotify" });
-                    let _ = spotify.commands.send(Command::Load { id: current.id.clone(), position_ms: current.position, generation: current.generation });
-                    if current.paused { let _ = spotify.commands.send(Command::Pause); }
+                    let message = match event { Event::TrackError { message, .. } | Event::Error(message) => message, _ => unreachable!() };
+                    switch(current, &primary, &secondary, &events, source, message);
                     continue;
                 }
                 update_position(&mut intent, &event);
                 let _ = events.send(event);
             }
-            event = spotify.events.recv(), if spotify_open => {
+            event = secondary.events.recv(), if fallback_open => {
                 let Some(event) = event else {
-                    spotify_available = false;
-                    spotify_open = false;
-                    if let Some(current) = intent.as_ref().filter(|current| current.spotify) {
-                        let _ = events.send(Event::TrackError { generation: current.generation, message: "Spotify fallback worker stopped; restart Tuitify".into() });
+                    fallback_available = false;
+                    fallback_open = false;
+                    if let Some(current) = intent.as_ref().filter(|current| current.using_fallback) {
+                        let _ = events.send(Event::TrackError { generation: current.generation, message: format!("{source} fallback worker stopped; restart Tuitify") });
                     }
                     continue;
                 };
-                if matches!(event, Event::Volume(_)) { continue; }
+                if matches!(event, Event::Volume(_)) {
+                    if !primary_open { let _ = events.send(event); }
+                    continue;
+                }
                 let Some(current) = &intent else { continue; };
-                if !current.spotify || generation(&event).is_some_and(|g| g != current.generation) { continue; }
+                if !current.using_fallback || generation(&event).is_some_and(|g| g != current.generation) { continue; }
                 let event = match event {
                     Event::PremiumRequired => {
-                        spotify_available = false;
+                        fallback_available = false;
                         Event::TrackError { generation: current.generation, message: format!("{}; Spotify fallback requires Premium", current.primary_error) }
                     }
                     Event::TrackError { message, .. } | Event::Error(message) => Event::TrackError {
                         generation: current.generation,
-                        message: format!("{}; Spotify fallback failed: {message}", current.primary_error),
+                        message: format!("{}; {source} fallback failed: {message}", current.primary_error),
                     },
                     other => other,
                 };
@@ -137,6 +178,31 @@ async fn route(
                 let _ = events.send(event);
             }
         }
+    }
+}
+
+fn switch(
+    current: &mut Intent,
+    primary: &Playback,
+    secondary: &Playback,
+    events: &mpsc::UnboundedSender<Event>,
+    source: &'static str,
+    message: String,
+) {
+    current.primary_error = message;
+    current.using_fallback = true;
+    let _ = primary.commands.send(Command::Stop);
+    let _ = events.send(Event::Fallback {
+        generation: current.generation,
+        source,
+    });
+    let _ = secondary.commands.send(Command::Load {
+        id: current.id.clone(),
+        position_ms: current.position,
+        generation: current.generation,
+    });
+    if current.paused {
+        let _ = secondary.commands.send(Command::Pause);
     }
 }
 
@@ -154,6 +220,9 @@ fn update_position(intent: &mut Option<Intent>, event: &Event) {
 mod tests {
     use super::*;
     use std::time::Duration;
+
+    mod deezer;
+    mod order;
 
     fn backend() -> (
         Playback,

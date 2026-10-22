@@ -4,6 +4,8 @@ use super::Track;
 pub struct LyricsState {
     pub reading_mode: crate::lyrics::ReadingMode,
     pub scroll: usize,
+    /// Manual browsing pauses playback following until `a` resumes it.
+    pub manual_scroll: bool,
     pub error: Option<String>,
     pub(super) metadata: Option<Track>,
     pub(super) request: u64,

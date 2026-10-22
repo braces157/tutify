@@ -67,7 +67,7 @@ pub(crate) async fn remember_free(store: &Storage) {
     }
 }
 pub async fn resolve(choice: Choice, fresh: bool) -> Result<Selection> {
-    resolve_with(choice, preferred_volta, || async {
+    let mut selected = resolve_with(choice, preferred_volta, || async {
         let store = Storage::local_read_only()?;
         let config = store.config()?;
         let Some(tokens) = TokenManager::load_optional(&config)? else {
@@ -94,7 +94,23 @@ pub async fn resolve(choice: Choice, fresh: bool) -> Result<Selection> {
         }
         Ok(Some(plan))
     })
-    .await
+    .await?;
+    if choice == Choice::Auto {
+        selected.notice = automatic_notice(&selected.notice);
+    }
+    Ok(selected)
+}
+
+fn automatic_notice(notice: &str) -> String {
+    const ORDER: &str = "Audio: Monochrome, then Volta, Spotify and YouTube as available. / searches Deezer; F6 connects accounts.";
+    if ["unavailable", "timed out", "could not confirm"]
+        .iter()
+        .any(|marker| notice.contains(marker))
+    {
+        format!("{notice} {ORDER}")
+    } else {
+        ORDER.into()
+    }
 }
 
 fn preferred_volta() -> Option<MusicSource> {
@@ -189,6 +205,20 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn automatic_provider_order_preserves_actionable_account_diagnostics() {
+        for failure in [
+            "Spotify check unavailable; F6 reconnects.",
+            "Spotify check timed out; F6 reconnects.",
+            "Spotify could not confirm Premium; F6 reconnects.",
+        ] {
+            let notice = automatic_notice(failure);
+            assert!(notice.contains(failure));
+            assert!(notice.contains("Monochrome, then Volta, Spotify and YouTube"));
+        }
+        assert!(!automatic_notice("Spotify Premium: opening Spotify.").contains("opening Spotify"));
+    }
 
     #[tokio::test]
     async fn automatic_launch_routes_premium_free_and_unsigned_users() {

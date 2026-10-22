@@ -32,7 +32,8 @@ pub(crate) async fn run(cli: &Cli, choice: source::Choice) -> Result<()> {
             MusicSource::Volta => root.volta()?,
         };
         let mut instance = Some(store.lock()?);
-        if selected.source == MusicSource::Spotify {
+        let automatic_audio = choice == source::Choice::Auto && !use_free;
+        if selected.source == MusicSource::Spotify && !automatic_audio {
             let setup = async {
                 if !selected.premium_verified {
                     auth::setup_catalog(&store).await?;
@@ -60,8 +61,14 @@ pub(crate) async fn run(cli: &Cli, choice: source::Choice) -> Result<()> {
                 );
             }
         }
-        if selected.source == MusicSource::Youtube {
-            youtube::prepare_music().await?;
+        if selected.source == MusicSource::Youtube
+            || (automatic_audio && crate::volta::playback::ffmpeg().is_err())
+        {
+            prepared_tools(
+                youtube::prepare_music().await,
+                automatic_audio,
+                &mut selected.notice,
+            )?;
         }
         if cli.glass_window && terminal_profile::available() {
             terminal_profile::prepare(&store.config()?)?;
@@ -87,6 +94,7 @@ pub(crate) async fn run(cli: &Cli, choice: source::Choice) -> Result<()> {
             cli.glass,
             selected.source,
             &selected.notice,
+            automatic_audio,
         )
         .await?;
         drop(instance);
@@ -105,6 +113,16 @@ pub(crate) async fn run(cli: &Cli, choice: source::Choice) -> Result<()> {
         next_notice = connect(&root, request).await;
         fresh = true;
     }
+}
+
+fn prepared_tools(result: Result<()>, automatic: bool, notice: &mut String) -> Result<()> {
+    if let Err(error) = result {
+        if !automatic {
+            return Err(error);
+        }
+        notice.push_str(&format!(" Playback tools unavailable ({error}); trying connected audio services. F6 retries setup."));
+    }
+    Ok(())
 }
 
 async fn connect(root: &Storage, request: SessionRequest) -> String {
@@ -135,5 +153,24 @@ async fn connect(root: &Storage, request: SessionRequest) -> String {
         Err(error) => {
             format!("Connection did not finish ({error}). Your queue is preserved; F6 retries.")
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn optional_tool_setup_keeps_other_services_available_but_explicit_mode_reports_failure() {
+        let mut notice = "Audio ready.".to_owned();
+        prepared_tools(Err(anyhow::anyhow!("download failed")), true, &mut notice).unwrap();
+        assert!(notice.contains("Audio ready.") && notice.contains("tools unavailable"));
+        assert!(
+            prepared_tools(
+                Err(anyhow::anyhow!("download failed")),
+                false,
+                &mut String::new()
+            )
+            .is_err()
+        );
     }
 }
