@@ -580,6 +580,7 @@ impl Tasks {
             app.lyrics.error = None;
             app.lyrics.loading = false;
             app.lyrics.scroll = 0;
+            app.lyrics.manual_scroll = false;
             // A track whose lyrics were fetched ahead of time starts with
             // them already in place, so the panel never waits on the network.
             if let Some((id, lyrics)) = app.lyrics.cached.take()

@@ -2,8 +2,13 @@ use super::*;
 
 /// The heading of a content panel.  It names the region in the brightest ink
 /// and replaces the framed block title the panel used to carry.
-fn heading(frame: &mut Frame<'_>, area: Rect, title: &str, theme: Theme) -> Rect {
-    let parts = Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).split(area);
+fn heading(frame: &mut Frame<'_>, area: Rect, title: &str, detail: &str, theme: Theme) -> Rect {
+    let spacious = area.height >= 16;
+    let parts = Layout::vertical([
+        Constraint::Length(if spacious { 4 } else { 1 }),
+        Constraint::Min(1),
+    ])
+    .split(area);
     frame.render_widget(
         Paragraph::new(Span::styled(
             title.to_owned(),
@@ -11,11 +16,23 @@ fn heading(frame: &mut Frame<'_>, area: Rect, title: &str, theme: Theme) -> Rect
         )),
         Rect::new(
             parts[0].x + 1,
-            parts[0].y,
+            parts[0].y + u16::from(spacious),
             parts[0].width.saturating_sub(2),
             1,
         ),
     );
+    if spacious {
+        frame.render_widget(
+            Paragraph::new(detail.to_owned())
+                .style(Style::default().fg(theme.palette().text_muted)),
+            Rect::new(
+                parts[0].x + 1,
+                parts[0].y + 2,
+                parts[0].width.saturating_sub(2),
+                1,
+            ),
+        );
+    }
     parts[1]
 }
 
@@ -268,7 +285,11 @@ pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
         format!("{base_title}{status_suffix}")
     };
     let title = title.trim().to_owned();
-    body = heading(frame, body, &title, theme);
+    let detail = match &app.catalog.rows {
+        Rows::Tracks(tracks) => format!("{} tracks", tracks.len()),
+        Rows::Playlists(playlists) => format!("{} playlists", playlists.len()),
+    };
+    body = heading(frame, body, &title, &detail, theme);
     // Durations are right aligned inside their column, so the header and the
     // values share one edge.
     let time_width = if body.width >= 60 { 7 } else { 0 };
@@ -276,13 +297,15 @@ pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
     match &app.catalog.rows {
         Rows::Tracks(tracks) => {
             let indices = app.filtered_indices();
+            let stacked = body.width < 60 && body.height >= 12;
+            let stride = if stacked { 2 } else { 1 };
             let visible = viewport(
                 app.catalog.selected,
                 indices.len(),
-                body.height.saturating_sub(2) as usize,
+                (body.height.saturating_sub(2) / stride) as usize,
                 &mut render.catalog_scroll,
             );
-            row_hits(render, body, &visible, false, true);
+            row_hits(render, body, &visible, false, true, stride);
             if tracks.is_empty() || (app.is_filtered() && indices.is_empty()) {
                 let empty_msg = if app.catalog.busy {
                     "\n\n  Loading tracks…\n  Playback controls stay available while this finishes."
@@ -363,16 +386,20 @@ pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
                         } else {
                             format!("{:>3}", display_idx + 1)
                         };
-                        let index_cell = Cell::from(format!(" {:>2} {} ", indicator, num_str))
-                            .style(
-                                Style::default()
-                                    .fg(if current {
-                                        palette.primary
-                                    } else {
-                                        palette.text_subtle
-                                    })
-                                    .bold(),
-                            );
+                        let index_text = if body.width < 60 {
+                            format!("{indicator:>2} {:>2}", num_str.trim())
+                        } else {
+                            format!(" {:>2} {} ", indicator, num_str)
+                        };
+                        let index_cell = Cell::from(index_text).style(
+                            Style::default()
+                                .fg(if current {
+                                    palette.primary
+                                } else {
+                                    palette.text_subtle
+                                })
+                                .bold(),
+                        );
                         let title_text = format!(
                             "{}{}",
                             t.name,
@@ -385,12 +412,26 @@ pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
                         } else {
                             palette.text_subtle
                         });
-                        if t.playable {
+                        if current || display_idx == app.catalog.selected {
                             title_style = title_style.bold();
-                        } else {
+                        } else if !t.playable {
                             title_style = title_style.add_modifier(Modifier::DIM);
                         }
-                        let title_cell = Cell::from(title_text).style(title_style);
+                        let title_cell = if stacked {
+                            Cell::from(Text::from(vec![
+                                Line::from(Span::styled(title_text, title_style)),
+                                Line::from(Span::styled(
+                                    if is_artist {
+                                        t.album.as_deref().unwrap_or("—")
+                                    } else {
+                                        &t.artists
+                                    },
+                                    Style::default().fg(palette.text_muted),
+                                )),
+                            ]))
+                        } else {
+                            Cell::from(title_text).style(title_style)
+                        };
 
                         let third_cell = if is_artist {
                             let album_name = t.album.as_deref().unwrap_or("-");
@@ -421,36 +462,54 @@ pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
                             }),
                         );
 
-                        Some(Row::new(vec![
-                            index_cell, title_cell, third_cell, time_cell,
-                        ]))
+                        Some(
+                            Row::new(vec![index_cell, title_cell, third_cell, time_cell])
+                                .height(stride),
+                        )
                     })
                     .collect();
 
-                let widths = if body.width >= 60 {
+                let widths = if stacked {
+                    vec![
+                        Constraint::Length(5),
+                        Constraint::Fill(1),
+                        Constraint::Length(0),
+                        Constraint::Length(0),
+                    ]
+                } else if body.width >= 60 {
                     vec![
                         Constraint::Length(8),
-                        Constraint::Percentage(50),
-                        Constraint::Percentage(34),
+                        Constraint::Fill(3),
+                        Constraint::Fill(2),
                         Constraint::Length(7),
                     ]
                 } else {
                     vec![
-                        Constraint::Length(8),
-                        Constraint::Percentage(60),
-                        Constraint::Percentage(34),
+                        Constraint::Length(5),
+                        Constraint::Fill(3),
+                        Constraint::Fill(2),
                         Constraint::Length(0),
                     ]
                 };
                 let third_header = if is_artist { "ALBUM" } else { "ARTIST" };
                 let header = Row::new(vec![
                     Cell::from(if artist_search {
-                        "    ROW "
+                        if body.width < 60 { "  ROW" } else { "    ROW " }
+                    } else if body.width < 60 {
+                        "    #"
                     } else {
                         "      # "
                     }),
-                    Cell::from("TITLE"),
-                    Cell::from(third_header),
+                    Cell::from(if stacked {
+                        if is_artist {
+                            "TITLE / ALBUM"
+                        } else {
+                            "TITLE / ARTIST"
+                        }
+                    } else {
+                        "TITLE"
+                    }),
+                    Cell::from(if stacked { "" } else { third_header }),
                     Cell::from(format!("{:>time_width$}", "TIME")),
                 ])
                 .style(table_header_style(theme))
@@ -477,7 +536,7 @@ pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
                 body.height.saturating_sub(2) as usize,
                 &mut render.catalog_scroll,
             );
-            row_hits(render, body, &visible, false, true);
+            row_hits(render, body, &visible, false, true, 1);
             if playlists.is_empty() || (app.is_filtered() && indices.is_empty()) {
                 let empty_msg = if app.catalog.busy {
                     "\n\n  Loading playlists…"
@@ -511,8 +570,8 @@ pub(super) fn catalog(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
                     .collect();
                 let widths = vec![
                     Constraint::Length(6),
-                    Constraint::Percentage(60),
-                    Constraint::Percentage(34),
+                    Constraint::Fill(3),
+                    Constraint::Fill(2),
                 ];
                 let header = Row::new(vec![
                     Cell::from("     # "),

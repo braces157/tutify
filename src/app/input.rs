@@ -382,33 +382,45 @@ pub(super) fn key(
         );
         return;
     }
-    if app.ui.overlay == Overlay::Lyrics
-        && app
-            .lyrics
-            .content
-            .as_ref()
-            .is_some_and(|l| l.lines.is_empty())
-    {
-        match key.code {
-            KeyCode::Down | KeyCode::Char('j') => {
-                app.lyrics.scroll = (app.lyrics.scroll + 1)
-                    .min(app.ui.render.borrow().lyrics_length.saturating_sub(1));
-                return;
+    if app.ui.overlay == Overlay::Lyrics {
+        if key.code == KeyCode::Char('a')
+            && !key
+                .modifiers
+                .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+        {
+            app.lyrics.manual_scroll = !app.lyrics.manual_scroll;
+            if app.lyrics.manual_scroll {
+                app.lyrics.scroll = app.ui.render.borrow().lyrics_scroll;
             }
-            KeyCode::Up | KeyCode::Char('k') => {
-                app.lyrics.scroll = app.lyrics.scroll.saturating_sub(1);
-                return;
+            app.status = if app.lyrics.manual_scroll {
+                "Lyrics auto-scroll paused. Press a to resume.".into()
+            } else {
+                "Lyrics auto-scroll on; plain lyrics follow estimated song progress.".into()
+            };
+            return;
+        }
+        let delta = match key.code {
+            KeyCode::Down | KeyCode::Char('j') => Some(1),
+            KeyCode::Up | KeyCode::Char('k') => Some(-1),
+            KeyCode::PageDown => Some(10),
+            KeyCode::PageUp => Some(-10),
+            _ => None,
+        };
+        if let Some(delta) = delta {
+            if app.lyrics.content.is_some() {
+                let render = app.ui.render.borrow();
+                let current = if app.lyrics.manual_scroll {
+                    app.lyrics.scroll
+                } else {
+                    render.lyrics_scroll
+                };
+                app.lyrics.scroll = current
+                    .saturating_add_signed(delta)
+                    .min(render.lyrics_length.saturating_sub(1));
+                app.lyrics.manual_scroll = true;
+                app.status = "Lyrics auto-scroll paused. Press a to resume.".into();
             }
-            KeyCode::PageDown => {
-                app.lyrics.scroll = (app.lyrics.scroll + 10)
-                    .min(app.ui.render.borrow().lyrics_length.saturating_sub(1));
-                return;
-            }
-            KeyCode::PageUp => {
-                app.lyrics.scroll = app.lyrics.scroll.saturating_sub(10);
-                return;
-            }
-            _ => (),
+            return;
         }
     }
     match key.code {

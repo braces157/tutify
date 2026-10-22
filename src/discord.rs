@@ -13,6 +13,8 @@ use tokio::{
 
 pub const DEFAULT_CLIENT_ID: &str = "1522058393898975252";
 pub const TUITIFY_LOGO_URL: &str = "https://raw.githubusercontent.com/braces157/tutify/78c5fbb9eed0f0a6d17bb390c3fab086fe229340/docs/assets/brand/tuitify-discord-minimal-v2-512.png";
+const TUITIFY_URL: &str = "https://github.com/braces157/tutify";
+mod metadata;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Snapshot {
@@ -64,16 +66,18 @@ struct SentState {
 }
 
 impl DiscordPresence {
-    pub fn spawn(enabled: bool, custom_client_id: Option<String>) -> Self {
+    pub fn spawn(config: &crate::storage::Config, catalog: &crate::catalog::Catalog) -> Self {
         let mut presence = Self {
             tx: None,
             task: None,
             last_sent: None,
         };
-        if !enabled {
+        if !config.discord_rpc {
             return presence;
         }
-        let client_id = custom_client_id
+        let client_id = config
+            .discord_client_id
+            .clone()
             .filter(|s| !s.trim().is_empty())
             .or_else(|| std::env::var("TUITIFY_DISCORD_APP_ID").ok())
             .unwrap_or_else(|| DEFAULT_CLIENT_ID.to_string());
@@ -87,7 +91,8 @@ impl DiscordPresence {
         }
         let (tx, rx) = watch::channel(None);
         presence.tx = Some(tx);
-        presence.task = Some(tokio::spawn(worker(rx, client_id)));
+        let metadata = metadata::Metadata::new(config, catalog);
+        presence.task = Some(tokio::spawn(worker(rx, client_id, metadata)));
         presence
     }
 
@@ -220,6 +225,46 @@ fn quality_state(artists: &str, quality: Option<crate::audio_quality::AudioQuali
     }
 }
 
+// Use the metadata's namespace, which may differ from the audio provider.
+fn entity_url(id: &str, kind: &str) -> Option<String> {
+    if crate::model::valid_id(id) {
+        Some(format!("https://open.spotify.com/{kind}/{id}"))
+    } else if let Some(key) = crate::deezer::key(id) {
+        Some(format!("https://www.deezer.com/{kind}/{key}"))
+    } else {
+        let key = crate::youtube::music::entity_key(id, kind)?;
+        let url = format!("https://music.youtube.com/browse/{key}");
+        (url.len() <= 256).then_some(url)
+    }
+}
+
+fn song_link(track: &Track) -> Option<(&'static str, String)> {
+    let label = if crate::youtube::video_key(&track.id).is_some() {
+        "Play on YouTube"
+    } else if crate::deezer::key(&track.id).is_some() {
+        "View on Deezer"
+    } else if crate::volta::key(&track.id).is_some() {
+        // Volta IDs have no known public song URL. Link to a song search
+        // instead of sending listeners to the provider's generic home page.
+        let mut query = format!(
+            "{} {}",
+            display_text(&track.name).trim(),
+            display_text(&track.artists).trim()
+        );
+        let mut url = url::Url::parse("https://open.spotify.com/search/").ok()?;
+        loop {
+            url.path_segments_mut().ok()?.pop().push(query.trim());
+            if url.as_str().len() <= 256 {
+                return Some(("Find song on Spotify", url.into()));
+            }
+            query.pop()?;
+        }
+    } else {
+        "Play on Spotify"
+    };
+    Some((label, crate::model::track_url(&track.id)?))
+}
+
 pub fn build_activity(
     snapshot: &Snapshot,
     now_sec: i64,
@@ -233,6 +278,7 @@ pub fn build_activity(
     }
 
     let is_playing = snapshot.state == State::Playing;
+    let (song_label, song_url) = song_link(track)?;
     let art_url = override_art
         .filter(|url| valid_art(url))
         .or_else(|| track.album_art_url.as_deref().filter(|url| valid_art(url)));
@@ -260,30 +306,49 @@ pub fn build_activity(
     let mut assets = json!({
         "large_image": large_image,
         "large_text": display_text(&large_text),
+        "large_url": track.album_id.as_deref()
+            .and_then(|id| entity_url(id, "album"))
+            .unwrap_or_else(|| song_url.clone()),
     });
 
     if let (Some(si), Some(st)) = (small_image, small_text) {
         assets["small_image"] = json!(si);
         assets["small_text"] = json!(st);
+        assets["small_url"] = json!(TUITIFY_URL);
     }
 
+    let artists = if is_playing {
+        track.artists.clone()
+    } else {
+        format!("Paused • {}", track.artists)
+    };
     let mut activity = json!({
         "name": "Tuitify",
         "type": 2, // 2 = Listening ("Listening to Tuitify")
+        "status_display_type": if is_playing { 2 } else { 0 },
         "details": display_text(&track.name),
-        "state": quality_state(&track.artists, snapshot.quality),
+        "details_url": song_url,
+        "state": quality_state(&artists, snapshot.quality),
         "assets": assets,
         "buttons": [
             {
-                "label": "Listen to Tuitify",
-                "url": "https://github.com/braces157/tutify"
+                "label": song_label,
+                "url": song_url
             },
             {
-                "label": if crate::youtube::video_key(&track.id).is_some() { "Play on YouTube" } else { "Play on Spotify" },
-                "url": crate::model::track_url(&track.id)?
+                "label": "Get Tuitify",
+                "url": TUITIFY_URL
             }
         ]
     });
+
+    if let Some(url) = track
+        .artist_ids
+        .first()
+        .and_then(|id| entity_url(id, "artist"))
+    {
+        activity["state_url"] = json!(url);
+    }
 
     if is_playing && track.duration_ms > 0 {
         let start_sec = now_sec - (snapshot.position_ms.min(track.duration_ms) / 1000) as i64;
@@ -427,8 +492,19 @@ async fn send_activity<S: AsyncRead + AsyncWrite + Unpin>(
     .await
 }
 
-async fn worker(mut rx: watch::Receiver<Option<Update>>, client_id: String) {
-    worker_with_connector(&mut rx, client_id, connect_pipe, Duration::from_secs(4)).await;
+async fn worker(
+    mut rx: watch::Receiver<Option<Update>>,
+    client_id: String,
+    metadata: metadata::Metadata,
+) {
+    worker_with_connector(
+        &mut rx,
+        client_id,
+        connect_pipe,
+        Duration::from_secs(4),
+        metadata,
+    )
+    .await;
 }
 
 async fn worker_with_connector<F, Fut>(
@@ -436,6 +512,7 @@ async fn worker_with_connector<F, Fut>(
     client_id: String,
     mut connect: F,
     interval: Duration,
+    mut metadata: metadata::Metadata,
 ) where
     F: FnMut() -> Fut,
     Fut: std::future::Future<Output = io::Result<NamedPipeClient>>,
@@ -464,17 +541,26 @@ async fn worker_with_connector<F, Fut>(
                 }
                 let Some(p) = &mut pipe else { continue; };
                 let snapshot = update.current();
-                if let Some(track) = &snapshot.track
-                    && track.album_art_url.is_none() && !art_cache.contains_key(&track.id) {
+                let resolved = if let Some(track) = &snapshot.track
+                    && matches!(snapshot.state, State::Playing | State::Paused) {
+                    Some((track.clone(), metadata.resolve(track).await))
+                } else { None };
+                if let Some((_, track)) = &resolved
+                    && track.album_art_url.as_deref().is_none_or(|url| !valid_art(url))
+                    && crate::model::valid_id(&track.id) && !art_cache.contains_key(&track.id) {
                         let art = if let Some(client) = &http_client { fetch_album_art(client, &track.id).await } else { None };
                         if art_cache.len() >= 256 { art_cache.clear(); }
                         art_cache.insert(track.id.clone(), art);
                     }
-                // A skip/pause can arrive during an artwork request: always send
+                // A skip/pause can arrive during a metadata/artwork request: always send
                 // the newest state, never a buffered song that has already ended.
                 let Some(update) = rx.borrow_and_update().clone() else { continue; };
                 if rx.has_changed().is_err() { break; }
-                let snapshot = update.current();
+                let mut snapshot = update.current();
+                if let Some((original, track)) = resolved
+                    && snapshot.track.as_ref() == Some(&original) {
+                        snapshot.track = Some(track);
+                    }
                 let art = snapshot.track.as_ref().and_then(|t| art_cache.get(&t.id)).and_then(|v| v.as_deref());
                 nonce = nonce.wrapping_add(1);
                 if send_activity(p, build_activity(&snapshot, now_sec(), art), nonce).await.is_err() {
@@ -520,7 +606,10 @@ mod tests {
         presence.update(snapshot.clone());
         assert!(rx.has_changed().unwrap());
         let activity = build_activity(&snapshot, 1000, None).unwrap();
-        assert_eq!(activity["state"], "Rick Astley • FLAC 24-bit / 96 kHz");
+        assert_eq!(
+            activity["state"],
+            "Paused • Rick Astley • FLAC 24-bit / 96 kHz"
+        );
         assert!(activity.get("timestamps").is_none());
         snapshot.track.as_mut().unwrap().artists = "音".repeat(100);
         let activity = build_activity(&snapshot, 1000, None).unwrap();
@@ -701,7 +790,13 @@ mod tests {
         };
         presence.close().await;
         assert!(abort.is_finished());
-        let mut disabled = DiscordPresence::spawn(false, None);
+        let mut disabled = DiscordPresence::spawn(
+            &crate::storage::Config {
+                discord_rpc: false,
+                ..Default::default()
+            },
+            &crate::catalog::Catalog::offline().unwrap(),
+        );
         disabled.update(Snapshot {
             track: Some(sample_track()),
             state: State::Playing,
@@ -760,6 +855,7 @@ mod tests {
                     async move { ClientOptions::new().open(&name) }
                 },
                 Duration::from_millis(30),
+                metadata::Metadata::default(),
             )
             .await;
         });
@@ -773,6 +869,10 @@ mod tests {
                 let (_, payload) = read_packet(server).await.unwrap();
                 let payload: Value = serde_json::from_str(&payload).unwrap();
                 assert_eq!(payload["args"]["activity"]["details"], sample_track().name);
+                assert_eq!(
+                    payload["args"]["activity"]["details_url"],
+                    "https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT"
+                );
                 assert_eq!(
                     payload["args"]["activity"]["state"],
                     "Rick Astley • FLAC 24-bit / 96 kHz"
@@ -829,6 +929,7 @@ mod tests {
         let act = build_activity(&snapshot, now_sec, None).expect("activity exists");
 
         assert_eq!(act["type"], 2);
+        assert_eq!(act["status_display_type"], 2);
         assert_eq!(act["details"], "Never Gonna Give You Up");
         assert_eq!(act["state"], "Rick Astley");
         assert_eq!(
@@ -843,16 +944,13 @@ mod tests {
         assert_eq!(act["assets"]["small_text"], "Playing on Tuitify");
         assert_eq!(act["timestamps"]["start"], now_sec - 30);
         assert_eq!(act["name"], "Tuitify");
-        assert_eq!(act["buttons"][0]["label"], "Listen to Tuitify");
+        assert_eq!(act["buttons"][0]["label"], "Play on Spotify");
         assert_eq!(
             act["buttons"][0]["url"],
-            "https://github.com/braces157/tutify"
-        );
-        assert_eq!(act["buttons"][1]["label"], "Play on Spotify");
-        assert_eq!(
-            act["buttons"][1]["url"],
             "https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT"
         );
+        assert_eq!(act["buttons"][1]["label"], "Get Tuitify");
+        assert_eq!(act["buttons"][1]["url"], TUITIFY_URL);
     }
 
     #[test]
@@ -868,8 +966,9 @@ mod tests {
         let act = build_activity(&snapshot, now_sec, None).expect("activity exists");
 
         assert_eq!(act["type"], 2);
+        assert_eq!(act["status_display_type"], 0);
         assert_eq!(act["details"], "Never Gonna Give You Up");
-        assert_eq!(act["state"], "Rick Astley");
+        assert_eq!(act["state"], "Paused • Rick Astley");
         assert_eq!(act["assets"]["small_text"], "Paused on Tuitify");
         assert!(act.get("timestamps").is_none());
     }
@@ -895,6 +994,106 @@ mod tests {
         );
         assert!(act["assets"].get("small_image").is_none());
         assert!(act["assets"].get("small_text").is_none());
+        assert_eq!(act["assets"]["large_url"], act["details_url"]);
+    }
+
+    #[test]
+    fn clickable_song_artist_and_album_links_follow_catalog_namespaces() {
+        for (id, artist, album, label, song_url, artist_url, album_url) in [
+            (
+                "4cOdK2wGLETKBW3PvgPWqT",
+                "0gxyHStUsqpMadRV0Di1Qt",
+                "6kZDoAmRSvGQvun5LzyZhk",
+                "Play on Spotify",
+                "https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT",
+                Some("https://open.spotify.com/artist/0gxyHStUsqpMadRV0Di1Qt"),
+                Some("https://open.spotify.com/album/6kZDoAmRSvGQvun5LzyZhk"),
+            ),
+            (
+                "deezer:3135556",
+                "deezer:992",
+                "deezer:302127",
+                "View on Deezer",
+                "https://www.deezer.com/track/3135556",
+                Some("https://www.deezer.com/artist/992"),
+                Some("https://www.deezer.com/album/302127"),
+            ),
+            (
+                "youtube:dQw4w9WgXcQ",
+                "youtube:artist:UC_artist123",
+                "youtube:album:MPRE_album123",
+                "Play on YouTube",
+                "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                Some("https://music.youtube.com/browse/UC_artist123"),
+                Some("https://music.youtube.com/browse/MPRE_album123"),
+            ),
+            (
+                "volta:track-123",
+                "volta:artist-123",
+                "volta:album-123",
+                "Find song on Spotify",
+                "https://open.spotify.com/search/Never%20Gonna%20Give%20You%20Up%20Rick%20Astley",
+                None,
+                None,
+            ),
+        ] {
+            let mut track = sample_track();
+            track.id = id.into();
+            track.artist_ids = vec![artist.into()];
+            track.album_id = Some(album.into());
+            let mut snapshot = Snapshot {
+                track: Some(track),
+                state: State::Playing,
+                position_ms: 30_000,
+                quality: None,
+            };
+            for state in [State::Playing, State::Paused] {
+                snapshot.state = state;
+                let activity = build_activity(&snapshot, 1000, None).unwrap();
+                assert_eq!(activity["details_url"], song_url);
+                assert_eq!(activity["buttons"][0]["label"], label);
+                assert_eq!(activity["buttons"][0]["url"], song_url);
+                assert_eq!(activity["state_url"].as_str(), artist_url);
+                assert_eq!(
+                    activity["assets"]["large_url"],
+                    album_url.unwrap_or(song_url)
+                );
+                assert_eq!(activity["assets"]["small_url"], TUITIFY_URL);
+            }
+        }
+    }
+
+    #[test]
+    fn links_reject_invalid_metadata_and_bound_encoded_unicode_searches() {
+        let mut track = sample_track();
+        track.artist_ids = vec!["deezer:1/../../private".into()];
+        track.album_id = Some("youtube:album:bad?redirect=private".into());
+        let mut snapshot = Snapshot {
+            track: Some(track),
+            state: State::Playing,
+            position_ms: 0,
+            quality: None,
+        };
+        let activity = build_activity(&snapshot, 1000, None).unwrap();
+        assert!(activity.get("state_url").is_none());
+        assert_eq!(activity["assets"]["large_url"], activity["details_url"]);
+
+        let track = snapshot.track.as_mut().unwrap();
+        track.id = "volta:track-123".into();
+        track.name = "音 /?#%\n".repeat(100);
+        track.artists = "歌手".repeat(100);
+        let activity = build_activity(&snapshot, 1000, None).unwrap();
+        let link = activity["details_url"].as_str().unwrap();
+        assert!(link.len() <= 256);
+        let url = url::Url::parse(link).unwrap();
+        assert_eq!(url.host_str(), Some("open.spotify.com"));
+        assert_eq!(url.path_segments().unwrap().count(), 2);
+        assert!(url.query().is_none());
+        assert!(url.fragment().is_none());
+        assert!(!link.contains('\n'));
+
+        snapshot.track.as_mut().unwrap().id = "https://untrusted.example/song".into();
+        assert!(build_activity(&snapshot, 1000, None).is_none());
     }
 
     #[test]

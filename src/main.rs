@@ -15,6 +15,7 @@ mod lyrics;
 mod media_controls;
 mod mix;
 mod model;
+mod monochrome;
 mod playback;
 mod providers;
 mod queue;
@@ -36,10 +37,10 @@ use std::path::PathBuf;
 #[derive(Parser)]
 #[command(
     version,
-    about = "Spotify Premium, YouTube Music, or personal Volta FLAC terminal player"
+    about = "Monochrome, Volta, Spotify and YouTube terminal music player"
 )]
 struct Cli {
-    /// Auto keeps connected Spotify playlists/discovery with Volta lossless audio.
+    /// Auto tries Monochrome, Volta, Spotify, then YouTube audio.
     #[arg(
         long = "source",
         value_enum,

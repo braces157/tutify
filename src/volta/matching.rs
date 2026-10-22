@@ -251,7 +251,75 @@ pub(crate) fn youtube_recording(original: &Track, video: &Track) -> bool {
             .trim_end_matches("VEVO")
             .into();
     }
+    // Music catalogs sometimes publish both the original-script and translated
+    // title, e.g. "花になって - Be a flower". Match complete aliases while
+    // retaining the same artist, duration and recording-version checks.
+    let original_titles = youtube_title_aliases(&original.name);
+    let candidate_titles = youtube_title_aliases(&candidate.name);
+    if original_titles
+        .iter()
+        .filter(|title| !title.is_empty())
+        .any(|title| {
+            candidate_titles
+                .iter()
+                .filter(|other| !other.is_empty())
+                .any(|other| folded(title) == folded(other))
+        })
+    {
+        candidate.name = original.name.clone();
+    }
     same_recording(original, &candidate)
+}
+
+fn youtube_title_aliases(title: &str) -> [&str; 3] {
+    let Some((left, right)) = title.split_once(" - ") else {
+        return [title, "", ""];
+    };
+    let cjk = |text: &str| {
+        text.chars().any(|c| matches!(c,
+        '\u{3040}'..='\u{30ff}' | '\u{3400}'..='\u{4dbf}' | '\u{4e00}'..='\u{9fff}' | '\u{ac00}'..='\u{d7af}'))
+    };
+    let lower = title.to_lowercase();
+    let version = lower.split(|c: char| !c.is_alphanumeric()).any(|word| {
+        matches!(
+            word,
+            "live"
+                | "remix"
+                | "cover"
+                | "instrumental"
+                | "karaoke"
+                | "acoustic"
+                | "nightcore"
+                | "sped"
+                | "slowed"
+                | "reverb"
+                | "edit"
+                | "version"
+                | "tv"
+                | "short"
+                | "extended"
+        )
+    }) || [
+        "ライブ",
+        "ライヴ",
+        "カバー",
+        "インスト",
+        "カラオケ",
+        "リミックス",
+        "アコースティック",
+    ]
+    .iter()
+    .any(|tag| lower.contains(tag));
+    if left.trim().is_empty()
+        || right.trim().is_empty()
+        || right.contains(" - ")
+        || cjk(left) == cjk(right)
+        || version
+        || title.contains(['(', ')', '[', ']', '（', '）'])
+    {
+        return [title, "", ""];
+    }
+    [title, left.trim(), right.trim()]
 }
 pub(crate) fn select(track: &Track, candidates: &[Track]) -> Result<String> {
     let mut ids = HashSet::new();

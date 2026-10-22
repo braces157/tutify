@@ -1,6 +1,123 @@
 use super::*;
 
 #[test]
+fn portrait_queue_keeps_artist_lines_and_transport_targets_visible() {
+    for theme in [Theme::Spotify, Theme::Glass] {
+        let mut app = crate::demo::app();
+        app.config.theme = theme.as_str().into();
+        app.config.native_glass = theme == Theme::Glass;
+        app.catalog.view = View::Queue;
+        for state in [State::Playing, State::Paused] {
+            app.state = state;
+            let mut terminal = Terminal::new(TestBackend::new(84, 80)).unwrap();
+            terminal
+                .draw(|frame| draw(frame, &app, &mut app.ui.render.borrow_mut()))
+                .unwrap();
+            let render = app.ui.render.borrow();
+            let row = render
+                .mouse_hits
+                .iter()
+                .find(|(_, target)| *target == MouseTarget::Queue(0))
+                .unwrap()
+                .0;
+            assert_eq!(row.height, 3);
+            let artist: String = (row.x..row.right())
+                .map(|x| terminal.backend().buffer()[(x, row.y + 1)].symbol())
+                .collect();
+            assert!(artist.contains("Mali & The Signals"), "{artist}");
+            for target in [MouseTarget::PlayPause, MouseTarget::Seek] {
+                let control = render
+                    .mouse_hits
+                    .iter()
+                    .find(|(_, found)| *found == target)
+                    .unwrap()
+                    .0;
+                assert!(!control.intersects(row));
+                assert!(control.x >= row.right());
+                if target == MouseTarget::PlayPause {
+                    let text: String = (control.x..control.right())
+                        .map(|x| terminal.backend().buffer()[(x, control.y)].symbol())
+                        .collect();
+                    assert!(text.contains("Space"));
+                    assert!(text.contains(if state == State::Playing {
+                        "Pause"
+                    } else {
+                        "Play"
+                    }));
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn queue_duration_refreshes_after_metadata_and_queue_edits_and_labels_partial_totals() {
+    let mut app = crate::demo::app();
+    app.catalog.view = View::Queue;
+    let mut terminal = Terminal::new(TestBackend::new(140, 38)).unwrap();
+    let render = |terminal: &mut Terminal<TestBackend>, app: &App| {
+        terminal
+            .draw(|frame| draw(frame, app, &mut app.ui.render.borrow_mut()))
+            .unwrap();
+        terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>()
+    };
+    let original = app.cache.get(&app.queue.ids[0]).unwrap().clone();
+    render(&mut terminal, &app);
+    let before = app
+        .ui
+        .render
+        .borrow()
+        .queue_summary
+        .as_ref()
+        .unwrap()
+        .duration_ms;
+    let mut changed = original.clone();
+    changed.duration_ms += 120_000;
+    app.cache.insert(changed.id.clone(), changed);
+    render(&mut terminal, &app);
+    assert_eq!(
+        app.ui
+            .render
+            .borrow()
+            .queue_summary
+            .as_ref()
+            .unwrap()
+            .duration_ms,
+        before + 120_000
+    );
+
+    app.cache.remove(&original.id);
+    let text = render(&mut terminal, &app);
+    assert!(text.contains("min loaded"));
+    assert_eq!(
+        app.ui
+            .render
+            .borrow()
+            .queue_summary
+            .as_ref()
+            .unwrap()
+            .known_durations,
+        app.queue.ids.len() - 1
+    );
+
+    app.queue.remove(0);
+    let text = render(&mut terminal, &app);
+    assert!(!text.contains("min loaded"));
+    assert!(text.contains("8 tracks"));
+    let summary = app.ui.render.borrow();
+    assert_eq!(
+        summary.queue_summary.as_ref().unwrap().duration_ms,
+        before - u64::from(original.duration_ms)
+    );
+}
+
+#[test]
 fn resizing_the_same_terminal_switches_layout_without_swapping_wallpaper_orientation() {
     let mut app = crate::demo::app();
     app.config.theme = "glass".into();
@@ -227,6 +344,7 @@ fn redesigned_layout_preserves_queue_mouse_rows_and_seek_at_responsive_sizes() {
         (140, 38),
         (120, 35),
         (116, 24),
+        (84, 46),
         (84, 80),
         (100, 28),
         (80, 24),
@@ -277,7 +395,7 @@ fn redesigned_layout_preserves_queue_mouse_rows_and_seek_at_responsive_sizes() {
             .iter()
             .map(|cell| cell.symbol())
             .collect();
-        if width >= 116 || height == 80 {
+        if width >= 116 || width == 84 {
             assert!(text.contains("SPECTRUM"));
         } else {
             assert!(!text.contains("SPECTRUM"));
@@ -330,6 +448,9 @@ fn ui_preview_covers_the_main_views() {
             View::Help => "Help".into(),
             _ => String::new(),
         };
+        if matches!(view, View::Search | View::Liked) {
+            app.catalog.rows = Rows::Tracks(crate::demo::playlist_tracks());
+        }
         let mut terminal = Terminal::new(TestBackend::new(120, 35)).unwrap();
         terminal
             .draw(|frame| draw(frame, &app, &mut app.ui.render.borrow_mut()))

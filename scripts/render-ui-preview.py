@@ -43,12 +43,13 @@ def render(screens, destination):
     }
     for screen in screens:
         width, height = screen["width"], screen["height"]
-        image = Image.new("RGB", (width * cell_width + inset * 2, height * cell_height + inset * 2), "#0a0f0f")
+        ground = color(screen["cells"][0]["bg"], "#101113")
+        image = Image.new("RGB", (width * cell_width + inset * 2, height * cell_height + inset * 2), ground)
         draw = ImageDraw.Draw(image)
         for index, cell in enumerate(screen["cells"]):
             x = inset + (index % width) * cell_width
             y = inset + (index // width) * cell_height
-            draw.rectangle((x, y, x + cell_width - 1, y + cell_height - 1), fill=color(cell["bg"], "#0a0f0f"))
+            draw.rectangle((x, y, x + cell_width - 1, y + cell_height - 1), fill=color(cell["bg"], ground))
             symbol = cell["symbol"]
             fill = color(cell["fg"], "#e9f1ee")
             if symbol in blocks:

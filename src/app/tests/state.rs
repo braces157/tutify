@@ -1,6 +1,72 @@
 use super::*;
 
 #[test]
+fn interrupted_audio_keeps_queue_position_and_pause_while_reconnecting() {
+    let mut queue = Queue::default();
+    queue.replace(vec![test_track(1).id, test_track(2).id], 0, false);
+    let mut app = App::new(Config::default(), queue);
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    app.load(&tx);
+    let generation = app.generation;
+    app.playback_event(
+        Event::Playing {
+            generation,
+            position_ms: 80_000,
+        },
+        &tx,
+    );
+    app.playback_event(
+        Event::Recovering {
+            generation,
+            position_ms: 80_125,
+            attempt: 1,
+        },
+        &tx,
+    );
+    assert_eq!(app.state, State::Loading);
+    assert_eq!(app.queue.position_ms, 80_125);
+    assert_eq!(app.queue.cursor, Some(0));
+    assert_eq!(app.generation, generation);
+    assert!(app.status.contains("reconnecting"));
+    app.media_action(MediaAction::Pause, &tx);
+    app.playback_event(
+        Event::Recovering {
+            generation,
+            position_ms: 80_125,
+            attempt: 2,
+        },
+        &tx,
+    );
+    assert_eq!(app.state, State::Paused);
+    assert_eq!(app.queue.cursor, Some(0));
+    // A previous track's reconnect must not change this track's position/state.
+    app.playback_event(
+        Event::Recovering {
+            generation: generation - 1,
+            position_ms: 1,
+            attempt: 1,
+        },
+        &tx,
+    );
+    assert_eq!(app.queue.position_ms, 80_125);
+    app.playback_event(
+        Event::TrackError {
+            generation,
+            message: "Audio stream ended before the song finished".into(),
+        },
+        &tx,
+    );
+    assert_eq!(app.state, State::Failed);
+    assert_eq!(app.queue.cursor, Some(0));
+    assert_eq!(app.queue.position_ms, 80_125);
+    while let Ok(command) = rx.try_recv() {
+        if let Command::Load { id, .. } = command {
+            assert_eq!(id, test_track(1).id);
+        }
+    }
+}
+
+#[test]
 fn audio_quality_is_current_generation_only_and_clears_on_track_change_or_failure() {
     let mut queue = Queue::default();
     queue.replace(vec![test_track(1).id, test_track(2).id], 0, false);

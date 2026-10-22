@@ -15,7 +15,7 @@ pub(super) fn help(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, a
     Mouse controls\n\
     Left click     Select row / switch view / edit search\n\
     Right click    Track or playlist actions (Esc closes)\n\
-    Wheel          Move three rows; scroll Help/plain lyrics\n\
+    Wheel          Move three rows; browse Help/lyrics\n\
     Badge / bar    Play-pause / seek\n\
     Ctrl+Shift+V   Intentional terminal paste into search/filter\n\n\
     Playback\n\
@@ -55,9 +55,11 @@ pub(super) fn help(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, a
     Glass setup    `tuitify background [IMAGE] --vertical PORTRAIT --dim 48`\n\
                    `--horizontal LANDSCAPE` sets a separate landscape image; no image resets wallpaper\n\
     v              Toggle Retro Visualizer (Real-time FFT)\n\
-    l              Toggle Synced Real-Time Lyrics View (Lrclib)\n\
+    l              Toggle Lyrics View (timed or plain)\n\
     L              Toggle the lyrics panel beside the player in tall windows\n\
     r (lyrics)     Cycle readings: auto / romaji / pinyin / off\n\
+    a (lyrics)     Toggle auto-scroll; plain lyrics use estimated timing\n\
+    Up/Down/Pg     Browse lyrics manually; a resumes following\n\
     S              Toggle local aggregate song statistics overlay\n\n\
     M (Shift-M)    Open Mix Builder (queue or current Spotify playlist)\n\
     Catalog & network\n\

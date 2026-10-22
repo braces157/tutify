@@ -104,9 +104,11 @@ pub async fn run_session(
     glass: bool,
     source: crate::model::MusicSource,
     notice: &str,
+    automatic_audio: bool,
 ) -> Result<crate::model::SessionRequest> {
     let mut config = store.config()?;
     config.source = source;
+    config.automatic_audio = automatic_audio;
     config.native_glass = native_glass;
     if native_glass || glass {
         config.theme = "glass".into();
@@ -206,10 +208,7 @@ pub async fn run_session(
             None
         }
     };
-    let mut discord_presence = crate::discord::DiscordPresence::spawn(
-        app.config.discord_rpc,
-        app.config.discord_client_id.clone(),
-    );
+    let mut discord_presence = crate::discord::DiscordPresence::spawn(&app.config, &tasks.catalog);
     let mut current_window_title = String::new();
     let mut published_media = None;
     let mut keys = EventStream::new();

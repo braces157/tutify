@@ -169,7 +169,51 @@ fn plain_lines(app: &App) -> Option<Vec<Line<'static>>> {
     Some(lines)
 }
 
+fn lyric_duration(app: &App) -> u32 {
+    app.queue
+        .current()
+        .and_then(|id| app.cache.get(id))
+        .map_or(0, |track| track.duration_ms)
+}
+
+fn scroll_label(app: &App) -> &'static str {
+    if app.lyrics.manual_scroll {
+        "off"
+    } else if app
+        .lyrics
+        .content
+        .as_ref()
+        .is_some_and(|lyrics| !lyrics.lines.is_empty())
+    {
+        "on"
+    } else if lyric_duration(app) > 0 {
+        "estimated"
+    } else {
+        "no timing"
+    }
+}
+
+fn scroll_offset(app: &App, max_scroll: usize, height: usize, active: Option<usize>) -> usize {
+    if app.lyrics.manual_scroll {
+        return app.lyrics.scroll.min(max_scroll);
+    }
+    if let Some(active) = active {
+        return active.saturating_sub(height / 2).min(max_scroll);
+    }
+    let duration = lyric_duration(app);
+    if duration == 0 {
+        return 0;
+    }
+    // Untimed lyrics move through the wrapped viewport with song progress.
+    // Keep this separate from real timestamps and never mark an estimated line
+    // as the line being sung. Playback pause and seeking share this position.
+    (max_scroll as u128 * u128::from(app.queue.position_ms.min(duration)) / u128::from(duration))
+        as usize
+}
+
 pub(super) fn lyrics(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, area: Rect) {
+    render.lyrics_length = 1;
+    render.lyrics_scroll = 0;
     let theme = Theme::from_str(&app.config.theme);
     let palette = theme.palette();
     let track = app.current_track();
@@ -188,10 +232,18 @@ pub(super) fn lyrics(frame: &mut Frame<'_>, app: &App, render: &mut RenderState,
     } else {
         " LYRICS [l exit] ".to_string()
     };
-    let reading_hint = if area.width >= 40 {
-        format!(" r readings: {} ", app.lyrics.reading_mode.label())
+    let reading_hint = if area.width >= 60 {
+        format!(
+            " a auto-scroll: {} | r readings: {} ",
+            scroll_label(app),
+            app.lyrics.reading_mode.label()
+        )
     } else {
-        format!(" r: {} ", app.lyrics.reading_mode.label())
+        format!(
+            " a:{} r:{} ",
+            scroll_label(app),
+            app.lyrics.reading_mode.label()
+        )
     };
     let outer =
         block_themed(title, true, theme).title_bottom(Line::from(reading_hint).right_aligned());
@@ -212,7 +264,7 @@ pub(super) fn lyrics(frame: &mut Frame<'_>, app: &App, render: &mut RenderState,
         return;
     }
     if app.lyrics.loading {
-        let p = Paragraph::new("\n  ⟳ Loading synchronized lyrics from Lrclib...")
+        let p = Paragraph::new("\n  ⟳ Loading lyrics...")
             .wrap(Wrap { trim: false })
             .style(Style::default().fg(palette.status_warning).italic());
         frame.render_widget(p, inner);
@@ -222,8 +274,10 @@ pub(super) fn lyrics(frame: &mut Frame<'_>, app: &App, render: &mut RenderState,
     let max_text_width = (inner.width as usize).saturating_sub(2).max(1);
     if let Some((all_lines, active_visual_start)) = synced_lines(app, max_text_width) {
         let height = inner.height as usize;
-        let half = height / 2;
-        let scroll = active_visual_start.saturating_sub(half);
+        let max_scroll = all_lines.len().saturating_sub(height);
+        let scroll = scroll_offset(app, max_scroll, height, Some(active_visual_start));
+        render.lyrics_length = max_scroll + 1;
+        render.lyrics_scroll = scroll;
         let visible: Vec<Line<'static>> = all_lines.into_iter().skip(scroll).take(height).collect();
         frame.render_widget(Paragraph::new(visible), inner);
     } else if let Some(lines) = plain_lines(app) {
@@ -234,13 +288,9 @@ pub(super) fn lyrics(frame: &mut Frame<'_>, app: &App, render: &mut RenderState,
             .line_count(inner.width)
             .saturating_sub(inner.height as usize);
         render.lyrics_length = max_scroll + 1;
-        frame.render_widget(
-            p.scroll((
-                app.lyrics.scroll.min(max_scroll).min(u16::MAX as usize) as u16,
-                0,
-            )),
-            inner,
-        );
+        let scroll = scroll_offset(app, max_scroll, inner.height as usize, None);
+        render.lyrics_scroll = scroll;
+        frame.render_widget(p.scroll((scroll.min(u16::MAX as usize) as u16, 0)), inner);
     } else {
         let p = Paragraph::new("\n  No lyrics found for this track. Press l to return.")
             .wrap(Wrap { trim: false })
@@ -259,14 +309,25 @@ pub(super) fn lyrics_panel(frame: &mut Frame<'_>, app: &App, area: Rect) {
         return;
     }
     let inner = Rect::new(
-        area.x + 1,
+        area.x + 2,
         area.y,
-        area.width.saturating_sub(2),
+        area.width.saturating_sub(4),
         area.height,
     );
+    let title = if app.lyrics.content.is_some() {
+        let mode = match scroll_label(app) {
+            "on" => "AUTO",
+            "off" => "MANUAL",
+            "estimated" => "ESTIMATED",
+            _ => "NO TIMING",
+        };
+        format!("LYRICS · {mode}")
+    } else {
+        "LYRICS".into()
+    };
     frame.render_widget(
         Paragraph::new(Span::styled(
-            "LYRICS",
+            title,
             Style::default().fg(palette.text_subtle),
         )),
         Rect::new(inner.x, inner.y, inner.width, 1),
@@ -291,7 +352,7 @@ pub(super) fn lyrics_panel(frame: &mut Frame<'_>, app: &App, area: Rect) {
     }
     if app.lyrics.loading {
         frame.render_widget(
-            Paragraph::new("⟳ Loading lyrics from Lrclib...")
+            Paragraph::new("⟳ Loading lyrics...")
                 .wrap(Wrap { trim: false })
                 .style(Style::default().fg(palette.status_warning).italic()),
             body,
@@ -302,19 +363,25 @@ pub(super) fn lyrics_panel(frame: &mut Frame<'_>, app: &App, area: Rect) {
     let max_text_width = (body.width as usize).saturating_sub(2).max(1);
     if let Some((all_lines, active_visual_start)) = synced_lines(app, max_text_width) {
         let height = body.height as usize;
-        let half = height / 2;
-        let scroll = active_visual_start.saturating_sub(half);
+        let scroll = scroll_offset(
+            app,
+            all_lines.len().saturating_sub(height),
+            height,
+            Some(active_visual_start),
+        );
         let visible: Vec<Line<'static>> = all_lines.into_iter().skip(scroll).take(height).collect();
         frame.render_widget(Paragraph::new(visible), body);
         return;
     }
     if let Some(lines) = plain_lines(app) {
-        frame.render_widget(
-            Paragraph::new(lines)
-                .wrap(Wrap { trim: true })
-                .style(Style::default().fg(palette.text)),
-            body,
-        );
+        let p = Paragraph::new(lines)
+            .wrap(Wrap { trim: true })
+            .style(Style::default().fg(palette.text));
+        let max_scroll = p
+            .line_count(body.width)
+            .saturating_sub(body.height as usize);
+        let scroll = scroll_offset(app, max_scroll, body.height as usize, None);
+        frame.render_widget(p.scroll((scroll.min(u16::MAX as usize) as u16, 0)), body);
         return;
     }
     frame.render_widget(

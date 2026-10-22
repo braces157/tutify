@@ -32,7 +32,8 @@ pub(crate) async fn run(cli: &Cli, choice: source::Choice) -> Result<()> {
             MusicSource::Volta => root.volta()?,
         };
         let mut instance = Some(store.lock()?);
-        if selected.source == MusicSource::Spotify {
+        let automatic_audio = choice == source::Choice::Auto && !use_free;
+        if selected.source == MusicSource::Spotify && !automatic_audio {
             let setup = async {
                 if !selected.premium_verified {
                     auth::setup_catalog(&store).await?;
@@ -60,7 +61,9 @@ pub(crate) async fn run(cli: &Cli, choice: source::Choice) -> Result<()> {
                 );
             }
         }
-        if selected.source == MusicSource::Youtube {
+        if selected.source == MusicSource::Youtube
+            || (automatic_audio && crate::volta::playback::ffmpeg().is_err())
+        {
             youtube::prepare_music().await?;
         }
         if cli.glass_window && terminal_profile::available() {
@@ -87,6 +90,7 @@ pub(crate) async fn run(cli: &Cli, choice: source::Choice) -> Result<()> {
             cli.glass,
             selected.source,
             &selected.notice,
+            automatic_audio,
         )
         .await?;
         drop(instance);

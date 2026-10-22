@@ -139,6 +139,13 @@ impl StatsView {
     }
 }
 
+/// Cached presentation totals, invalidated when the queue or its metadata changes.
+pub struct QueueSummary {
+    pub revision: (u64, u64),
+    pub duration_ms: u64,
+    pub known_durations: usize,
+}
+
 /// Layout feedback consumed by input and metadata scheduling after a frame.
 /// Rendering receives this state explicitly, separately from the application.
 pub struct RenderState {
@@ -153,9 +160,12 @@ pub struct RenderState {
     /// Original queue position retained while F5 refreshes filtered metadata.
     pub queue_filter_metadata_start: Option<usize>,
     pub queue_height: usize,
+    pub queue_summary: Option<QueueSummary>,
     pub terminal_size: (u16, u16),
     pub help_length: usize,
     pub lyrics_length: usize,
+    /// The last visible lyrics offset, used when taking over manual scrolling.
+    pub lyrics_scroll: usize,
     pub background: crate::ui::BackgroundState,
 }
 impl Default for RenderState {
@@ -171,9 +181,11 @@ impl Default for RenderState {
             diagnostics_length: 1,
             queue_filter_metadata_start: None,
             queue_height: 40,
+            queue_summary: None,
             terminal_size: (120, 35),
             help_length: 1,
             lyrics_length: 1,
+            lyrics_scroll: 0,
             background: crate::ui::BackgroundState::default(),
         }
     }

@@ -123,6 +123,34 @@ json.dump({'ok':True,'complete':True,'items':[
 }
 
 #[tokio::test]
+async fn youtube_resolves_be_a_flower_bilingual_title_and_rejects_instrumental() -> Result<()> {
+    let primary = MockServer::start().await;
+    let mut song = item(1, "Be a flower");
+    song["artist"]["name"] = json!("Ryokuoushoku Shakai");
+    Mock::given(path("/track/1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(song))
+        .mount(&primary)
+        .await;
+    let music = crate::youtube::music::Client::mock(
+        r#"import json,sys
+r=json.load(sys.stdin)
+assert r['operation']=='search'
+json.dump({'ok':True,'complete':True,'items':[
+{'videoId':'Y_yetj9gB30','title':'花になって - Be a flower (Instrumental)','artists':[{'name':'Ryokuoushoku Shakai'}],'duration':'3:20'},
+{'videoId':'voAu0YRWUNE','title':'花になって - Be a flower','artists':[{'name':'Ryokuoushoku Shakai'}],'duration':'3:20'}]},sys.stdout)
+"#,
+        false,
+    );
+    let catalog = Catalog::youtube(crate::youtube::Tools::music_fixture(music))?
+        .with_deezer(crate::deezer::Client::mock(&primary.uri()));
+    let (metadata, id) = catalog.resolve_playback_track("deezer:1").await?;
+    assert_eq!(metadata.name, "Be a flower");
+    assert_eq!(metadata.id, "deezer:1");
+    assert_eq!(id, "youtube:voAu0YRWUNE");
+    Ok::<_, anyhow::Error>(())
+}
+
+#[tokio::test]
 #[ignore = "Read-only live Deezer-to-Volta recording matching; uses saved personal credentials, no audio"]
 async fn live_deezer_to_volta_recordings() -> Result<()> {
     let deezer = crate::deezer::Client::new()?;

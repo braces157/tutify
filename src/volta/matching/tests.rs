@@ -9,6 +9,62 @@ const SPOTIFY: &str = "0000000000000000000001";
 const ISRC: &str = "JPW462364925";
 
 #[test]
+fn youtube_bilingual_titles_match_complete_aliases_without_accepting_other_versions() {
+    let artist = "Ryokuoushoku Shakai";
+    let original = track(SPOTIFY, "Be a flower", artist, 200_000);
+    for title in [
+        "花になって - Be a flower",
+        "Be a flower - 花になって",
+        "花になって - Be a flower (Official Audio)",
+    ] {
+        let video = track("youtube:voAu0YRWUNE", title, artist, 199_333);
+        assert!(youtube_recording(&original, &video), "{title}");
+        assert!(
+            youtube_recording(&track(SPOTIFY, "花になって", artist, 200_000), &video),
+            "{title}"
+        );
+        if !title.contains("Official Audio") {
+            assert!(youtube_recording(&video, &original), "reverse: {title}");
+        }
+    }
+    for title in [
+        "Something Else - Be a flower",
+        "花になって - Be a flower (Instrumental)",
+        "花になって (Live) - Be a flower",
+        "花になってライブ - Be a flower",
+        "花になって - Be a flower Remix",
+        "花になって - Wildflower",
+        "花になって - Be a flower - Cover",
+    ] {
+        assert!(
+            !youtube_recording(
+                &original,
+                &track("youtube:voAu0YRWUNE", title, artist, 200_000)
+            ),
+            "{title}"
+        );
+    }
+    assert!(!youtube_recording(
+        &original,
+        &track(
+            "youtube:voAu0YRWUNE",
+            "花になって - Be a flower",
+            "Cover Artist",
+            200_000
+        )
+    ));
+    assert!(!youtube_recording(
+        &original,
+        &track(
+            "youtube:voAu0YRWUNE",
+            "花になって - Be a flower",
+            artist,
+            90_000
+        )
+    ));
+}
+
+#[test]
 fn youtube_fallback_accepts_official_audio_but_rejects_wrong_recordings() {
     let original = track(SPOTIFY, "Song", "Artist", 200000);
     for (title, artist) in [

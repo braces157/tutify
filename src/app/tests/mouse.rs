@@ -716,6 +716,36 @@ async fn mouse_wheel_and_playback_badge_use_existing_controls() {
 }
 
 #[tokio::test]
+async fn portrait_transport_and_queue_header_filter_use_visible_controls() {
+    let mut app = crate::demo::app();
+    app.catalog.view = View::Queue;
+    app.state = State::Playing;
+    app.loaded = true;
+    let (mut tasks, _) = tasks();
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    draw_mouse(&app, 84, 80);
+    click_target(
+        &mut app,
+        MouseTarget::PlayPause,
+        MouseButton::Left,
+        &mut tasks,
+        &tx,
+    );
+    assert_eq!(app.state, State::Paused);
+    assert!(matches!(rx.try_recv(), Ok(Command::Pause)));
+    draw_mouse(&app, 84, 80);
+    click_target(
+        &mut app,
+        MouseTarget::QueueFilter,
+        MouseButton::Left,
+        &mut tasks,
+        &tx,
+    );
+    assert!(app.ui.queue.editing);
+    assert_eq!(app.catalog.view, View::Queue);
+}
+
+#[tokio::test]
 async fn stats_mouse_rows_search_sort_and_footer_use_drawn_hit_regions() {
     let mut app = App::new(Config::default(), Queue::default());
     let first_id = "1".repeat(22);

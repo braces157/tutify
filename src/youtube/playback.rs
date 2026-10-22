@@ -155,6 +155,10 @@ async fn decode(
         "-nostdin",
         "-rw_timeout",
         "20000000",
+        "-reconnect",
+        "1",
+        "-reconnect_delay_max",
+        "5",
         "-protocol_whitelist",
         "http,https,tcp,tls,crypto",
     ]);
@@ -326,6 +330,8 @@ pub(crate) async fn worker(
                     }
                     if current.started && current.sink.empty() && current.job.is_finished() {
                         let generation = current.generation;
+                        preparer.forget(&current.id);
+                        let _ = events.send(Event::Position { generation, position_ms });
                         active = None;
                         let _ = events.send(Event::Completed(generation));
                     } else if current.started && !current.paused {
@@ -346,6 +352,121 @@ pub(crate) async fn worker(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    #[ignore = "Installed FFmpeg; generated audio and loopback HTTP only, no Windows audio or saved state"]
+    async fn interrupted_http_body_resumes_at_byte_offset_and_ends_once() -> Result<()> {
+        use tokio::{
+            io::{AsyncReadExt, AsyncWriteExt},
+            net::TcpListener,
+        };
+        let tools = Tools::discover()?;
+        let directory = tempfile::tempdir()?;
+        let file = directory.path().join("complete.flac");
+        let generated = hidden_command(&tools.ffmpeg)
+            .args([
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=frequency=440:sample_rate=48000:duration=3",
+                "-ac",
+                "2",
+                "-c:a",
+                "flac",
+            ])
+            .arg(&file)
+            .output()
+            .await?;
+        ensure!(
+            generated.status.success(),
+            "Could not generate FLAC fixture"
+        );
+        let body = std::fs::read(file)?;
+        let cut = body.len() / 2;
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let address = listener.local_addr()?;
+        let (offset_tx, mut offsets) = mpsc::unbounded_channel();
+        let server = tokio::spawn(async move {
+            for attempt in 0..2 {
+                let (mut socket, _) = listener.accept().await?;
+                let mut request = Vec::new();
+                let mut byte = [0];
+                while !request.ends_with(b"\r\n\r\n") {
+                    if socket.read(&mut byte).await? == 0 {
+                        break;
+                    }
+                    request.push(byte[0]);
+                    ensure!(request.len() < 16_384, "Oversized fixture request");
+                }
+                let request = String::from_utf8(request)?.to_ascii_lowercase();
+                let offset = request
+                    .lines()
+                    .find_map(|line| line.strip_prefix("range: bytes="))
+                    .and_then(|range| range.split_once('-'))
+                    .and_then(|(start, _)| start.parse::<usize>().ok())
+                    .unwrap_or(0);
+                let _ = offset_tx.send(offset);
+                ensure!(
+                    offset < body.len(),
+                    "Unexpected request past the natural end"
+                );
+                let status = if offset == 0 {
+                    "200 OK"
+                } else {
+                    "206 Partial Content"
+                };
+                socket.write_all(format!("HTTP/1.1 {status}\r\nContent-Type: audio/flac\r\nAccept-Ranges: bytes\r\nContent-Length: {}\r\nContent-Range: bytes {offset}-{}/{}\r\nConnection: close\r\n\r\n", body.len() - offset, body.len() - 1, body.len()).as_bytes()).await?;
+                // Advertise the complete body, then drop the first connection.
+                // A decoder-level reconnect must fetch precisely the remainder.
+                let end = if attempt == 0 { cut } else { body.len() };
+                socket.write_all(&body[offset..end]).await?;
+                socket.shutdown().await?;
+            }
+            Ok::<_, anyhow::Error>(())
+        });
+        let stream = Stream {
+            track: crate::model::Track {
+                duration_ms: 3_000,
+                ..Default::default()
+            },
+            quality: Default::default(),
+            url: format!("http://{address}/audio"),
+            headers: String::new(),
+            obtained_at: std::time::Instant::now(),
+        };
+        let (tx, mut rx) = mpsc::channel::<Vec<f32>>(CAPACITY);
+        let collect = async {
+            let mut count = 0;
+            while let Some(chunk) = rx.recv().await {
+                count += chunk.len();
+            }
+            count
+        };
+        let result = tokio::time::timeout(Duration::from_secs(15), async {
+            tokio::join!(decode(&tools, &stream, 48_000, 0, tx), collect)
+        })
+        .await;
+        if result.is_err() {
+            server.abort();
+        }
+        let (decoded, samples) = result.context("Interrupted HTTP fixture timed out")?;
+        server.await??;
+        decoded?;
+        assert_eq!(samples, 48_000 * 2 * 3, "Audio was truncated or replayed");
+        let mut received = Vec::new();
+        while let Ok(offset) = offsets.try_recv() {
+            received.push(offset);
+        }
+        assert_eq!(
+            received,
+            vec![0, cut],
+            "Decoder did not resume at the interrupted byte"
+        );
+        Ok(())
+    }
 
     #[test]
     fn pcm_stalls_do_not_advance_position_and_close_drains_audio() {

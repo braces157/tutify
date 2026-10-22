@@ -1,5 +1,32 @@
 # Changelog
 
+## Unreleased
+
+- Prefer Monochrome FLAC audio, then connected Volta, Spotify Premium, and YouTube
+  in automatic mode. Match each provider against the original catalog recording,
+  respect Monochrome rate-limit cooldowns, and retain queue identity, playback
+  position, pause state and actual source-quality labels across retries.
+- Resume interrupted playback with bounded reconnects and reject events from
+  old decoders. Reconnect truncated YouTube HTTP streams at the interrupted byte
+  offset and accept complete bilingual title aliases without dropping version checks.
+- Add recording-checked song, artist and album links to Discord presence, with
+  bounded metadata lookups, cached results and an explicit paused state.
+- Refine library and queue spacing, stacked song/artist rows, playback controls,
+  visualizer proportions and theme contrast; update the native UI previews.
+- Auto-scroll plain lyrics with estimated song progress in the full view and
+  docked panel, preserving real timestamp following for synchronized lyrics.
+  Add `a` to pause/resume following, manual keyboard/wheel browsing, viewport
+  clamping, and per-track reset; follow playback pauses and seeks.
+- Add direct synchronized lyrics from NetEase Cloud Music and QQ Music, racing
+  LRCLIB for Han metadata and falling back independently on service errors. Match
+  Simplified/Traditional names, explicit artist aliases, and recording durations;
+  retain original text, reject covers/alternate versions, decode QQ lyric formats,
+  and reuse local pinyin readings.
+- Improve lyrics coverage with LRCLIB search after exact and verified primary-artist
+  lookups, checking title, artist, and duration while preferring synchronized lyrics.
+  Fall back to lyrics.ovh plain text when LRCLIB is missing or unavailable, retain
+  usable lyrics after search errors, and bound service timeouts and retries.
+
 ## 0.7.0 — 2026-10-20
 
 - Add Deezer public discovery, albums, artist tracks and related-artist radio,

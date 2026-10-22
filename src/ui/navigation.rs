@@ -104,11 +104,17 @@ pub(super) fn body(
         sidebar_navigation(frame, app, render, columns[0]);
         center(frame, app, render, columns[1]);
         if columns.len() == 3 {
+            listening_surface(frame, columns[2], Theme::from_str(&app.config.theme));
             if app.catalog.view == View::Queue && app.ui.overlay == Overlay::None {
                 spectrum_panel(frame, app, columns[2]);
             } else {
                 queue(frame, app, render, columns[2], false);
             }
+            column_rule(
+                frame,
+                Rect::new(columns[2].x, columns[2].y, 1, columns[2].height),
+                Theme::from_str(&app.config.theme),
+            );
         }
         return None;
     }
@@ -139,11 +145,12 @@ pub(super) fn body(
         ])
         .split(parts[1]);
         center(frame, app, render, columns[0]);
+        listening_surface(frame, columns[1], Theme::from_str(&app.config.theme));
         if app.ui.lyrics_panel {
             // Tall windows with the lyrics column: the player, a compact
             // analyser strip, then the singing lines.
             let rows = Layout::vertical([
-                Constraint::Length(10),
+                Constraint::Length(14),
                 Constraint::Length(2),
                 Constraint::Min(4),
             ])
@@ -154,11 +161,10 @@ pub(super) fn body(
             return Some(rows[0]);
         }
         let listening =
-            Layout::vertical([Constraint::Length(10), Constraint::Min(6)]).split(columns[1]);
+            Layout::vertical([Constraint::Length(14), Constraint::Min(6)]).split(columns[1]);
         listening_player(frame, app, render, listening[0]);
         if app.catalog.view == View::Queue {
-            // In a tall window the analyser takes the whole column: the bars
-            // are grounded on a baseline instead of floating in dead space.
+            // Keep audio feedback and track details together when lyrics are hidden.
             spectrum_panel(frame, app, listening[1]);
         } else {
             queue(frame, app, render, listening[1], false);
@@ -168,6 +174,14 @@ pub(super) fn body(
         center(frame, app, render, parts[1]);
         None
     }
+}
+
+fn listening_surface(frame: &mut Frame<'_>, area: Rect, theme: Theme) {
+    frame.render_widget(
+        Block::default().style(Style::default().bg(theme.palette().surface)),
+        area,
+    );
+    column_rule(frame, Rect::new(area.x, area.y, 1, area.height), theme);
 }
 
 /// The tab strip of tall windows: the active view carries the accent and an
@@ -290,10 +304,10 @@ fn sidebar_navigation(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
         area,
     );
     let inner = Rect::new(
-        area.x + 1,
-        area.y,
-        area.width.saturating_sub(2),
-        area.height,
+        area.x + 2,
+        area.y + 1,
+        area.width.saturating_sub(4),
+        area.height.saturating_sub(1),
     );
     column_rule(
         frame,
@@ -346,7 +360,7 @@ fn sidebar_navigation(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
                         .fg(if active || focused {
                             palette.primary
                         } else {
-                            palette.text
+                            palette.text_muted
                         })
                         .add_modifier(if active {
                             Modifier::BOLD
@@ -358,7 +372,7 @@ fn sidebar_navigation(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
             .style(Style::default().bg(if active || focused {
                 palette.surface_selected
             } else {
-                palette.surface_alt
+                palette.surface
             })),
             row,
         );
@@ -366,6 +380,28 @@ fn sidebar_navigation(frame: &mut Frame<'_>, app: &App, render: &mut RenderState
             render,
             Rect::new(inner.x, y, inner.width, stride.min(inner.bottom() - y)),
             MouseTarget::Navigation(*view),
+        );
+    }
+    if inner.height >= 19 {
+        let y = inner.bottom() - 5;
+        rule(frame, Rect::new(inner.x, y, inner.width, 1), theme);
+        frame.render_widget(
+            Paragraph::new(vec![
+                Line::from(vec![
+                    key_hint("1–5", theme, false),
+                    Span::raw("  Switch views"),
+                ]),
+                Line::from(vec![
+                    key_hint("Tab", theme, false),
+                    Span::raw("  Move focus"),
+                ]),
+                Line::from(vec![
+                    key_hint("F6", theme, false),
+                    Span::raw("   Music tools"),
+                ]),
+            ])
+            .style(Style::default().fg(palette.text_subtle)),
+            Rect::new(inner.x, y + 2, inner.width, 3),
         );
     }
 }

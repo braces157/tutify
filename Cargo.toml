@@ -3,7 +3,7 @@ name = "tuitify"
 version = "0.7.0"
 edition = "2024"
 rust-version = "1.88"
-description = "Windows terminal music player with Deezer discovery and Volta, Spotify, or YouTube audio"
+description = "Windows terminal music player with Deezer discovery and Monochrome, Volta, Spotify, or YouTube audio"
 license = "MIT"
 
 [dependencies]
@@ -35,7 +35,7 @@ unicode-normalization = "=0.1.25"
 url = "=2.5.8"
 webbrowser = "=1.0.6"
 wana_kana = { version = "=5.0.0", default-features = false }
-windows = { version = "=0.61.3", features = ["Foundation", "Media", "Media_Playback", "Storage_Streams", "Win32_System_WinRT", "Win32_System_Registry", "Win32_Security_Cryptography"] }
+windows = { version = "=0.61.3", features = ["Foundation", "Media", "Media_Playback", "Storage_Streams", "Win32_System_WinRT", "Win32_System_Registry", "Win32_Security_Cryptography", "Win32_Globalization"] }
 
 [dev-dependencies]
 wiremock = "=0.6.5"

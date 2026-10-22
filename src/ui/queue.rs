@@ -14,7 +14,13 @@ pub(super) fn queue(
         return;
     }
     let spacious = main && area.height >= 12;
-    let title_rows = if spacious { 2 } else { 1 };
+    let title_rows = if main && area.height >= 18 {
+        5
+    } else if spacious {
+        3
+    } else {
+        1
+    };
     let split = Layout::vertical([Constraint::Length(title_rows), Constraint::Min(1)]).split(area);
 
     let mut source = if app.queue.smart_shuffle {
@@ -38,8 +44,7 @@ pub(super) fn queue(
         });
     }
 
-    // The heading names the region and counts what is in it; the right-hand
-    // side carries the mode the list is currently in.
+    // Keep the collection identity separate from the table's column labels.
     let title = if main {
         section_title(
             "Your queue",
@@ -51,20 +56,88 @@ pub(super) fn queue(
     };
     let title_area = Rect::new(
         split[0].x + 1,
-        split[0].y,
+        split[0].y + u16::from(title_rows >= 5),
         split[0].width.saturating_sub(2),
         1,
     );
     let source = source.trim_start_matches(" | ").to_owned();
-    let source_width = source.chars().count() as u16;
-    let title_split = Layout::horizontal([Constraint::Min(8), Constraint::Length(source_width)])
+    if main && title_rows >= 3 {
+        let filter = " /  Filter queue ";
+        let parts = Layout::horizontal([
+            Constraint::Min(12),
+            Constraint::Length(if title_area.width >= 40 {
+                Span::raw(filter).width() as u16
+            } else {
+                0
+            }),
+        ])
         .split(title_area);
-    frame.render_widget(Paragraph::new(title), title_split[0]);
-    if !source.is_empty() && source_width + 12 < title_area.width {
         frame.render_widget(
-            Paragraph::new(source).style(Style::default().fg(palette.text_subtle)),
-            title_split[1],
+            Paragraph::new("Your queue").style(Style::default().fg(palette.text).bold()),
+            parts[0],
         );
+        frame.render_widget(Paragraph::new(filter).style(quiet_badge(theme)), parts[1]);
+        hit(render, parts[1], MouseTarget::QueueFilter);
+        let revision = (app.queue.revision, app.cache.revision);
+        if render
+            .queue_summary
+            .as_ref()
+            .is_none_or(|summary| summary.revision != revision)
+        {
+            let durations = app
+                .queue
+                .ids
+                .iter()
+                .filter_map(|id| app.cache.get(id))
+                .map(|track| u64::from(track.duration_ms))
+                .filter(|duration| *duration > 0);
+            let (duration_ms, known_durations) =
+                durations.fold((0, 0), |(sum, count), duration| (sum + duration, count + 1));
+            render.queue_summary = Some(crate::app::ui_state::QueueSummary {
+                revision,
+                duration_ms,
+                known_durations,
+            });
+        }
+        let duration = render.queue_summary.as_ref().unwrap();
+        let summary = format!(
+            "{} tracks{}{}",
+            app.queue.ids.len(),
+            if duration.duration_ms > 0 {
+                format!(
+                    " · {} min{}",
+                    duration.duration_ms / 60_000,
+                    if duration.known_durations < app.queue.ids.len() {
+                        " loaded"
+                    } else {
+                        ""
+                    }
+                )
+            } else {
+                String::new()
+            },
+            if source.is_empty() {
+                String::new()
+            } else {
+                format!(" · {source}")
+            }
+        );
+        frame.render_widget(
+            Paragraph::new(summary).style(Style::default().fg(palette.text_muted)),
+            Rect::new(title_area.x, title_area.y + 1, title_area.width, 1),
+        );
+    } else {
+        let source_width = Span::raw(&source).width() as u16;
+        let title_split =
+            Layout::horizontal([Constraint::Min(8), Constraint::Length(source_width)])
+                .split(title_area);
+        frame.render_widget(Paragraph::new(title), title_split[0]);
+        if !source.is_empty() && source_width + 12 < title_area.width {
+            frame.render_widget(
+                Paragraph::new(source).style(Style::default().fg(palette.text_subtle)),
+                title_split[1],
+            );
+        }
     }
 
     let area = split[1];
@@ -162,7 +235,17 @@ pub(super) fn queue(
     } else {
         app.queue.cursor.unwrap_or(0)
     };
-    let stride = if spacious && area.height >= 16 { 2 } else { 1 };
+    // At portrait widths, the artist belongs underneath the title instead
+    // of competing with it for two narrow columns.
+    let stacked = main && area.width < 60 && area.height >= 12;
+    let row_height = if stacked { 2 } else { 1 };
+    let stride = if stacked {
+        3
+    } else if spacious && area.height >= 16 {
+        2
+    } else {
+        1
+    };
     let height = (area.height.saturating_sub(if compact {
         0
     } else if header {
@@ -242,7 +325,7 @@ pub(super) fn queue(
                     format!(" {indicator} {:>3} ", at + 1)
                 }
             } else {
-                format!("{indicator}{:>3} ", at + 1)
+                indicator.to_owned()
             };
             let index_cell = Cell::from(index).style(
                 Style::default()
@@ -258,13 +341,24 @@ pub(super) fn queue(
             } else {
                 name.to_owned()
             };
-            let name_cell = Cell::from(name).style(if is_current {
+            let name_style = if is_current {
                 Style::default().fg(palette.primary).bold()
             } else if is_placeholder {
                 Style::default().fg(palette.text_subtle).italic()
             } else {
                 Style::default().fg(palette.text)
-            });
+            };
+            let name_cell = if stacked {
+                Cell::from(Text::from(vec![
+                    Line::from(Span::styled(name, name_style)),
+                    Line::from(Span::styled(
+                        artist,
+                        Style::default().fg(palette.text_muted),
+                    )),
+                ]))
+            } else {
+                Cell::from(name).style(name_style)
+            };
 
             if main {
                 let artist_cell =
@@ -281,7 +375,8 @@ pub(super) fn queue(
                     }),
                 );
                 Row::new(vec![index_cell, name_cell, artist_cell, time_cell])
-                    .bottom_margin(stride - 1)
+                    .height(row_height)
+                    .bottom_margin(stride - row_height)
             } else {
                 let time_cell = Cell::from(format!("{duration:>time_width$}")).style(
                     Style::default().fg(if is_placeholder {
@@ -302,7 +397,14 @@ pub(super) fn queue(
     });
 
     if main {
-        let widths = if area.width < 45 {
+        let widths = if stacked {
+            vec![
+                Constraint::Length(6),
+                Constraint::Fill(1),
+                Constraint::Length(0),
+                Constraint::Length(time_width as u16),
+            ]
+        } else if area.width < 45 {
             vec![
                 Constraint::Length(5),
                 Constraint::Fill(1),
@@ -326,8 +428,8 @@ pub(super) fn queue(
         };
         let header_row = Row::new(vec![
             Cell::from("      # "),
-            Cell::from("TRACK"),
-            Cell::from("ARTIST"),
+            Cell::from(if stacked { "TRACK / ARTIST" } else { "TRACK" }),
+            Cell::from(if stacked { "" } else { "ARTIST" }),
             Cell::from(format!("{:>time_width$}", "TIME")),
         ])
         .style(table_header_style(theme))
@@ -347,7 +449,7 @@ pub(super) fn queue(
         if stride > 1 {
             let top = area.y + first_row;
             for line in 0..visible.len() {
-                let y = top + line as u16 * stride + 1;
+                let y = top + line as u16 * stride + row_height;
                 if y >= area.bottom().saturating_sub(1) {
                     break;
                 }
@@ -360,7 +462,7 @@ pub(super) fn queue(
         }
     } else {
         let widths = vec![
-            Constraint::Length(6),
+            Constraint::Length(2),
             Constraint::Fill(1),
             Constraint::Length(5),
         ];

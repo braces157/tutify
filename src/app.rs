@@ -274,6 +274,9 @@ impl App {
     }
 
     pub(crate) fn audio_source_label(&self) -> &'static str {
+        if self.config.automatic_audio {
+            return self.playback_fallback.unwrap_or("Monochrome");
+        }
         self.playback_fallback.unwrap_or(match self.config.source {
             crate::model::MusicSource::Spotify => "Spotify",
             crate::model::MusicSource::Youtube => "YouTube",
@@ -942,7 +945,31 @@ impl App {
         // Expiry wins over a simultaneous completion or delayed playback event.
         self.check_sleep(Instant::now(), tx);
         match event {
+            Event::Recovering {
+                generation,
+                position_ms,
+                attempt,
+            } if generation == self.generation && self.loaded => {
+                self.finalize_playback_accounting();
+                self.queue.position_ms = position_ms;
+                if self.state != State::Paused {
+                    self.state = State::Loading;
+                }
+                self.anchor_position();
+                self.preload_requested = None;
+                self.last_preloaded_id = None;
+                self.status = format!(
+                    "Audio interrupted; reconnecting at {} (attempt {attempt}/2)...",
+                    format_time(position_ms)
+                );
+            }
             Event::Fallback { generation, source } if generation == self.generation => {
+                self.audio_quality = None;
+                if self.config.automatic_audio && source == "Monochrome" {
+                    self.playback_fallback = None;
+                    self.status = "Loading Monochrome audio...".into();
+                    return;
+                }
                 self.playback_fallback = Some(source);
                 self.ui.diagnostics.history.record_text(
                     Subsystem::Playback,

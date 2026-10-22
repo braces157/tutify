@@ -235,6 +235,22 @@ pub(super) fn mouse(
     ) {
         return false;
     }
+    if app.ui.overlay == Overlay::Lyrics
+        && matches!(
+            event.kind,
+            MouseEventKind::ScrollUp | MouseEventKind::ScrollDown
+        )
+    {
+        let code = if event.kind == MouseEventKind::ScrollUp {
+            KeyCode::Up
+        } else {
+            KeyCode::Down
+        };
+        for _ in 0..3 {
+            key(app, KeyEvent::new(code, KeyModifiers::NONE), tasks, tx);
+        }
+        return true;
+    }
     let hit = app
         .ui
         .render
@@ -314,14 +330,7 @@ pub(super) fn mouse(
         return false;
     };
     if event.kind == MouseEventKind::ScrollUp || event.kind == MouseEventKind::ScrollDown {
-        if app.ui.overlay == Overlay::Visualizer
-            || (app.ui.overlay == Overlay::Lyrics
-                && app
-                    .lyrics
-                    .content
-                    .as_ref()
-                    .is_none_or(|lyrics| !lyrics.lines.is_empty()))
-        {
+        if app.ui.overlay == Overlay::Visualizer {
             return false;
         }
         if !matches!(

@@ -10,10 +10,10 @@ pub(super) fn spectrum_panel(frame: &mut Frame<'_>, app: &App, area: Rect) {
         return;
     }
     let inner = Rect::new(
-        area.x + 1,
-        area.y,
-        area.width.saturating_sub(2),
-        area.height,
+        area.x + 2,
+        area.y + 1,
+        area.width.saturating_sub(4),
+        area.height.saturating_sub(1),
     );
     frame.render_widget(
         Paragraph::new(Span::styled(
@@ -25,15 +25,15 @@ pub(super) fn spectrum_panel(frame: &mut Frame<'_>, app: &App, area: Rect) {
     // One row is reserved for the baseline the bars stand on.
     let graph = Rect::new(
         inner.x,
-        inner.y + 1,
+        inner.y + 2,
         inner.width,
-        inner.height.saturating_sub(3),
+        inner.height.saturating_sub(5).min(12),
     );
     if graph.height < 2 || graph.width < 4 {
         return;
     }
-    // One cell per frequency band keeps the detail; a blank cell between the
-    // bars keeps them apart.
+    // Cap the graph height so supporting audio feedback does not overwhelm
+    // the music library in a large window.
     const BAR_CELLS: usize = 1;
     let count = (usize::from(graph.width) / (BAR_CELLS + 1)).max(1);
     let height = graph.height as usize;
@@ -68,10 +68,10 @@ pub(super) fn spectrum_panel(frame: &mut Frame<'_>, app: &App, area: Rect) {
                 Style::default().fg(palette.divider),
             ));
         }
-        lines.push(Line::from(spans));
         for _ in 1..height {
             lines.push(Line::default());
         }
+        lines.push(Line::from(spans));
     } else {
         for row in 0..height {
             let mut spans = Vec::with_capacity(count);
@@ -89,7 +89,7 @@ pub(super) fn spectrum_panel(frame: &mut Frame<'_>, app: &App, area: Rect) {
                 } else if peak == bar && bar == height - row {
                     palette.primary
                 } else {
-                    palette.primary_soft
+                    palette.text_subtle
                 };
                 spans.push(Span::styled(symbol, Style::default().fg(color)));
             }
@@ -113,8 +113,52 @@ pub(super) fn spectrum_panel(frame: &mut Frame<'_>, app: &App, area: Rect) {
         })
         .style(Style::default().fg(palette.text_subtle))
         .alignment(Alignment::Center),
-        Rect::new(inner.x, inner.bottom() - 1, inner.width, 1),
+        Rect::new(inner.x, graph.bottom() + 1, inner.width, 1),
     );
+    let detail_y = graph.bottom() + 4;
+    if inner.bottom().saturating_sub(detail_y) >= 6 {
+        let detail = Rect::new(inner.x, detail_y, inner.width, inner.bottom() - detail_y);
+        let rows = Layout::vertical([
+            Constraint::Length(2),
+            Constraint::Length(2),
+            Constraint::Length(2),
+            Constraint::Min(0),
+        ])
+        .split(detail);
+        frame.render_widget(
+            Paragraph::new("IN YOUR QUEUE").style(Style::default().fg(palette.text_subtle)),
+            rows[0],
+        );
+        if let Some(track) = app.current_track() {
+            frame.render_widget(
+                Paragraph::new(track.name.as_str())
+                    .style(Style::default().fg(palette.text).bold())
+                    .wrap(Wrap { trim: true }),
+                rows[1],
+            );
+            frame.render_widget(
+                Paragraph::new(track.artists.as_str())
+                    .style(Style::default().fg(palette.text_muted))
+                    .wrap(Wrap { trim: true }),
+                rows[2],
+            );
+            if let Some(album) = track.album.as_deref() {
+                frame.render_widget(
+                    Paragraph::new(album)
+                        .style(Style::default().fg(palette.text_subtle))
+                        .wrap(Wrap { trim: true }),
+                    rows[3],
+                );
+            }
+        } else {
+            frame.render_widget(
+                Paragraph::new("Choose a track to start listening")
+                    .style(Style::default().fg(palette.text_muted))
+                    .wrap(Wrap { trim: true }),
+                rows[1],
+            );
+        }
+    }
 }
 
 /// A compact horizontal analyser for the docked column: one row of level
@@ -128,9 +172,9 @@ pub(super) fn spectrum_strip(frame: &mut Frame<'_>, app: &App, area: Rect) {
         return;
     }
     let inner = Rect::new(
-        area.x + 1,
+        area.x + 2,
         area.y,
-        area.width.saturating_sub(2),
+        area.width.saturating_sub(4),
         area.height,
     );
     frame.render_widget(

@@ -67,7 +67,7 @@ pub(crate) async fn remember_free(store: &Storage) {
     }
 }
 pub async fn resolve(choice: Choice, fresh: bool) -> Result<Selection> {
-    resolve_with(choice, preferred_volta, || async {
+    let mut selected = resolve_with(choice, preferred_volta, || async {
         let store = Storage::local_read_only()?;
         let config = store.config()?;
         let Some(tokens) = TokenManager::load_optional(&config)? else {
@@ -94,7 +94,11 @@ pub async fn resolve(choice: Choice, fresh: bool) -> Result<Selection> {
         }
         Ok(Some(plan))
     })
-    .await
+    .await?;
+    if choice == Choice::Auto {
+        selected.notice = "Audio: Monochrome, then Volta, Spotify and YouTube as available. / searches Deezer; F6 connects accounts.".into();
+    }
+    Ok(selected)
 }
 
 fn preferred_volta() -> Option<MusicSource> {
