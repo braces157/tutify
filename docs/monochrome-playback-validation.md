@@ -21,7 +21,9 @@ records the earlier continuity investigation.
 
 Regression checks cover the four-provider order, missing recordings, rejected
 alternate versions, malformed IDs, HTTP 429 cooldowns, closed workers, pause,
-seek, track changes, stale events, original metadata and measured FLAC quality.
+seek, track changes, stale events, optional-tool startup failures, initial source
+labels, original metadata and measured FLAC quality. Natural completions allow
+the recording match's six-second duration drift plus codec padding.
 Rate-limited requests respect the server's cooldown instead of repeatedly
 requesting audio.
 

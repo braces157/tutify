@@ -122,10 +122,10 @@ workflow inside Windows Terminal—no Electron shell and no background service.
 
 ### Current release
 
-The current release is **v0.7.0**. Just launch `tuitify`: connected Volta is preferred
-for lossless playback; otherwise confirmed Spotify Premium accounts use Spotify,
-and free accounts and users without a Spotify login use YouTube
-Music. F6 Tools connects accounts and updates playback tools inside the app.
+The current release is **v0.7.0**. Just launch `tuitify`: audio tries Monochrome
+FLAC first, then connected Volta, Spotify Premium, and YouTube Music, skipping
+services that are not connected or installed. F6 Tools connects accounts and
+updates playback tools inside the app.
 This update adds Deezer discovery, automatic queue continuation, prepared next-track audio, responsive player layouts, and clearer audio-provider badges. Optional Google libraries and independent provider queues remain available. Bounded parsed caches and idle helper
 shutdown reduce retained memory. Existing queue tools, recovery, diagnostics,
 lyrics, Glass themes and Windows media controls remain available.

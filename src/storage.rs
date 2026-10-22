@@ -18,6 +18,8 @@ pub struct Config {
     #[serde(skip)]
     pub automatic_audio: bool,
     #[serde(skip)]
+    pub primary_audio: Option<&'static str>,
+    #[serde(skip)]
     pub deezer_search: bool,
     #[serde(skip)]
     pub youtube_music: bool,
@@ -46,6 +48,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             automatic_audio: false,
+            primary_audio: None,
             deezer_search: false,
             youtube_music: false,
             youtube_connected: false,

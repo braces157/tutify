@@ -6,7 +6,9 @@ impl Catalog {
         let mut catalog = if self.offline {
             Self::new(TokenManager::load_optional(config).ok()??).ok()?
         } else {
-            self.clone()
+            let mut isolated = self.clone();
+            isolated.cooldown = Arc::new(Mutex::new(None));
+            isolated
         };
         catalog.volta = None;
         catalog.youtube = None;
@@ -55,5 +57,45 @@ impl Catalog {
             .into_iter()
             .find(|track| track.id == id)
             .context("Spotify returned no matching recording")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use wiremock::{Mock, MockServer, ResponseTemplate, matchers::path};
+    #[tokio::test]
+    async fn presence_throttling_does_not_gate_foreground_catalog_requests() {
+        let server = MockServer::start().await;
+        Mock::given(path("/search"))
+            .respond_with(ResponseTemplate::new(429))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let id = "0000000000000000000001";
+        Mock::given(path(format!("/tracks/{id}")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "id":id,"name":"Song","artists":[{"name":"Artist"}],"duration_ms":200000
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let catalog = Catalog::mock(&server.uri());
+        let before = catalog.health();
+        let presence = catalog
+            .presence_catalog(&crate::storage::Config::default())
+            .unwrap();
+        let track = Track {
+            name: "Song".into(),
+            artists: "Artist".into(),
+            duration_ms: 200000,
+            ..Track::default()
+        };
+        assert!(presence.presence_match(&track).await.is_err());
+        assert!(presence.presence_match(&track).await.is_err());
+        assert!(catalog.cooldown.lock().await.is_none());
+        assert_eq!(catalog.health(), before);
+        assert_eq!(catalog.track(id).await.unwrap().id, id);
     }
 }

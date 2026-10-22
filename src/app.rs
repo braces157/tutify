@@ -274,14 +274,22 @@ impl App {
     }
 
     pub(crate) fn audio_source_label(&self) -> &'static str {
-        if self.config.automatic_audio {
-            return self.playback_fallback.unwrap_or("Monochrome");
+        self.playback_fallback
+            .unwrap_or(self.primary_audio_source_label())
+    }
+
+    fn primary_audio_source_label(&self) -> &'static str {
+        if let Some(source) = self.config.primary_audio {
+            return source;
         }
-        self.playback_fallback.unwrap_or(match self.config.source {
+        if self.config.automatic_audio {
+            return "Monochrome";
+        }
+        match self.config.source {
             crate::model::MusicSource::Spotify => "Spotify",
             crate::model::MusicSource::Youtube => "YouTube",
             crate::model::MusicSource::Volta | crate::model::MusicSource::SpotifyVolta => "Volta",
-        })
+        }
     }
 
     /// Whether lyrics are wanted right now: the full view is open, or the
@@ -965,9 +973,9 @@ impl App {
             }
             Event::Fallback { generation, source } if generation == self.generation => {
                 self.audio_quality = None;
-                if self.config.automatic_audio && source == "Monochrome" {
+                if source == self.primary_audio_source_label() {
                     self.playback_fallback = None;
-                    self.status = "Loading Monochrome audio...".into();
+                    self.status = format!("Loading {source} audio...");
                     return;
                 }
                 self.playback_fallback = Some(source);

@@ -6,8 +6,9 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 
 const MAX_RETRIES: u8 = 2;
-// Allow codec padding and small differences between catalog and audio durations.
-const END_TOLERANCE_MS: u32 = 5_000;
+// Recording matching accepts up to six seconds of duration drift; also allow
+// codec padding before treating a natural EOF as an interrupted stream.
+const END_TOLERANCE_MS: u32 = 7_000;
 
 struct Intent {
     id: String,

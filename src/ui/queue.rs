@@ -1,5 +1,36 @@
 use super::*;
 
+pub(super) fn refresh_summary(app: &App, render: &mut RenderState, at: u64) {
+    let revision = (app.queue.revision, app.cache.revision);
+    if render.queue_summary.as_ref().is_some_and(|summary| {
+        summary.revision == revision && summary.valid_until.is_none_or(|until| at < until)
+    }) {
+        return;
+    }
+    let mut duration_ms = 0;
+    let mut known_durations = 0;
+    let mut valid_until: Option<u64> = None;
+    for id in &app.queue.ids {
+        if let Some(track) = app
+            .cache
+            .get_at(id, at)
+            .filter(|track| track.duration_ms > 0)
+        {
+            duration_ms += u64::from(track.duration_ms);
+            known_durations += 1;
+            if let Some(expires) = app.cache.expires_at(id) {
+                valid_until = Some(valid_until.map_or(expires, |current| current.min(expires)));
+            }
+        }
+    }
+    render.queue_summary = Some(crate::app::ui_state::QueueSummary {
+        revision,
+        valid_until,
+        duration_ms,
+        known_durations,
+    });
+}
+
 pub(super) fn queue(
     frame: &mut Frame<'_>,
     app: &App,
@@ -78,27 +109,7 @@ pub(super) fn queue(
         );
         frame.render_widget(Paragraph::new(filter).style(quiet_badge(theme)), parts[1]);
         hit(render, parts[1], MouseTarget::QueueFilter);
-        let revision = (app.queue.revision, app.cache.revision);
-        if render
-            .queue_summary
-            .as_ref()
-            .is_none_or(|summary| summary.revision != revision)
-        {
-            let durations = app
-                .queue
-                .ids
-                .iter()
-                .filter_map(|id| app.cache.get(id))
-                .map(|track| u64::from(track.duration_ms))
-                .filter(|duration| *duration > 0);
-            let (duration_ms, known_durations) =
-                durations.fold((0, 0), |(sum, count), duration| (sum + duration, count + 1));
-            render.queue_summary = Some(crate::app::ui_state::QueueSummary {
-                revision,
-                duration_ms,
-                known_durations,
-            });
-        }
+        refresh_summary(app, render, crate::cache::now());
         let duration = render.queue_summary.as_ref().unwrap();
         let summary = format!(
             "{} tracks{}{}",

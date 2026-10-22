@@ -325,6 +325,19 @@ async fn repeated_cuts_are_bounded_and_never_complete_the_song() {
 }
 
 #[tokio::test]
+async fn matched_duration_drift_and_codec_padding_finish_without_recovery() {
+    let (inner, mut commands, events) = backend();
+    let mut player = spawn(inner, Catalog::mock("http://127.0.0.1:9"));
+    for (generation, shortfall) in [(11, 5500), (12, 6000), (13, 6999)] {
+        let attempt = load(&player, &mut commands, ID, generation).await;
+        playing(&mut player, &events, attempt, 300_000 - shortfall, 300_000).await;
+        events.send(Event::Completed(attempt)).unwrap();
+        assert!(matches!(recv(&mut player.events).await, Event::Completed(g) if g == generation));
+        assert!(commands.try_recv().is_err());
+    }
+}
+
+#[tokio::test]
 async fn recovery_preserves_pause_and_seek_and_manual_skip_cancels_it() {
     let (inner, mut commands, events) = backend();
     let mut player = spawn(inner, Catalog::mock("http://127.0.0.1:9"));

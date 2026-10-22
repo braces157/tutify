@@ -118,6 +118,27 @@ fn queue_duration_refreshes_after_metadata_and_queue_edits_and_labels_partial_to
 }
 
 #[test]
+fn queue_summary_expires_with_metadata_without_a_revision_or_prune() {
+    let app = crate::demo::app();
+    let mut render = RenderState::default();
+    let revision = (app.queue.revision, app.cache.revision);
+    let expires = app
+        .queue
+        .ids
+        .iter()
+        .filter_map(|id| app.cache.expires_at(id))
+        .max()
+        .unwrap();
+    crate::ui::queue::refresh_summary(&app, &mut render, crate::cache::now());
+    assert!(render.queue_summary.as_ref().unwrap().duration_ms > 0);
+    crate::ui::queue::refresh_summary(&app, &mut render, expires);
+    let summary = render.queue_summary.as_ref().unwrap();
+    assert_eq!(summary.revision, revision);
+    assert_eq!((summary.duration_ms, summary.known_durations), (0, 0));
+    assert_eq!((app.queue.revision, app.cache.revision), revision);
+}
+
+#[test]
 fn resizing_the_same_terminal_switches_layout_without_swapping_wallpaper_orientation() {
     let mut app = crate::demo::app();
     app.config.theme = "glass".into();

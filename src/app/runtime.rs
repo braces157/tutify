@@ -117,6 +117,7 @@ pub async fn run_session(
     let mut app = App::new(config, queue);
     load_history(&mut app, &store)?;
     let services = crate::providers::open(source, &app.config, app.visualizer.clone())?;
+    app.config.primary_audio = services.primary_audio;
     app.config.youtube_music = services.music_catalog;
     app.config.deezer_search = true;
     app.config.youtube_connected =

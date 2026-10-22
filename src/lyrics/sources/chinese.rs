@@ -317,10 +317,18 @@ pub(super) async fn qq(
         let text = if text.trim_start().starts_with(['[', '&']) {
             text.to_owned()
         } else {
-            let decoded = STANDARD
+            // nobase64=1 normally yields raw text, including untimed lyrics.
+            // Some responses still encode LRC; decode only recognizable lyrics.
+            STANDARD
                 .decode(text.trim())
-                .map_err(|_| anyhow::anyhow!("Invalid lyric encoding"))?;
-            String::from_utf8(decoded).map_err(|_| anyhow::anyhow!("Invalid lyric encoding"))?
+                .ok()
+                .and_then(|bytes| String::from_utf8(bytes).ok())
+                .filter(|decoded| {
+                    decoded
+                        .chars()
+                        .all(|ch| !ch.is_control() || ch.is_whitespace())
+                })
+                .unwrap_or_else(|| text.to_owned())
         };
         if let Some(lyrics) = catalog_lrc(&entities(&text), track) {
             let synced = !lyrics.lines.is_empty();

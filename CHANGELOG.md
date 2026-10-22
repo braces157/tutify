@@ -6,13 +6,16 @@
   in automatic mode. Match each provider against the original catalog recording,
   respect Monochrome rate-limit cooldowns, and retain queue identity, playback
   position, pause state and actual source-quality labels across retries.
+  Skip unavailable local audio engines without blocking connected services,
+  preserve setup/account diagnostics, and label the first available provider.
 - Resume interrupted playback with bounded reconnects and reject events from
   old decoders. Reconnect truncated YouTube HTTP streams at the interrupted byte
   offset and accept complete bilingual title aliases without dropping version checks.
 - Add recording-checked song, artist and album links to Discord presence, with
-  bounded metadata lookups, cached results and an explicit paused state.
+  bounded metadata lookups, independent cooldowns, cached results and an explicit paused state.
 - Refine library and queue spacing, stacked song/artist rows, playback controls,
   visualizer proportions and theme contrast; update the native UI previews.
+  Refresh queue-duration summaries when cached metadata expires.
 - Auto-scroll plain lyrics with estimated song progress in the full view and
   docked panel, preserving real timestamp following for synchronized lyrics.
   Add `a` to pause/resume following, manual keyboard/wheel browsing, viewport

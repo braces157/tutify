@@ -142,6 +142,7 @@ impl StatsView {
 /// Cached presentation totals, invalidated when the queue or its metadata changes.
 pub struct QueueSummary {
     pub revision: (u64, u64),
+    pub valid_until: Option<u64>,
     pub duration_ms: u64,
     pub known_durations: usize,
 }
