@@ -146,7 +146,13 @@ async fn qq_handles_plain_base64_and_html_encoded_lrc() {
 
 #[tokio::test]
 async fn qq_retains_untimed_raw_or_base64_lyrics() {
-    for plain in ["第一句歌词\n第二句歌词", "First line\nSecond line"] {
+    for plain in [
+        "第一句歌词\n第二句歌词",
+        "First line\nSecond line",
+        "Kiss",
+        "TWFu",
+        "YWJj",
+    ] {
         for text in [plain.to_owned(), STANDARD.encode(plain)] {
             let server = MockServer::start().await;
             qq_search(&server, vec![qq_song("Song123")]).await;

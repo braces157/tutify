@@ -318,7 +318,8 @@ pub(super) async fn qq(
             text.to_owned()
         } else {
             // nobase64=1 normally yields raw text, including untimed lyrics.
-            // Some responses still encode LRC; decode only recognizable lyrics.
+            // Some responses still encode lyrics. Preserve ambiguous raw words
+            // ("Kiss" is also valid base64), as requested by nobase64=1.
             STANDARD
                 .decode(text.trim())
                 .ok()
@@ -327,6 +328,11 @@ pub(super) async fn qq(
                     decoded
                         .chars()
                         .all(|ch| !ch.is_control() || ch.is_whitespace())
+                })
+                .filter(|decoded| {
+                    decoded.trim_start().starts_with(['[', '&'])
+                        || text.trim_end().ends_with('=')
+                        || decoded.contains('\n')
                 })
                 .unwrap_or_else(|| text.to_owned())
         };
