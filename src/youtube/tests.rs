@@ -24,6 +24,24 @@ pub(crate) fn fixture(dir: &std::path::Path, body: &str) -> Tools {
     }
 }
 
+pub(crate) async fn fixture_pid(marker: &std::path::Path) -> u32 {
+    // Hosted Windows runners can start many PowerShell fixtures concurrently.
+    // Wait for a complete PID before measuring the separate cancellation bound.
+    tokio::time::timeout(Duration::from_secs(60), async {
+        loop {
+            if let Some(pid) = std::fs::read_to_string(marker)
+                .ok()
+                .and_then(|text| text.parse::<u32>().ok())
+            {
+                return pid;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("PowerShell fixture did not publish its PID within 60 seconds")
+}
+
 #[tokio::test]
 async fn search_process_preserves_arguments_and_paginates_without_a_shell() {
     let dir = tempfile::tempdir().unwrap();
@@ -90,14 +108,7 @@ async fn cancellation_kills_the_owned_tool_process_and_timeout_is_bounded() {
     );
     let worker_tools = tools.clone();
     let task = tokio::spawn(async move { worker_tools.json(&[]).await });
-    tokio::time::timeout(Duration::from_secs(15), async {
-        while !marker.exists() {
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        }
-    })
-    .await
-    .unwrap();
-    let pid: u32 = std::fs::read_to_string(&marker).unwrap().parse().unwrap();
+    let pid = fixture_pid(&marker).await;
     task.abort();
     let _ = task.await;
     use windows::Win32::{
