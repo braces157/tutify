@@ -15,6 +15,17 @@ fn interrupted_audio_keeps_queue_position_and_pause_while_reconnecting() {
         },
         &tx,
     );
+    let quality = crate::audio_quality::AudioQuality::volta(
+        &serde_json::json!({"format":"flac", "bit_depth":24, "sample_rate":96000}),
+    );
+    app.playback_event(
+        Event::Quality {
+            generation,
+            quality,
+        },
+        &tx,
+    );
+    assert_eq!(app.audio_quality, Some(quality));
     app.playback_event(
         Event::Recovering {
             generation,
@@ -27,7 +38,16 @@ fn interrupted_audio_keeps_queue_position_and_pause_while_reconnecting() {
     assert_eq!(app.queue.position_ms, 80_125);
     assert_eq!(app.queue.cursor, Some(0));
     assert_eq!(app.generation, generation);
+    assert!(app.audio_quality.is_none());
     assert!(app.status.contains("reconnecting"));
+    app.playback_event(
+        Event::Quality {
+            generation,
+            quality,
+        },
+        &tx,
+    );
+    assert_eq!(app.audio_quality, Some(quality));
     app.media_action(MediaAction::Pause, &tx);
     app.playback_event(
         Event::Recovering {
@@ -38,7 +58,15 @@ fn interrupted_audio_keeps_queue_position_and_pause_while_reconnecting() {
         &tx,
     );
     assert_eq!(app.state, State::Paused);
+    assert!(app.audio_quality.is_none());
     assert_eq!(app.queue.cursor, Some(0));
+    app.playback_event(
+        Event::Quality {
+            generation,
+            quality,
+        },
+        &tx,
+    );
     // A previous track's reconnect must not change this track's position/state.
     app.playback_event(
         Event::Recovering {
@@ -49,6 +77,7 @@ fn interrupted_audio_keeps_queue_position_and_pause_while_reconnecting() {
         &tx,
     );
     assert_eq!(app.queue.position_ms, 80_125);
+    assert_eq!(app.audio_quality, Some(quality));
     app.playback_event(
         Event::TrackError {
             generation,

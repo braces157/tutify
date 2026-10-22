@@ -959,6 +959,7 @@ impl App {
                 attempt,
             } if generation == self.generation && self.loaded => {
                 self.finalize_playback_accounting();
+                self.audio_quality = None;
                 self.queue.position_ms = position_ms;
                 if self.state != State::Paused {
                     self.state = State::Loading;
