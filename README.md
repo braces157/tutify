@@ -114,22 +114,22 @@ whole interface with `tuitify demo` before connecting any account.
 
 ### Current release
 
-The latest published release is **v0.7.0**. Just launch `tuitify`: audio tries
-Monochrome FLAC first, then connected Volta, Spotify Premium, and YouTube Music,
-skipping services that are not connected or installed. The F6 Listening Tools
-menu connects accounts and updates playback tools inside the app. That release
-added Deezer discovery, automatic queue continuation, prepared next-track audio,
-responsive player layouts, and clearer audio-provider badges. Optional Google
-libraries and independent provider queues remain available. Bounded parsed caches
-and idle helper shutdown reduce retained memory.
+The latest published release is **v0.7.0**. Launching `tuitify` there prefers
+connected Volta lossless playback, then Spotify Premium, then YouTube Music,
+skipping services that are not connected or installed. That release added Deezer
+discovery, automatic queue continuation, prepared next-track audio, responsive
+player layouts, and clearer audio-provider badges. Optional Google libraries and
+independent provider queues remain available. Bounded parsed caches and idle
+helper shutdown reduce retained memory.
 
 The working tree adds further changes that are not in the published v0.7.0
-download: Monochrome as the first audio attempt, NetEase Cloud Music and QQ Music
-as synchronized-lyrics sources, plain-lyrics auto-scroll, a docked lyrics column,
-local taste-aware ranking, and recording-checked Discord links. See
-[Unreleased](CHANGELOG.md#unreleased) for the complete list. Everything in this
-README describes the working tree; where a section depends on an unreleased
-change, it says so.
+download: Monochrome as a new first audio attempt (ahead of Volta), NetEase Cloud
+Music and QQ Music as synchronized-lyrics sources, plain-lyrics auto-scroll, a
+docked lyrics column, local taste-aware ranking, and recording-checked Discord
+links. The F6 Listening Tools menu also connects accounts and updates playback
+tools. See [Unreleased](CHANGELOG.md#unreleased) for the complete list. Everything
+in this README describes the working tree; where a section depends on an
+unreleased change, it says so.
 
 The wallpaper-backed Glass theme supports both a portable Unicode renderer and a
 full-resolution Windows Terminal profile. See the [v0.7.0 release notes](docs/releases/v0.7.0.md)
