@@ -29,7 +29,7 @@ Revoke the application on Volta's account page to invalidate its keys and tokens
 | --- | --- | --- |
 | Plain `tuitify` (automatic) | Deezer public discovery, or your connected Spotify library | Monochrome → Volta → Spotify → YouTube, per song |
 | Spotify + Volta | Spotify playlists, Liked Songs, albums, artists, radio, Smart Shuffle, Mix Builder | Volta, then a matched YouTube recording, then an existing Spotify Premium streaming login |
-| `tuitify volta` (standalone) | Volta catalog with its own queue, cache, and settings | Volta, then a matched YouTube recording |
+| `tuitify volta` (standalone) | Volta catalog with its own queue, cache, and settings | Volta, then a matched YouTube recording, then an existing Spotify Premium streaming login |
 | `tuitify --source spotify` | Connected catalog | Spotify only |
 | `tuitify --source youtube` | Connected catalog | YouTube only, even with Volta connected |
 
