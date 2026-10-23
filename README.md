@@ -76,8 +76,8 @@ whole interface with `tuitify demo` before connecting any account.
 - **Continuous listening** fetches related songs near the end of the queue, with cancellation when you pause, stop, or choose another queue.
 - **Direct playback** through librespot and WASAPI; Spotify Desktop can stay closed.
 - **Automatic audio fallback** trying Monochrome FLAC, connected Volta, Spotify
-  Premium, then free YouTube Music, with
-  account connections inside F6 Tools and no source choice required.
+  Premium, then free YouTube Music, with account connections inside the F6
+  Listening Tools menu and no source choice required.
 - **YouTube Music** with search, video links, its own saved queue,
   playback controls, lyrics, visualizer, and Windows media keys.
 - **Personal Volta playback** used after Monochrome when connected, using the supported API and
@@ -116,12 +116,12 @@ whole interface with `tuitify demo` before connecting any account.
 
 The latest published release is **v0.7.0**. Just launch `tuitify`: audio tries
 Monochrome FLAC first, then connected Volta, Spotify Premium, and YouTube Music,
-skipping services that are not connected or installed. F6 Tools connects accounts
-and updates playback tools inside the app. That release added Deezer discovery,
-automatic queue continuation, prepared next-track audio, responsive player
-layouts, and clearer audio-provider badges. Optional Google libraries and
-independent provider queues remain available. Bounded parsed caches and idle
-helper shutdown reduce retained memory.
+skipping services that are not connected or installed. The F6 Listening Tools
+menu connects accounts and updates playback tools inside the app. That release
+added Deezer discovery, automatic queue continuation, prepared next-track audio,
+responsive player layouts, and clearer audio-provider badges. Optional Google
+libraries and independent provider queues remain available. Bounded parsed caches
+and idle helper shutdown reduce retained memory.
 
 The working tree adds further changes that are not in the published v0.7.0
 download: Monochrome as the first audio attempt, NetEase Cloud Music and QQ Music
@@ -435,7 +435,7 @@ The table lists the main shortcuts. Overlays add their own keys — see
 | `A` (`Shift+A`) | View artist tracks for selected track |
 | `e` | Add selected track to queue |
 | `Ctrl+Enter` | Play selected track next; in Queue, move its existing occurrence |
-| `F6` | Open sleep timers and queue cleanup |
+| `F6` | Open Listening Tools: account connections, sleep timers, queue cleanup, and playback-tool updates |
 | `Ctrl+R` | Restore the last cleared Queue filter |
 | `Esc` | Back to previous view / exit overlay / quit |
 | `K` / `J` | Move the selected queue item up / down |
@@ -958,9 +958,15 @@ its exact options.
 | `tuitify youtube playlists` / `liked` | Print connected playlists or Liked Songs as JSON |
 | `tuitify youtube playlist LINK` | Inspect an accessible playlist link as JSON |
 
-Commands that change saved state print a preview and a `--confirm TOKEN` line
-first; the token binds the exact bytes you reviewed. None of the read-only
-commands upload anything.
+Commands that change saved state fall into two groups:
+
+- **Previewed:** `restore`, `state restore`, and `state reset` print a preview and
+  a `--confirm TOKEN` line first. The token binds the exact bytes you reviewed, so
+  a changed file or destination requires a new preview.
+- **Immediate:** `backup`, `logout`, `clear-cache`, `background`, and `auth` apply
+  their changes without a confirmation step. Run them deliberately.
+
+None of the read-only commands upload anything.
 
 ## Troubleshooting
 

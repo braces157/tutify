@@ -35,9 +35,9 @@ Revoke the application on Volta's account page to invalidate its keys and tokens
 
 When Spotify is connected too, the **Spotify + Volta** catalog keeps your
 playlists, Liked Songs, albums, artists, radio, Smart Shuffle and Mix Builder.
-Connect Spotify through F6 Tools if needed. Your original Spotify queue, settings,
-cache and statistics stay intact. Spotify Premium is required only for Spotify's
-own audio backend.
+Connect Spotify through the F6 Listening Tools menu if needed. Your original
+Spotify queue, settings, cache and statistics stay intact. Spotify Premium is
+required only for Spotify's own audio backend.
 
 ## Matching a recording
 
