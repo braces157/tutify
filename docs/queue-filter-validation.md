@@ -1,5 +1,10 @@
 # Queue filtering validation — 2026-10-01
 
+> **Dated record.** The behavior below is still current; the test counts and the
+> installed-build hash belong to this build. Current controls are listed in the
+> [README](../README.md#controls), and current verification is in
+> [VALIDATION.md](../VALIDATION.md).
+
 This records the first build of the day. The subsequent bundle and installed
 build are documented in [Listening tools validation](listening-tools-validation.md).
 

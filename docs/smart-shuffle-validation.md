@@ -1,7 +1,11 @@
 # Smart Shuffle and Track Radio validation
 
-For the native Deezer catalog path added after the historical Spotify checks
-below, see [Deezer recommendation validation — 2026-10-21](deezer-recommendation-validation.md).
+> **Dated record.** The current implementation is described under
+> [How playback and recommendations work](../README.md#how-playback-and-recommendations-work).
+> The sections below preserve the discovery rules and live acceptance seeds from
+> v0.3.1 and earlier; counts in each section belong to that run. For the native
+> Deezer catalog path added later, see
+> [Deezer recommendation validation — 2026-10-21](deezer-recommendation-validation.md).
 
 Updated for v0.3.1 on 2026-09-30, Windows x64.
 
@@ -72,9 +76,9 @@ Mưa; they do not promise Vietnamese-only or mood-matched recommendations.
 cargo test --release --locked live_mua_and_castle_radio_catalog_acceptance -- --ignored --nocapture
 ```
 
-The current regular suite has 363 passing tests and 16 opt-ins. New regressions
-cover accent aliases, canonical Unicode equivalence, Japanese mark distinctions,
-recording verification, and ambiguous Spotify artist rejection.
+At that time the regular suite had 363 passing tests and 16 opt-ins. New
+regressions cover accent aliases, canonical Unicode equivalence, Japanese mark
+distinctions, recording verification, and ambiguous Spotify artist rejection.
 
 ## Historical real audio acceptance — 2026-09-15
 

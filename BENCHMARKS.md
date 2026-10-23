@@ -4,6 +4,12 @@ Tuitify does not promise a fixed RAM footprint, startup time, or CPU percentage.
 Those depend on the terminal, hardware, audio device, network, cache, and library.
 Executable size is not process memory usage.
 
+Every number below is a **local sample with its date, machine, and method** — not a
+service-level guarantee. When you publish a comparison, repeat it under equivalent
+conditions and report the context listed in
+[Actual TUI process measurements](#actual-tui-process-measurements). For the
+documentation map, see [docs/README.md](docs/README.md).
+
 ## Automatic music launch and idle helper memory — 2026-10-07
 
 Real Windows ConPTY sessions compared the prior executable with the final

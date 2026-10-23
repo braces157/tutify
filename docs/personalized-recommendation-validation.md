@@ -1,5 +1,10 @@
 # Local recommendation personalization — 2026-10-22
 
+> **Dated record.** This describes the taste profile as of the date in the title.
+> For current user-facing behavior see
+> [How playback and recommendations work](../README.md#how-playback-and-recommendations-work);
+> for current verification see [VALIDATION.md](../VALIDATION.md).
+
 Related-artist discovery previously balanced artists and excluded queued
 recordings, but did not rank candidates using the listener's preferences.
 Radio, Autoplay, Smart Shuffle and Mix Builder now apply a local taste profile.

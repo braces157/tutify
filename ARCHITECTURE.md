@@ -5,6 +5,11 @@ streaming worker, and a Ratatui interface. Keep the modules in this crate until
 there is a concrete need for a reusable library. The static website under `docs/`
 is a separate demonstration, not the player's frontend.
 
+Start with [docs/README.md](docs/README.md) for the documentation map. This file
+describes the current module boundaries; the dated reviews
+([PERFORMANCE_REVIEW.md](PERFORMANCE_REVIEW.md), [REFACTOR_REVIEW.md](REFACTOR_REVIEW.md))
+describe earlier snapshots.
+
 ## Where changes belong
 
 | Module | Responsibility |
@@ -12,8 +17,10 @@ is a separate demonstration, not the player's frontend.
 | `src/main.rs` | CLI dispatch and two-worker Tokio entry point |
 | `src/launcher.rs` | Session lifecycle, first-run setup, in-app connections and provider handoffs |
 | `src/source.rs`, `src/auth/plan.rs` | Bounded account/entitlement lookup and account-scoped launch policy |
-| `src/providers.rs` | Construction of catalog, recording resolver and playback services |
-| `src/deezer.rs`, `src/catalog/deezer.rs` | Public discovery metadata, related artists and recording mapping to the selected audio provider |
+| `src/providers.rs` | Construction of catalog, recording resolver and playback services, including the Monochrome → Volta → Spotify → YouTube chain |
+| `src/deezer.rs`, `src/catalog/deezer.rs`, `src/deezer/recommendations.rs` | Public discovery metadata, related artists, balanced candidate selection and recording mapping to the selected audio provider |
+| `src/monochrome.rs` | Public Tracks API matching, FLAC header quality, and the first automatic audio attempt |
+| `src/recommendation.rs` | Local taste profile: bounded signals, decay, fatigue, and candidate ranking |
 | `src/app/autoplay.rs` | Bounded queue refills and cancellable end-of-queue continuation |
 | `src/audio_output.rs`, `src/playback/pcm.rs` | Shared native output negotiation and bounded PCM playback |
 | `src/playback/catalog.rs`, `src/playback/fallback.rs` | Catalog identity preservation and cancellable audio-provider fallback |
@@ -25,33 +32,37 @@ is a separate demonstration, not the player's frontend.
 | `src/app/actions.rs` | Selected-track and queue actions shared by input sources |
 | `src/app/controls.rs` | Shared seek, volume, mute and playback controls |
 | `src/app/browsing.rs` | Browse/search state, row revisions, cached filtering |
+| `src/app/queue_filter.rs`, `src/app/search_history.rs` | Queue filter state and session-only recent-search recall |
+| `src/app/listening.rs` | Sleep timers and the F6 Listening Tools menu |
+| `src/app/smart_shuffle.rs` | Smart Shuffle placement and suggestion identity |
 | `src/app/lyrics_state.rs` | Lyrics data and request identity |
 | `src/app/ui_state.rs` | Mutually exclusive overlays, stats presentation/cursor, layout feedback |
 | `src/app/jobs.rs` | Background task lifecycle and guarded response application |
 | `src/app/persistence.rs` | Changed-state checkpoints and coalescing snapshot writers |
 | `src/ui.rs` | Frame composition and explicit layout feedback |
-| `src/ui/` panels | Catalog, queue, playback, lyrics, stats, visualizer and Help rendering |
-| `src/ui/chrome.rs`, `navigation.rs` | Header/status/menu rendering and responsive navigation |
+| `src/ui/` panels | Catalog, queue, playback, lyrics, stats, visualizer, listening, coverage and Help rendering |
+| `src/ui/chrome.rs`, `navigation.rs`, `background.rs` | Header/status/menu rendering, responsive navigation and orientation-aware layout |
 | `src/ui/terminal.rs`, `theme.rs`, `widgets.rs` | Terminal lifecycle, colors and shared drawing helpers |
-| `src/auth.rs` | PKCE, credentials and serialized token refresh |
-| `src/catalog.rs`, `library.rs`, `lyrics.rs` | Remote catalog, saved-library traversal and lyrics parsing/fetching |
+| `src/auth.rs`, `src/auth/identity.rs` | PKCE, credentials, account identity metadata and serialized token refresh |
+| `src/catalog.rs`, `library.rs`, `lyrics.rs` | Remote catalog, saved-library traversal and lyrics orchestration |
+| `src/lyrics/sources.rs`, `sources/chinese.rs`, `romanization.rs` | LRCLIB/NetEase/QQ fetching and matching, plus local romaji and pinyin |
 | `src/catalog/similarity.rs`, `discovery.rs` | Related-artist identity checks, bounded candidate pages, original-seed discovery |
 | `src/catalog/capabilities.rs` | Bounded client/account session observations, per-resource denial expiry, refresh and identical-probe serialization |
 | `src/service.rs` | Classified, redacted service failures and retry deadlines |
 | `src/diagnostics/doctor.rs`, `doctor/installation.rs`, `src/auth/doctor.rs` | Read-only local diagnostics, saved/process PATH hashes, and explicitly opted-in GET probes without credential refresh |
 | `src/diagnostics/history.rs`, `support.rs`, `src/app/diagnostics.rs`, `src/ui/diagnostics.rs` | Bounded typed session errors, redacted report snapshots, preview/export controls and F7 rendering |
-| `src/playback.rs`, `visualizer.rs` | Streaming engine, audio output and spectrum analysis |
+| `src/playback.rs`, `src/playback/recovery.rs`, `src/visualizer.rs` | Streaming engine, bounded reconnection, audio output and spectrum analysis |
 | `src/audio_quality.rs` | Source-stream codec and resolution parsing and display |
 | `src/volta.rs`, `src/volta/catalog.rs`, `src/volta/playback.rs` | Personal application credentials, throttled API access, standalone catalog and cancellable FFmpeg audio |
 | `src/volta/matching.rs` | Spotify recording resolution by ISRC or strict metadata, with session match caching |
 | `src/youtube.rs`, `src/youtube/playback.rs`, `playback/preload.rs` | Tool discovery, public-video extraction, bounded stream preloading, FFmpeg PCM and playback cancellation |
 | `src/youtube/music.rs`, `music/cache.rs`, `music/worker.rs`, `music_bridge.py` | Read-only music catalog RPC, typed bounded LRU pages and an idle-released metadata helper |
 | `src/youtube/music_auth.rs`, `setup.ps1`, `setup-music.ps1` | Isolated browser library connection, Windows user-encrypted credentials and verified dependency setup |
-| `src/queue.rs`, `stats.rs`, `cache.rs`, `storage.rs` | Domain data and persistence |
+| `src/queue.rs`, `queue/smart.rs`, `stats.rs`, `cache.rs`, `storage.rs` | Domain data and persistence |
 | `src/storage/backup.rs` | Versioned saved-state backup, preview confirmation, staged restore and journal recovery |
 | `src/model.rs` | Shared track/repeat/playback-state types |
 | `src/mix.rs`, `src/ui/mix_builder.rs` | Deterministic Mix Builder domain model and overlay |
-| `src/media_controls.rs`, `discord.rs` | Windows media controls and Discord presence |
+| `src/media_controls.rs`, `discord.rs`, `discord/metadata.rs` | Windows media controls and recording-checked Discord presence |
 
 ## Boundaries to preserve
 
@@ -219,12 +230,16 @@ Run `cargo fmt --check`, `cargo test --locked`, and
 `cargo clippy --all-targets --locked -- -D warnings` for Rust changes. Build with
 `cargo build --release --locked` before release. Tests live beside their modules;
 `src/app/tests/` retains interaction tests across input, state, jobs and persistence.
+The integration suite in `tests/` covers build identity.
 
-The sixteen opt-in checks cover live catalogs/lyrics/streaming, a silent Windows
+The opt-in checks cover live catalogs, lyrics and streaming, a silent Windows
 media session, real-terminal cleanup, and optimized rendering, persistence,
-statistics, and Mix Builder benchmarks. List them with `cargo test -- --list` and
-run the relevant checks when touching those paths. Run `npm test` for
-website changes. See `VALIDATION.md` for what was actually executed.
+statistics and Mix Builder benchmarks. They are `#[ignore]`d so the default run
+stays offline and fast; list them with `cargo test --locked -- --list` and run
+the relevant ones when touching those paths. Because the exact count changes with
+every feature, do not quote it here — `VALIDATION.md` records the number observed
+for each release. Run `npm test` for website changes. See
+[VALIDATION.md](VALIDATION.md) for what was actually executed and what was not.
 
 Prefer cohesive modules of a few hundred lines, but do not split working domain
 modules solely to meet a numeric limit. New abstractions should own an invariant

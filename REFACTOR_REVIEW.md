@@ -1,14 +1,22 @@
-# Codebase refactoring review — 2026-09-08
+# Codebase refactoring review — 2026-09-08 (historical)
 
-Current v0.5.0 boundaries and verification are documented in
+> **Historical snapshot.** This review describes the tree at commit `35c5332`.
+> The recommended refactor has since been applied, so the file sizes, field
+> counts, and line references below no longer describe the code. For current
+> module boundaries read [ARCHITECTURE.md](ARCHITECTURE.md); for current
+> verification read [VALIDATION.md](VALIDATION.md); for the documentation map
+> read [docs/README.md](docs/README.md).
+
+Current boundaries and verification are documented in
 [ARCHITECTURE.md](ARCHITECTURE.md) and [VALIDATION.md](VALIDATION.md). Counts and
 line references in this review describe its historical snapshot.
 
 Implementation follow-up: the staged refactor has now been applied. The findings
 and line references below describe the pre-refactor snapshot. See
 [ARCHITECTURE.md](ARCHITECTURE.md) for the resulting module boundaries and
-[VALIDATION.md](VALIDATION.md) for implementation verification. Application and UI
-roots are now 589 and 151 lines respectively; App has 24 top-level fields.
+[VALIDATION.md](VALIDATION.md) for implementation verification. The application
+and UI roots are now thin facades that compose child modules rather than the
+multi-thousand-line files measured below.
 
 **Recommendation: refactor the application controller and TUI incrementally before adding more interaction modes. Keep the existing domain modules and runtime architecture.** The main problem is shared state and scattered behavior, rather than a repository-wide excess of lines.
 

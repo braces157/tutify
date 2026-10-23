@@ -1,7 +1,19 @@
 # Changelog
 
+All notable changes are listed here, newest first. Each released version also has
+short user-facing notes in `docs/releases/`. Entries under **Unreleased** describe
+the working tree and are not part of the published v0.7.0 download.
+
 ## Unreleased
 
+- Redesign the terminal interface and add a docked synchronized-lyrics column
+  beside the player in tall windows. `L` toggles the panel and the choice is
+  remembered; the queued track's lyrics are fetched ahead of time.
+- Rank Radio, Autoplay, Smart Shuffle and Mix Builder candidates with a local
+  taste profile built from aggregate play counts and bounded listening/skip
+  signals. Sustained listening strengthens artist preferences, recent recordings
+  lose priority, repeated early skips apply a seven-day cooldown, and preferences
+  decay over time. Signals stay in local `stats.json`.
 - Prefer Monochrome FLAC audio, then connected Volta, Spotify Premium, and YouTube
   in automatic mode. Match each provider against the original catalog recording,
   respect Monochrome rate-limit cooldowns, and retain queue identity, playback

@@ -1,5 +1,46 @@
 # Validation record
 
+This file records what was actually executed for each release and, just as
+importantly, what was not. It is a dated log, not a live status page: the newest
+section describes the most recent verification, and older sections keep their
+original counts.
+
+How to read it:
+
+- **Active tests** are the default `cargo test --locked` run. **Ignored** tests are
+  explicit opt-ins for live services, hardware, real terminals, and benchmarks;
+  they do not run by default.
+- A count belongs to the section it appears in. Later releases grew the suite, so
+  an older number is not a contradiction.
+- "Not verified" is a real result. Offline fixtures and diagnostics that record a
+  failure are not evidence that a service or device works.
+
+See [docs/README.md](docs/README.md) for the full documentation map and
+[CHANGELOG.md](CHANGELOG.md) for what each release contains.
+
+## Current working tree — 2026-10-23
+
+The working tree adds Monochrome as the first automatic audio attempt, NetEase
+Cloud Music and QQ Music lyrics sources, plain-lyrics auto-scroll, a docked lyrics
+column, local taste-aware ranking, and recording-checked Discord links. These are
+not part of the published v0.7.0 download.
+
+Local checks for this state:
+
+- `cargo test --locked`: **721 unit tests and seven build-identity integration
+  tests passed, 0 failed, 36 ignored** opt-ins.
+- `cargo fmt --check` and `cargo clippy --all-targets --locked -- -D warnings`:
+  passed. These checks ran against the working tree after the documentation
+  changes; documentation alone does not require rebuilding the executable.
+- Feature-level evidence is recorded in
+  [Monochrome playback](docs/monochrome-playback-validation.md),
+  [Be a flower playback](docs/be-a-flower-playback-validation.md),
+  [Deezer recommendations](docs/deezer-recommendation-validation.md), and
+  [personalized recommendations](docs/personalized-recommendation-validation.md).
+
+Live provider availability, full-track continuity across every provider/device
+combination, and sustained playback memory were not re-verified here.
+
 ## v0.7.0 Deezer discovery and continuous listening — 2026-10-20
 
 The release adds public Deezer discovery, preserved catalog identities during
