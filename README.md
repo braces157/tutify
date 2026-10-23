@@ -116,7 +116,8 @@ whole interface with `tuitify demo` before connecting any account.
 
 The latest published release is **v0.7.0**. Launching `tuitify` there prefers
 connected Volta lossless playback, then Spotify Premium, then YouTube Music,
-skipping services that are not connected or installed. That release added Deezer
+skipping services that are not connected or installed. The F6 menu connects
+accounts and updates playback tools inside the app. That release added Deezer
 discovery, automatic queue continuation, prepared next-track audio, responsive
 player layouts, and clearer audio-provider badges. Optional Google libraries and
 independent provider queues remain available. Bounded parsed caches and idle
@@ -126,8 +127,7 @@ The working tree adds further changes that are not in the published v0.7.0
 download: Monochrome as a new first audio attempt (ahead of Volta), NetEase Cloud
 Music and QQ Music as synchronized-lyrics sources, plain-lyrics auto-scroll, a
 docked lyrics column, local taste-aware ranking, and recording-checked Discord
-links. The F6 Listening Tools menu also connects accounts and updates playback
-tools. See [Unreleased](CHANGELOG.md#unreleased) for the complete list. Everything
+links. See [Unreleased](CHANGELOG.md#unreleased) for the complete list. Everything
 in this README describes the working tree; where a section depends on an
 unreleased change, it says so.
 
@@ -963,8 +963,10 @@ Commands that change saved state fall into two groups:
 - **Previewed:** `restore`, `state restore`, and `state reset` print a preview and
   a `--confirm TOKEN` line first. The token binds the exact bytes you reviewed, so
   a changed file or destination requires a new preview.
-- **Immediate:** `backup`, `logout`, `clear-cache`, `background`, and `auth` apply
-  their changes without a confirmation step. Run them deliberately.
+- **Immediate:** `backup`, `logout`, `clear-cache`, `background`, `auth`,
+  `volta login`, `volta logout`, `youtube login`, `youtube logout`, and
+  `youtube music-setup` apply their changes without a confirmation step. Several
+  write or delete credentials, so run them deliberately.
 
 None of the read-only commands upload anything.
 
