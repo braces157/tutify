@@ -91,7 +91,7 @@ Spotify in combined mode and is unavailable in standalone Volta mode.
 tuitify volta                       # standalone Volta player
 tuitify volta search "tuki"         # print Volta search results
 tuitify volta probe volta:JPU902501324 --seconds 5   # muted decode/output check
-tuitify volta probe <spotify-link>  # combined Spotify-to-Volta path
+tuitify volta probe <spotify-link-or-id>  # combined Spotify-to-Volta path
 tuitify volta logout                # remove local credentials; keep the queue
 ```
 
