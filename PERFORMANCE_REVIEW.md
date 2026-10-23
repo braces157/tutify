@@ -1,8 +1,12 @@
-# Website and TUI review — 2026-09-06
+# Website and TUI review — 2026-09-06 (historical)
 
-For the current v0.5.0 performance changes and measurements, see
-[BENCHMARKS.md](BENCHMARKS.md) and [VALIDATION.md](VALIDATION.md). The review
-snapshot below is retained as historical evidence.
+> **Historical snapshot.** This review describes the tree as it stood on
+> 2026-09-06. All 18 findings were subsequently implemented; the follow-up table
+> below maps each one to its resolution. Line references and measured numbers
+> describe the original snapshot, not current code. For current measurements read
+> [BENCHMARKS.md](BENCHMARKS.md); for current verification read
+> [VALIDATION.md](VALIDATION.md); for the documentation map read
+> [docs/README.md](docs/README.md).
 
 The largest performance issue is repeated work in the TUI render loop. The largest reliability issues are silent metadata failures and background responses that outlive the queue they were requested for. The website needs compiled CSS, accessible demo controls, and evidence for its performance claims.
 

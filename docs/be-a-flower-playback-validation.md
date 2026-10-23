@@ -1,5 +1,10 @@
 # Be a flower playback validation — 2026-10-22
 
+> **Dated record.** One recording, one machine, muted output. It documents a
+> specific continuity investigation and its fix; it is not a general playback
+> guarantee. See [Monochrome playback validation](monochrome-playback-validation.md)
+> for the automatic-provider probe and the [documentation index](README.md).
+
 Tested the studio recording **Be a flower — Ryokuoushoku Shakai**, discovered as
 `deezer:2493747201` and matched to the official YouTube recording
 `youtube:voAu0YRWUNE`. The catalog lists 200 seconds; decoded audio lasts about

@@ -30,6 +30,24 @@ workflow inside Windows Terminal—no Electron shell and no background service.
 > Tuitify is an independent,
 > personal-use project and is not affiliated with or endorsed by Spotify.
 
+> [!TIP]
+> No account and no audio device? Run `tuitify demo` for the full interface
+> against a fictional offline catalog. Nothing is written to your real queue,
+> settings, statistics, recipes, or credentials.
+
+## Contents
+
+| Start here | Using Tuitify | Reference |
+| --- | --- | --- |
+| [Preview](#preview) | [Controls](#controls) | [Data and privacy](#data-and-privacy) |
+| [Highlights](#highlights) | [Album and artist browsing](#album-and-artist-browsing) | [Command reference](#command-reference) |
+| [Requirements](#requirements) | [Using Mix Builder](#using-mix-builder) | [Troubleshooting](#troubleshooting) |
+| [Install](#install) | [Search scopes](#search-scopes-and-queue-behavior) | [Build from source](#build-from-source) |
+| [Sign in](#sign-in) | [Playback and recommendations](#how-playback-and-recommendations-work) | [Project docs](#project-docs) |
+
+New here? Jump to [Install](#install), then [Controls](#controls). You can try the
+whole interface with `tuitify demo` before connecting any account.
+
 ## Preview
 
 <p align="center">
@@ -38,54 +56,28 @@ workflow inside Windows Terminal—no Electron shell and no background service.
   </a>
 </p>
 
-<p align="center"><strong>v0.7.0 wide layout, rendered from the native demo with fictional tracks and simulated playback</strong> · <a href="docs/assets/screenshots/v0.7.0/demo-queue-tall.png">Tall-window layout</a></p>
+<p align="center"><strong>v0.7.0 wide layout</strong> — rendered from the native demo with fictional tracks and simulated playback · <a href="docs/assets/screenshots/v0.7.0/demo-queue-tall.png">tall-window layout</a></p>
 
-<p align="center">
-  <a href="docs/assets/screenshots/v0.6.0/glass-lyrics-readings-volta.png">
-    <img src="docs/assets/screenshots/v0.6.0/glass-lyrics-readings-volta.png" width="100%" alt="Tuitify v0.6.0 Glass theme showing Japanese lyrics with romaji readings, a Spotify queue, and Volta FLAC audio at 24-bit / 96 kHz">
-  </a>
-</p>
+| Capture | Shows |
+| --- | --- |
+| [Glass lyrics with readings (v0.6.0)](docs/assets/screenshots/v0.6.0/glass-lyrics-readings-volta.png) | Japanese lyrics with romaji readings beside a Spotify queue and Volta FLAC at 24-bit / 96 kHz |
+| [Glass queue with Smart Shuffle (v0.3.0)](docs/assets/screenshots/v0.3.0/glass-queue-smart-shuffle.png) | A multilingual queue with Smart Shuffle suggestions |
+| [Glass visualizer (v0.3.0)](docs/assets/screenshots/v0.3.0/glass-visualizer.jpg) | The real-time FFT spectrum over a wallpaper |
+| [Glass lyrics (v0.3.0)](docs/assets/screenshots/v0.3.0/glass-lyrics.jpg) | Synchronized lyrics over a native-resolution wallpaper |
 
-<p align="center"><strong>Glass lyrics with Japanese readings and Volta lossless audio (v0.6.0)</strong></p>
-
-<p align="center">
-  <a href="docs/assets/screenshots/v0.3.0/glass-queue-smart-shuffle.png">
-    <img src="docs/assets/screenshots/v0.3.0/glass-queue-smart-shuffle.png" width="100%" alt="Tuitify v0.3.0 Glass theme showing a multilingual queue with Smart Shuffle suggestions in Windows Terminal">
-  </a>
-</p>
-
-<p align="center"><strong>Glass queue with Smart Shuffle suggestions</strong></p>
-
-<p align="center">
-  <a href="docs/assets/screenshots/v0.3.0/glass-visualizer.jpg">
-    <img src="docs/assets/screenshots/v0.3.0/glass-visualizer.jpg" width="100%" alt="Tuitify Glass theme showing the real-time spectrum visualizer in Windows Terminal">
-  </a>
-</p>
-
-<p align="center"><strong>Glass theme with the real-time FFT visualizer</strong></p>
-
-<p align="center">
-  <a href="docs/assets/screenshots/v0.3.0/glass-lyrics.jpg">
-    <img src="docs/assets/screenshots/v0.3.0/glass-lyrics.jpg" width="100%" alt="Tuitify Glass theme showing synchronized lyrics in Windows Terminal">
-  </a>
-</p>
-
-<p align="center"><strong>Synchronized lyrics over a native-resolution wallpaper</strong></p>
-
-> The current layout preview is rendered from the native demo. The next capture shows v0.6.0 with lyric readings and Spotify + Volta.
-> The remaining captures document the v0.3.0 Glass interface; the visualizer and lyrics
-> views were captured before its version label advanced from v0.2.9. The current
-> v0.7.0 adds a responsive sidebar and tall-window listening layout; these older captures remain historical.
+> Captions state the version each capture documents. The wide and tall layouts are
+> rendered from the native demo with fictional tracks and simulated playback; the
+> Glass captures are older live sessions kept as historical evidence. The current
+> layout adds a responsive sidebar, a tall-window player, and a docked lyrics column.
 
 ## Highlights
 
 - **Deezer discovery** for public song search, albums, artists, related-artist radio and Smart Shuffle. Deezer supplies metadata; your selected audio provider supplies the full recording.
 - **Continuous listening** fetches related songs near the end of the queue, with cancellation when you pause, stop, or choose another queue.
-
 - **Direct playback** through librespot and WASAPI; Spotify Desktop can stay closed.
 - **Automatic audio fallback** trying Monochrome FLAC, connected Volta, Spotify
-  Premium, then free YouTube Music, with
-  account connections inside F6 Tools and no source choice required.
+  Premium, then free YouTube Music, with account connections inside the F6
+  Listening Tools menu and no source choice required.
 - **YouTube Music** with search, video links, its own saved queue,
   playback controls, lyrics, visualizer, and Windows media keys.
 - **Personal Volta playback** used after Monochrome when connected, using the supported API and
@@ -122,34 +114,46 @@ workflow inside Windows Terminal—no Electron shell and no background service.
 
 ### Current release
 
-The current release is **v0.7.0**. Just launch `tuitify`: audio tries Monochrome
-FLAC first, then connected Volta, Spotify Premium, and YouTube Music, skipping
-services that are not connected or installed. F6 Tools connects accounts and
-updates playback tools inside the app.
-This update adds Deezer discovery, automatic queue continuation, prepared next-track audio, responsive player layouts, and clearer audio-provider badges. Optional Google libraries and independent provider queues remain available. Bounded parsed caches and idle helper
-shutdown reduce retained memory. Existing queue tools, recovery, diagnostics,
-lyrics, Glass themes and Windows media controls remain available.
+The latest published release is **v0.7.0**. Launching `tuitify` there prefers
+connected Volta lossless playback, then Spotify Premium, then YouTube Music,
+skipping services that are not connected or installed. The F6 menu connects
+accounts and updates playback tools inside the app. That release added Deezer
+discovery, automatic queue continuation, prepared next-track audio, responsive
+player layouts, and clearer audio-provider badges. Optional Google libraries and
+independent provider queues remain available. Bounded parsed caches and idle
+helper shutdown reduce retained memory.
+
+The working tree adds further changes that are not in the published v0.7.0
+download: Monochrome as a new first audio attempt (ahead of Volta), NetEase Cloud
+Music and QQ Music as synchronized-lyrics sources, plain-lyrics auto-scroll, a
+docked lyrics column, local taste-aware ranking, and recording-checked Discord
+links. See [Unreleased](CHANGELOG.md#unreleased) for the complete list. Everything
+in this README describes the working tree; where a section depends on an
+unreleased change, it says so.
 
 The wallpaper-backed Glass theme supports both a portable Unicode renderer and a
-full-resolution Windows Terminal profile. See the [release notes](docs/releases/v0.7.0.md)
-and [changelog](CHANGELOG.md) for the complete update.
+full-resolution Windows Terminal profile. See the [v0.7.0 release notes](docs/releases/v0.7.0.md)
+and the [changelog](CHANGELOG.md) for the complete history.
 
 ## Requirements
 
-- Windows 10 or 11 on x86-64
-- [Windows Terminal](https://github.com/microsoft/terminal) or another terminal with
-  modern color and mouse support
-- For Spotify playback: a Premium account, network connection, and working
-  Windows audio output device
-- For YouTube playback: public videos, a network connection, Windows audio,
-  yt-dlp, Deno, and FFmpeg (prepared on first launch; F6 updates the tools)
-- For YouTube Music search, albums, artists and radio: Python 3.10+;
-  the isolated music adapter installs on the first player launch
-- For Volta playback: a personal application with `catalog:read` and `stream:read`,
-  a network connection, Windows audio, and FFmpeg; see [Volta setup](docs/volta.md)
+The hard requirements are Windows and a capable terminal. Everything else is per
+provider — Tuitify skips services you have not connected or installed.
 
-No Rust installation is needed when using a release build. Consolas and Cascadia
-Mono work out of the box; an icon font is not required.
+| Requirement | Needed for |
+| --- | --- |
+| Windows 10 or 11, x86-64 | Everything |
+| A terminal with modern color and mouse support ([Windows Terminal](https://github.com/microsoft/terminal) recommended) | Everything |
+| Network connection and a working Windows audio output device | Any playback |
+| FFmpeg | Monochrome and Volta audio (prepared automatically) |
+| A Spotify Premium account | Spotify audio playback |
+| Public videos plus yt-dlp and Deno | YouTube audio (prepared automatically; F6 updates the tools) |
+| Python 3.10+ | YouTube Music search, albums, artists and radio (the isolated adapter installs on first launch) |
+| A personal Volta application with `catalog:read` and `stream:read` | Volta playback; see [Volta setup](docs/volta.md) |
+
+No account is required for public Deezer search, and no Rust installation is
+needed when using a release build. Consolas and Cascadia Mono work out of the box;
+an icon font is not required.
 Use 80 columns × 24 rows or larger; the minimum supported layout is 32 × 10.
 The interface adapts to the window: landscape keeps the library sidebar and
 bottom player, while portrait uses top tabs and a docked player with optional
@@ -172,6 +176,16 @@ The native demo needs no Spotify account or audio device.
 .\tuitify.exe
 ```
 
+That is the whole first run: no Rust toolchain, no source flags, and no separate
+login command. Missing playback tools are prepared automatically, and **F6**
+connects accounts inside the app. To put the executable on `PATH`, run the
+included installer (see [Install for the current user](#install-for-the-current-user)).
+
+Prefer to look around first? `tuitify demo` runs the real interface against a
+fictional offline catalog — see [Try the native demo](#try-the-native-demo-without-spotify).
+
+### How automatic audio works
+
 Just run **`tuitify`**. Audio tries **Monochrome → Volta → Spotify → YouTube** for
 each song, using connected accounts and installed playback tools. Monochrome uses
 its public Tracks API without an API key. Rate limits and unavailable recordings
@@ -179,19 +193,20 @@ advance to the next provider; a rate-limit cooldown avoids repeated requests.
 Connected Spotify playlists, Liked Songs, queue, radio and Smart Shuffle keep
 their existing catalog identities and discovery algorithm. The header continues
 to identify the connected catalog; Now Playing identifies the actual audio source.
+
 Missing playback tools and the isolated music adapter are prepared on first
 launch (Python 3.10+ for the music adapter). Public search needs no account.
 Press **F6** and choose **Connect Spotify account** or **Connect Google music
-library** for browser sign-in. The app saves your queue, connects the account,
-and returns to music automatically. No source flags or separate login commands
-are needed. Windows Credential Manager and user-encrypted Google storage keep
-subsequent launches connected.
+library** for browser sign-in; see [Sign in](#sign-in). Windows Credential Manager
+and user-encrypted Google storage keep subsequent launches connected.
 Plan checks are bounded to three seconds and successful results are cached for
 ten minutes for the same account. If Spotify's API omits subscription details,
 an existing streaming login can verify its entitlement without opening audio.
 An expired login, denied access or failed check shows its cause and opens free
 music. Only a confirmed Spotify membership change updates the cached plan.
 Restored queues always start paused; press Space to resume.
+
+### Fallbacks and audio quality
 
 Monochrome and Volta prepare the next queue entry while the current song plays, keeping a
 small decoded audio buffer ready for the transition. Changing the next song or
@@ -212,6 +227,8 @@ reports the source quality, not the DAC format. Spotify's current playback backe
 uses up to 320 kbps and YouTube streams remain lossy; FLAC/high-resolution quality
 depends on the recording supplied by Monochrome or Volta. Monochrome source
 bit depth and sample rate are read from the FLAC header before playback.
+
+### Install for the current user
 
 To install the executable for your Windows user and add it to `PATH`, run:
 
@@ -241,6 +258,10 @@ and saved libraries. Spotify playlists are not automatically mapped to YouTube.
 `tuitify --glass-window` for a dedicated Windows Terminal tab. Source selection
 stays automatic in both.
 
+If you want YouTube audio specifically even when Volta is connected, run
+`tuitify --source youtube`. The flag is hidden from `--help` because automatic
+selection is the recommended path, but it remains supported.
+
 Press `/` to enter a song/artist search or paste a YouTube video link. `Enter`
 plays the selected result and the loaded result list; `e` adds a result to the
 queue, and `Ctrl+Enter` plays it next. Space pauses/resumes, Left/Right seek,
@@ -249,7 +270,6 @@ queue editing/filtering, sleep timers, media keys, the visualizer, and lyric
 lookup work in YouTube mode.
 
 To connect your Google library, press F6 and choose **Connect Google music library**.
-
 Sign in in the dedicated **Chrome** window and click **Library**. Chrome is
 preferred when installed; Edge is the fallback. This automatically installs the
 optional YouTube Music adapter in an isolated environment and requires Python
@@ -323,6 +343,11 @@ statistics, recipes, or credentials.
 
 ## Sign in
 
+Most listeners never need a command: press **F6** and choose **Connect Spotify
+account** or **Connect Google music library**. The app saves your queue, opens the
+browser, and returns to music automatically. The commands below remain for scripted
+setup, recovery, and CI.
+
 Tuitify uses two PKCE authorizations: one for Spotify catalog access and one for
 librespot streaming. Both are browser-based, require the same Spotify account, and
 never expose your password to Tuitify.
@@ -381,16 +406,23 @@ catalog app uses `/callback`.
 
 ## Controls
 
-Press `?` or `F1` outside text entry for help. Mix Builder uses these keys for its
-own details. While typing a search or recipe name, ordinary shortcut letters enter
-text; finish text entry before using playback commands.
+Press `?` or `F1` outside text entry for help. Mix Builder and Listening Tools use
+these keys for their own menus. While typing a search, queue filter, or recipe
+name, ordinary shortcut letters enter text; finish text entry before using
+playback commands.
+
+The table lists the main shortcuts. Overlays add their own keys — see
+[Using Mix Builder](#using-mix-builder) and [Sleep timers](#sleep-timers-and-queue-cleanup).
 
 | Key | Action |
 | --- | --- |
 | `1`–`5` | Open Search, Playlists, Liked Songs, Queue, or Help |
+| `?` / `F1` | Open Help |
 | `Tab` / `Shift+Tab` | Move focus between navigation and content |
 | `↑` / `↓` or `k` / `j` | Move the selection |
+| `PgUp` / `PgDn` (or `>`) | Move 15 rows; `PgDn` also loads the next catalog page |
 | `Enter` | Search, open, or play the selected item |
+| `Backspace` | Return from an open playlist to the playlist index |
 | `Space` | Pause, resume, or retry playback |
 | `n` | Next track |
 | `p` | Play next (in Album/Artist views) / previous track |
@@ -403,7 +435,7 @@ text; finish text entry before using playback commands.
 | `A` (`Shift+A`) | View artist tracks for selected track |
 | `e` | Add selected track to queue |
 | `Ctrl+Enter` | Play selected track next; in Queue, move its existing occurrence |
-| `F6` | Open sleep timers and queue cleanup |
+| `F6` | Open Listening Tools: account connections, sleep timers, queue cleanup, and playback-tool updates |
 | `Ctrl+R` | Restore the last cleared Queue filter |
 | `Esc` | Back to previous view / exit overlay / quit |
 | `K` / `J` | Move the selected queue item up / down |
@@ -413,15 +445,25 @@ text; finish text entry before using playback commands.
 | `l` / `v` / `S` | Toggle lyrics / visualizer / statistics |
 | `L` (`Shift+L`) | Toggle the lyrics panel beside the player in tall windows (remembered) |
 | `r` in lyrics | Cycle Latin readings: auto / Japanese romaji / Mandarin pinyin / off |
+| `a` in lyrics | Toggle auto-scroll; arrows, `j`/`k`, and PgUp/PgDn scroll manually |
 | `t` | Cycle color themes |
 | `/` or `f` | Filter Queue or loaded Liked Songs/playlist rows; `/` opens search from other views |
-| `F2` / `F3` | Search Deezer / search your connected saved library |
+| `F2` / `F3` | Search the active catalog / search your connected saved library |
 | `F4` | Inspect skipped sources in saved-library search |
 | `F5` | Refresh catalog data, retry metadata, or retry lyrics in the lyrics view |
+| `F7` | Inspect recent errors and export a redacted support report |
 | `Home` / `End` | Seek to the start / end of the track |
 | `[` / `]` | Adjust volume by 1% outside Mix Builder |
 | `C` / `Delete` | Clear the queue / remove its selected entry |
+| `.` or `c` | Jump to the currently playing track in Queue |
+| `Ctrl+Shift+V` | Paste into search or filter (the terminal's own paste chord; Tuitify accepts bracketed paste) |
+| Media keys | Play/pause, next, and previous while Tuitify is unfocused |
 | `q` or `Ctrl+C` | Save and quit |
+
+Mouse: click a row to select it, right-click a track for **View Album** /
+**View Artist** actions, scroll the wheel to move three rows, and click the
+progress bar or playback badge to seek or toggle playback. In Song Statistics,
+click the footer to search, change sorting, or clear the filter.
 
 ### Find a song in your queue
 
@@ -519,7 +561,10 @@ Long searches keep the footer actions visible, including in a 32 × 10 terminal.
 
 ## Album and artist browsing
 
-Tuitify includes native in-terminal browsing for albums and artists:
+Tuitify includes native in-terminal browsing for albums and artists. It works in
+every catalog mode — Deezer discovery, connected Spotify, standalone Volta,
+YouTube Music, and the offline demo — and the view labels say which source
+supplied the rows:
 
 - **Album tracklists:** Select any track in Search, Liked Songs, or Queue and
   press `a`, or right-click to choose **View Album**. This opens the full album
@@ -527,12 +572,14 @@ Tuitify includes native in-terminal browsing for albums and artists:
   and playability indicators. Press `Enter` to play, `e` to enqueue, or `p` to
   play next.
 - **Artist tracks:** Select any track and press `Shift+A` (or `A`), or
-  right-click to choose **View Artist**. Results from Spotify's Top Tracks endpoint
-  are labeled **Top Tracks**. When access is restricted, verified artist-ID search
-  matches are labeled **Artist Search**; row numbers follow search order. PgDn
-  continues that search, including pages with no verified matches; F5 rechecks
-  Top Tracks access. Both sources show album names, durations, and playback/queue
-  actions. The native offline demo labels fictional results **Demo Tracks**.
+  right-click to choose **View Artist**. On a connected Spotify catalog, results
+  from the Top Tracks endpoint are labeled **Top Tracks**. When access is
+  restricted, verified artist-ID search matches are labeled **Artist Search**; row
+  numbers follow search order. PgDn continues that search, including pages with no
+  verified matches; F5 rechecks Top Tracks access. Other catalogs use their own
+  artist listing and label it accordingly. All sources show album names, durations,
+  and playback/queue actions, and the native offline demo labels fictional results
+  **Demo Tracks**.
 - **Breadcrumb navigation & history stack:** Navigating into albums and artists
   pushes your viewing context onto an in-memory navigation stack and displays a
   dynamic breadcrumb trail in the catalog header (e.g. `Search › OK Computer › Thom Yorke`).
@@ -544,7 +591,9 @@ Tuitify includes native in-terminal browsing for albums and artists:
   `/intl-<locale>/` links, or URLs with query parameters) or Spotify URIs
   (`spotify:album:<id>`, `spotify:artist:<id>`) directly into the Search input box (`F2`
   or `1`). Pressing `Enter` resolves the entity instantly and opens the corresponding
-  album or artist view without running a text search.
+  album or artist view without running a text search. Link resolution applies in
+  the Deezer and Spotify catalog modes; in YouTube mode a playlist link opens
+  directly, and in standalone Volta mode search stays on the Volta catalog.
 
 ## Using Mix Builder
 
@@ -552,28 +601,29 @@ Open Queue with `4`, or open an accessible playlist with `2`, then press `M`
 (`Shift+M`). The preview is separate from the live queue and playback until you
 explicitly apply it.
 
-- Press `3`, `4`, or `6` for a 30-, 45-, or 60-minute target.
-- Press `[` or `]` to lower or raise the desired suggestion percentage, and `a`
-  to cycle artist spacing.
-- Move with `↑`/`↓`, press `?` for the full selected-track provenance and any
-  limitations, and press `p` to pin a preview position.
-- Press `g` to regenerate unpinned positions. In demo mode, the first suggestion
-  request intentionally fails; `g` retries and demonstrates source-only recovery.
-- Press `Enter` to replace the queue or `A` to append. Both are explicit and
-  undoable with `u` or `Ctrl+Z`; `Esc` cancels without changing playback or queue.
-- Press `w` to name and save a local recipe. Press `o` to cycle through and reopen
-  saved recipes.
+| Key | Action |
+| --- | --- |
+| `3` / `4` / `6` | Target 30, 45, or 60 minutes |
+| `[` / `]` | Lower or raise the suggestion percentage |
+| `a` | Cycle artist spacing |
+| `↑` / `↓` | Move the preview selection |
+| `?` | Show full provenance and limitations for the selected track |
+| `p` | Pin or unpin the selected preview position |
+| `g` | Regenerate unpinned positions |
+| `Enter` | Replace the queue with the preview (undoable) |
+| `A` | Append the preview to the queue (undoable) |
+| `w` / `o` | Save a named recipe / cycle and reopen saved recipes |
+| `Esc` | Close details or text entry first, then cancel without changing anything |
 
 Mix Builder also supports clicking preview rows and the displayed pin, target,
 suggestion, artist-spacing, regenerate, save/reopen, details, and cancel controls.
 The mouse wheel selects rows or scrolls details. Wrapped controls remain clickable
 in narrow terminals, and recipe save/cancel buttons stay visible with long names.
-Applying a preview uses `Enter` to replace or `A` to append.
 
 Duration, suggestion ratio, and artist spacing are preferences. Suggestion
 percentages are measured by **track duration**, not song count. The builder shows
-the achieved duration and ratio; `?` opens full details, and Up/Down scroll them.
-Esc first closes details or text entry, then cancels the builder.
+the achieved duration and ratio. In demo mode the first suggestion request
+intentionally fails, so `g` demonstrates source-only recovery.
 
 Source collection retains at most 25,000 track occurrences, with up to 500 pages
 for playlists; incomplete or capped sources are labeled partial. Previews contain
@@ -583,24 +633,31 @@ updated when you save it again. Replacement pauses playback; appending preserves
 
 ## Search scopes and queue behavior
 
-- **Filter loaded rows:** `/` or `f` in Liked Songs or playlists searches only
-  data already fetched into that view.
-- **Deezer search:** F2 searches Deezer's public music catalog without a login.
-  Albums, artist tracks, Track Radio, and Smart Shuffle use Deezer metadata for
-  these results. Your selected audio provider still plays full songs: recording
-  codes (ISRC) are checked first, then title, artist, and duration. Queue entries
-  keep their Deezer identities across restarts. Empty or unavailable Deezer
-  searches fall back to the current provider, with the fallback labeled in the
-  results. Pagination stays on the provider that supplied the first page.
-  Existing provider links and connected playlists continue to work. Enter plays
-  the selected result and starts Track Radio in the background.
-- **Saved-library search:** F3 scans saved Liked Songs and accessible saved
-  playlist tracks across pages. It needs network access and can take time.
-  Inaccessible playlists are skipped while later playlists continue; their names
-  and reasons are available with F4. A finished scan with skipped sources shows
-  partial coverage. Authentication failures, service waits, outages, and invalid
-  responses stop the scan and retain matches. Esc cancels while retaining partial
-  matches and skipped sources; F5 starts a fresh scan and rechecks access.
+Search has two scopes, chosen with `F2` and `F3`; the search box labels the active
+one. `/` and `f` are a separate, local filter over rows already loaded.
+
+| Scope | Key | Searches |
+| --- | --- | --- |
+| Catalog | `F2` | Deezer's public catalog in automatic and Spotify modes; YouTube Music (or YouTube search without the adapter) in YouTube mode; the Volta catalog in standalone Volta mode |
+| Saved library | `F3` | Your saved Liked Songs and accessible saved playlist tracks, across pages |
+| Loaded rows | `/` or `f` | Only the rows already fetched into the current Liked Songs or playlist view; no network |
+
+**Catalog search (`F2`).** Albums, artist tracks, Track Radio, and Smart Shuffle
+use the discovery catalog's metadata for these results. Your selected audio
+provider still plays full songs: recording codes (ISRC) are checked first, then
+title, artist, and duration. Queue entries keep their original identities across
+restarts. Empty or unavailable Deezer searches fall back to the current provider,
+with the fallback labeled in the results. Pagination stays on the provider that
+supplied the first page. Existing provider links and connected playlists continue
+to work. Enter plays the selected result and starts Track Radio in the background.
+
+**Saved-library search (`F3`).** This scans across pages, so it needs network
+access and can take time. Inaccessible playlists are skipped while later playlists
+continue; their names and reasons are available with F4. A finished scan with
+skipped sources shows partial coverage. Authentication failures, service waits,
+outages, and invalid responses stop the scan and retain matches. Esc cancels while
+retaining partial matches and skipped sources; F5 starts a fresh scan and rechecks
+access.
 
 Playing from Liked Songs or a playlist replaces the queue with the loaded rows
 (or filtered loaded rows). Load more pages before playing to include them, or
@@ -624,10 +681,12 @@ For Deezer results, recommendations come directly from Deezer's related artists
 and artist tracks, without a Spotify lookup. Existing Spotify queue entries in
 Track Radio and Smart Shuffle use Deezer's related-artist metadata to discover
 other artists, then find and verify their tracks in Spotify. Radio adds up to
-15 tracks per batch, with at most three per primary artist. Searches stay
-anchored to the original artist across refills. The queue identifies the source
-as "Similar artists • Deezer". This is artist similarity, not Spotify's private
-personalization or a guarantee of matching a song's mood and energy.
+15 tracks per batch, with at most three per primary artist and at most two for the
+seed artist. Sparse coverage produces a shorter batch rather than relaxing those
+caps. Searches stay anchored to the original artist across refills. The queue
+identifies the source as "Similar artists • Deezer". This is artist similarity,
+not Spotify's private personalization or a guarantee of matching a song's mood
+and energy.
 
 Radio, Autoplay, Smart Shuffle and Mix Builder rank these related candidates
 using your local listening statistics. Sustained listening strengthens artist
@@ -637,6 +696,13 @@ seven-day cooldown; listening to it again can clear the cooldown. Preferences
 decay over time. Artist spacing, recording deduplication and the original seed
 still constrain the results. Deezer ranks songs within each artist's pool before
 applying its artist caps, so fresher recordings can replace familiar top tracks.
+
+The taste profile is built only from data already on your machine: aggregate play
+counts plus at most 256 timestamped listening and skip signals. Positive feedback
+requires real accounted listening (60% of the duration, capped at 90 seconds);
+only an intentional Next while playing, after at least three seconds but before
+both 30 seconds and one third of the duration, counts as a skip. Pauses, seeks,
+failures, and very brief skips are neutral. None of this is sent to a provider.
 
 Latin accent differences between catalogs, such as "Minh Vương M4U" and
 "Minh Vuong M4u", are accepted only after confirming a matching seed recording.
@@ -662,24 +728,41 @@ and [February 2026 migration guide](https://developer.spotify.com/documentation/
 
 ## Data and privacy
 
+### Local storage
+
 OAuth tokens are stored in **Windows Credential Manager**, not in project files.
 Application state lives under `%LOCALAPPDATA%\Tuitify`:
 
 | File | Contents |
 | --- | --- |
-| `config.json` | Public client ID and player preferences |
+| `config.json` | Public client ID, theme and background, volume, and player preferences |
 | `queue.json` | Queue order, selection, and saved position |
-| `cache.json` | Bounded, expiring Spotify track metadata |
+| `cache.json` | Bounded (3,000 entries), 24-hour track metadata for the active catalog |
 | `stats.json` | Aggregate plays/time and up to 256 timestamped taste signals |
 | `mix-recipes.json` | Named Mix Builder source and preference recipes |
+
+Other locations under `%LOCALAPPDATA%`:
+
+| Path | Contents |
+| --- | --- |
+| `Tuitify\youtube\` | Separate YouTube queue, settings, cache, statistics, and recipes |
+| `Programs\Tuitify\tuitify.exe` | The installed executable used by `tuitify` on `PATH` |
+| `Programs\Tuitify\tools\` | Checksum-verified yt-dlp, Deno, and FFmpeg |
+
+The Google music-library connection is stored as `music-auth.dpapi`, encrypted for
+your Windows user; Volta application credentials use Windows Credential Manager.
 
 Tuitify does not collect analytics, store your Spotify password, or provide an
 offline audio cache. The bounded taste signals stay in your local `stats.json`
 and saved-state backups; they are never sent to recommendation providers.
-Pauses, seeks and playback failures do not count as early skips. Discord presence is enabled
-by default: song details, artwork, and timing go to the local Discord client, which
-may show them to other people according to your Discord privacy settings. To
-disable it, close Tuitify, set `"discord_rpc": false` in `config.json`, and restart.
+Pauses, seeks and playback failures do not count as early skips.
+
+### Discord presence
+
+Discord presence is enabled by default: song details, artwork, and timing go to
+the local Discord client, which may show them to other people according to your
+Discord privacy settings. To disable it, close Tuitify, set `"discord_rpc": false`
+in `config.json`, and restart.
 
 In the Discord activity card, click the song title or the first button to open
 the song, the artist line to open the primary artist when catalog metadata is
@@ -692,6 +775,8 @@ catalog matches, Discord keeps the original track details and links (native
 Volta tracks use a Spotify song search). While playing, the member-list status
 shows the song title; pausing adds a visible
 `Paused` label and removes the moving timer.
+
+### Lyrics sources
 
 Lyrics lookup uses LRCLIB, NetEase Cloud Music, and QQ Music. LRCLIB receives
 the track title, artists, and duration; the Chinese catalogs receive a title/artist
@@ -750,6 +835,8 @@ tokens, account identifiers, playlists and listening statistics are not sent to
 Deezer. Similarity results are cached in memory, not written as a listening profile.
 Settings and queue changes are checkpointed asynchronously and restored paused.
 
+### Backup and restore
+
 Close the player before backing up or restoring so the saved files form a
 consistent snapshot. Create a new backup file outside the live data directory:
 
@@ -774,7 +861,7 @@ An interrupted restore is rolled back before the next locked command loads state
 Malformed recovery journals or unexpected external edits stop recovery and retain
 the journal and files for inspection. Completed restores only clean up their journal.
 
-Useful maintenance commands:
+### Recover a single state file
 
 To recover just one state file, use `state`. Select `config`, `queue`, `recipes`,
 `stats`, or `cache` (the corresponding JSON filenames are accepted too):
@@ -827,6 +914,62 @@ including saved playlist names and IDs.
 Use `tuitify state reset recipes` with the player closed to preview clearing only
 recipes while keeping an original-file backup.
 
+## Command reference
+
+Running `tuitify` with no arguments opens the player. Everything below is
+optional: setup, diagnostics, and maintenance. Add `--help` to any command for
+its exact options.
+
+| Command | Purpose |
+| --- | --- |
+| `tuitify` | Open the player with automatic audio (Monochrome → Volta → Spotify → YouTube) |
+| `tuitify --glass` | Open in the current terminal with the Glass background theme |
+| `tuitify --glass-window` | Open a dedicated native-resolution Glass tab in Windows Terminal |
+| `tuitify demo` | Run the real interface against a fictional, offline catalog |
+| `tuitify auth` | Guided browser sign-in; reuses saved logins and opens missing steps |
+| `tuitify auth --client-id ID` | Use a personal Spotify Developer app for catalog requests |
+| `tuitify auth --force` | Replace a revoked or expired login |
+| `tuitify auth --streaming --force` | Replace only the streaming authorization |
+| `tuitify logout` | Remove credentials, queue, metadata cache, and listening statistics |
+| `tuitify clear-cache` | Delete cached track names and availability; keep login and queue |
+| `tuitify background [IMAGE]` | Set the Glass wallpaper; no options restores the desktop wallpaper |
+| `tuitify doctor` | Read-only checks for installation, terminal, state, credentials, audio, and catalog |
+| `tuitify doctor --network` | Add bounded, read-only Spotify GET probes |
+| `tuitify support` | Preview a redacted support report; `--output FILE` saves it |
+| `tuitify version` | Show immutable source, compiler, and build identity |
+| `tuitify backup FILE` | Save settings, queue, recipes, and aggregate statistics |
+| `tuitify restore FILE` | Validate a backup and preview the restore |
+| `tuitify state inspect [FILE]` | Report file, version, or invariant failures without changing state |
+| `tuitify state backup FILE DEST` | Preserve one state file's exact bytes, even if damaged |
+| `tuitify state restore FILE SRC` | Preview restoring one state file |
+| `tuitify state reset FILE` | Preview resetting one state file, keeping a backup |
+| `tuitify probe TRACK` | Stream one track with a minimal interface for audio validation |
+| `tuitify volta login` | Store your personal Volta application credentials |
+| `tuitify volta` | Open the standalone Volta player |
+| `tuitify volta search QUERY` | Search the Volta catalog and print JSON |
+| `tuitify volta probe TRACK` | Validate Volta decoding, muted by default |
+| `tuitify volta logout` | Forget saved Volta credentials; keep the queue |
+| `tuitify youtube setup` | Install or update checksum-verified yt-dlp, Deno, and FFmpeg |
+| `tuitify youtube doctor` | Check the optional playback tools |
+| `tuitify youtube search QUERY` | Search YouTube and print JSON without changing saved state |
+| `tuitify youtube probe LINK` | Validate real YouTube decoding, muted by default |
+| `tuitify youtube music-setup` | Install the isolated YouTube Music library adapter |
+| `tuitify youtube login` / `logout` | Connect or forget the Google music library |
+| `tuitify youtube playlists` / `liked` | Print connected playlists or Liked Songs as JSON |
+| `tuitify youtube playlist LINK` | Inspect an accessible playlist link as JSON |
+
+Commands that change saved state fall into two groups:
+
+- **Previewed:** `restore`, `state restore`, and `state reset` print a preview and
+  a `--confirm TOKEN` line first. The token binds the exact bytes you reviewed, so
+  a changed file or destination requires a new preview.
+- **Immediate:** `backup`, `logout`, `clear-cache`, `background`, `auth`,
+  `volta login`, `volta logout`, `youtube login`, `youtube logout`, and
+  `youtube music-setup` apply their changes without a confirmation step. Several
+  write or delete credentials, so run them deliberately.
+
+None of the read-only commands upload anything.
+
 ## Troubleshooting
 
 Start with read-only diagnostics:
@@ -847,6 +990,15 @@ without starting music, opening a login browser, creating the data directory,
 acquiring the instance lock, or recovering/removing a restore journal. Run it with
 the player closed for a stable file snapshot. Failures include recovery actions
 and produce a nonzero exit code; warnings and unknown checks need further review.
+
+A quick triage order that resolves most reports:
+
+1. Run `tuitify doctor` with the player closed. Fix any failure it names.
+2. If audio is silent, confirm the default Windows output device and volume, then
+   press Space to retry. A restored queue starts paused by design.
+3. If the catalog is stale or a request failed, press F5 in that view.
+4. If errors persist, press F7 in the player for the session journal, then `r`
+   and `e` to export a redacted report you can share.
 
 Offline is the default. `--network` uses only an existing unexpired catalog token
 for profile, liked-song and playlist-list GETs. Optional artist/playlist/seed
@@ -910,15 +1062,7 @@ they are provenance identifiers, not signatures or a promise of reproducible
 linker bytes. The separately named on-disk executable hash describes the file
 currently at the launch path; replacing it does not change a running process.
 
-`scripts/release.ps1` runs the checks and release build before packaging. It
-rejects stale executables by comparing the embedded source digest with the
-current source, stages into a new directory, checks local documentation/resource
-links, extracts the ZIP and verifies every payload file's size and SHA-256.
-The ZIP's `release-manifest.json` lists the payload, while the external
-`Tuitify-VERSION-windows-x86_64.manifest.json` hashes the executable, ZIP, and
-internal manifest. This avoids a circular manifest self-hash. Failed validation
-does not publish a new package. The packaging-only helper records that it did
-not run build/test checks and is intended for package regression checks.
+### Common problems
 
 - **Expired/revoked login:** exit and run `tuitify auth --force`, or
   `tuitify auth --streaming --force` for a streaming-only problem.
@@ -981,6 +1125,16 @@ cargo clippy --all-targets --locked -- -D warnings
 cargo build --release --locked
 ```
 
+To run every check and produce a verified package in one step, use
+`scripts/release.ps1`. It rejects stale executables by comparing the embedded
+source digest with the current source, stages into a fresh directory, checks local
+documentation and resource links, extracts the ZIP, and verifies every payload
+file's size and SHA-256. The ZIP's `release-manifest.json` lists the payload, while
+the external `Tuitify-VERSION-windows-x86_64.manifest.json` hashes the executable,
+ZIP, and internal manifest, which avoids a circular manifest self-hash. Failed
+validation does not publish a new package. The packaging-only helper records that
+it did not run build/test checks and is intended for package regression checks.
+
 The static project website uses Node.js 22 or later:
 
 ```powershell
@@ -991,13 +1145,16 @@ npm test
 
 ## Project docs
 
+- [Documentation index](docs/README.md) — every guide, which ones are current, and which are historical
 - [Architecture](ARCHITECTURE.md) — module boundaries, state ownership, and runtime design
+- [Volta setup](docs/volta.md) — personal application, permissions, and lossless playback
 - [Benchmarks](BENCHMARKS.md) — reproducible terminal rendering measurements
 - [Validation](VALIDATION.md) — completed checks and remaining acceptance limits
 - [Changelog](CHANGELOG.md) — changes in each release
 - [Roadmap](ROADMAP.md) — planned work and explicit non-goals
-- [Performance review](PERFORMANCE_REVIEW.md) — profiling findings and optimization notes
-- [Refactor review](REFACTOR_REVIEW.md) — structural review and safeguards
+- [Performance review](PERFORMANCE_REVIEW.md) — historical profiling findings and optimizations
+- [Refactor review](REFACTOR_REVIEW.md) — historical structural review and safeguards
+- [Release notes](docs/releases/v0.7.0.md) — what shipped in the current release
 
 ## Scope
 

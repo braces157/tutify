@@ -216,6 +216,12 @@ actions, capability panels, keyboard grid, and ASCII closing artwork. These are
 intentional exceptions to generic frontend skill defaults; no random direction
 was drawn because the user provided a specific design and screenshot.
 
+> **Scope note.** This document describes the marketing website, not the terminal
+> player's UI. The player's own semantic palette lives in `src/ui/theme.rs` and is
+> described in [ARCHITECTURE.md](../ARCHITECTURE.md). Website screenshots under
+> `assets/screenshots/` are dated native captures; the current-layout images are
+> rendered from the native demo with fictional tracks.
+
 The exported HTML needed the following production corrections:
 
 - Replace Tailwind's CDN runtime, Google fonts, and the Material Symbols font
@@ -227,7 +233,7 @@ The exported HTML needed the following production corrections:
 - Keep the desktop terminal as a labeled illustration. The phone preview and
   screenshot tabs use native captures, including v0.6.0 lyric readings. The
   browser player is a separate silent simulation and does not stream music.
-- Retain the actual v0.6.0 EXE, ZIP, pinned Cargo command, PowerShell command,
+- Retain the actual v0.7.0 EXE, ZIP, pinned Cargo command, PowerShell command,
   installation requirements, sign-in details, and data/privacy explanation.
   Remove unsupported Cargo registry, AUR, Homebrew, and tarball destinations.
 - Correct licensing to MIT. Remove fabricated system coordinates, revision

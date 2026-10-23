@@ -1,5 +1,10 @@
 # Listening tools and everyday controls validation — 2026-10-01
 
+> **Dated record.** The behavior below is still current; the test counts and the
+> installed-build hash belong to this build. Current controls are listed in the
+> [README](../README.md#controls), and current verification is in
+> [VALIDATION.md](../VALIDATION.md).
+
 This update adds practical controls for a long listening session: an F6 tools
 menu with timed and end-of-track sleep, undoable queue cleanup, Ctrl+Enter Play
 Next, recent-search recall, and Ctrl+R queue-filter recovery. It includes the

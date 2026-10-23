@@ -1,5 +1,10 @@
 # Deezer recommendation validation — 2026-10-21
 
+> **Dated record.** This describes the recommendation selector as of the date in
+> the title. For the current user-facing behavior see
+> [How playback and recommendations work](../README.md#how-playback-and-recommendations-work);
+> for current verification see [VALIDATION.md](../VALIDATION.md).
+
 The native Deezer catalog path used by Radio, Smart Shuffle, Mix Builder and
 Autoplay now shares a bounded, balanced recommendation selector. The Spotify
 similarity path already had artist caps; the newer native path did not.

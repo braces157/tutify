@@ -1,5 +1,10 @@
 # Monochrome playback validation — 2026-10-23
 
+> **Dated record.** One live probe on one recording, plus the automated
+> regressions listed below. It is not a sustained-playback or device-matrix
+> result. For current user-facing behavior see
+> [How automatic audio works](../README.md#how-automatic-audio-works).
+
 Automatic playback uses **Monochrome → Volta → Spotify → YouTube**, skipping
 services without the required local connection or tools. Explicit source modes
 retain their selected behavior.
