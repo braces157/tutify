@@ -11,6 +11,7 @@ and their counts describe the snapshot they were written against.
 | --- | --- |
 | [README](../README.md) | What Tuitify is, how to install it, every control, and how playback works |
 | [Volta setup](volta.md) | Create a personal Volta application, grant permissions, and play lossless audio |
+| [Website](index.html) and [browser player](player.html) | Download instructions and a silent, simulated player; the native app supplies actual playback |
 | [Architecture](../ARCHITECTURE.md) | Which module owns what, and the boundaries to preserve when changing code |
 | [Changelog](../CHANGELOG.md) | What changed in each release and what is in the working tree |
 | [Troubleshooting](../README.md#troubleshooting) | Doctor, support reports, F7 errors, and common failures |
@@ -35,6 +36,7 @@ useful for reproducing a check, not as a live status report.
 | Record | Topic |
 | --- | --- |
 | [monochrome-playback-validation.md](monochrome-playback-validation.md) | Monochrome matching, FLAC header parsing, and the first audio attempt |
+| [audio-quality-validation.md](audio-quality-validation.md) | Resampler response, decoded headroom, shared-mode output, and reproduction commands |
 | [be-a-flower-playback-validation.md](be-a-flower-playback-validation.md) | Full-track YouTube continuity, interrupted HTTP streams, and bilingual titles |
 | [deezer-recommendation-validation.md](deezer-recommendation-validation.md) | Related-artist balancing for Radio, Smart Shuffle, Autoplay, and Mix Builder |
 | [personalized-recommendation-validation.md](personalized-recommendation-validation.md) | Local taste signals, thresholds, decay, and saved `stats.json` feedback |

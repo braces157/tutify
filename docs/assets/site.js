@@ -4,6 +4,12 @@
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
   const toggle = document.querySelector('.motion-toggle');
   const record = document.querySelector('.record-scene');
+  document.querySelectorAll('[data-signal-mode]').forEach(button => button.addEventListener('click', () => {
+    const stage = document.getElementById('signal-stage');
+    stage.dataset.mode = button.dataset.signalMode;
+    document.querySelectorAll('[data-signal-mode]').forEach(other => other.setAttribute('aria-pressed', String(other === button)));
+    document.dispatchEvent(new CustomEvent('tuitify:signal-change'));
+  }));
   let modeAnimations = [];
   let motionPreference = null;
   try { motionPreference = localStorage.getItem('tuitify-motion'); } catch (_) { /* Storage may be unavailable. */ }

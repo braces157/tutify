@@ -181,6 +181,7 @@ async fn decode(
     tx: mpsc::Sender<Vec<f32>>,
     report: Option<(u64, mpsc::UnboundedSender<Update>)>,
 ) -> Result<()> {
+    let tunnel = crate::monochrome::connection::Tunnel::for_audio(audio).await?;
     let mut command = crate::youtube::hidden_command(ffmpeg);
     command.args([
         "-hide_banner",
@@ -195,9 +196,12 @@ async fn decode(
         "-reconnect_delay_max",
         "5",
         "-protocol_whitelist",
-        "http,https,tcp,tls,crypto",
+        "http,https,tcp,tls,crypto,httpproxy",
     ]);
-    if position > 0 {
+    if let Some(tunnel) = &tunnel {
+        command.arg("-http_proxy").arg(&tunnel.url);
+    }
+    if position > 0 && audio.source != "Monochrome" {
         command
             .arg("-ss")
             .arg(format!("{:.3}", f64::from(position) / 1000.0));
@@ -207,6 +211,13 @@ async fn decode(
         .arg(&audio.headers)
         .arg("-i")
         .arg(&audio.url);
+    // Monochrome can reject the extra byte-range requests made by input seeking.
+    // Decode/discard to the requested timestamp over the verified connection.
+    if position > 0 && audio.source == "Monochrome" {
+        command
+            .arg("-ss")
+            .arg(format!("{:.3}", f64::from(position) / 1000.0));
+    }
     crate::audio_output::pcm_args(&mut command, output_rate);
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = command
@@ -238,14 +249,7 @@ async fn decode(
                 .as_chunks::<4>()
                 .0
                 .iter()
-                .map(|b| {
-                    let sample = f32::from_le_bytes(*b);
-                    if sample.is_finite() {
-                        sample.clamp(-1.0, 1.0)
-                    } else {
-                        0.0
-                    }
-                })
+                .map(|b| crate::audio_output::pcm_sample(*b))
                 .collect();
             if tx.send(samples).await.is_err() {
                 return Ok::<_, anyhow::Error>(());
@@ -678,6 +682,7 @@ mod tests {
                 },
                 obtained: std::time::Instant::now(),
                 source: "Volta",
+                connect_addr: None,
             };
             let (tx, mut rx) = mpsc::channel(CAPACITY);
             let collect = async {
@@ -702,6 +707,66 @@ mod tests {
             );
             println!("FLAC PASS: every 24-bit sample preserved exactly at {rate} Hz");
         }
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[ignore = "Requires installed FFmpeg; generated FLAC over loopback, no audible playback"]
+    async fn monochrome_output_seek_preserves_remaining_duration() -> Result<()> {
+        let ffmpeg = ffmpeg()?;
+        let directory = tempfile::tempdir()?;
+        let file = directory.path().join("seek.flac");
+        let generated = crate::youtube::hidden_command(&ffmpeg)
+            .args([
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=frequency=1000:sample_rate=48000:duration=2",
+                "-ac",
+                "2",
+                "-c:a",
+                "flac",
+            ])
+            .arg(&file)
+            .output()
+            .await?;
+        ensure!(
+            generated.status.success(),
+            "Could not generate seek fixture"
+        );
+        let server = MockServer::start().await;
+        Mock::given(path("/audio"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(std::fs::read(file)?))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let audio = Audio {
+            url: format!("{}/audio", server.uri()),
+            headers: String::new(),
+            quality: crate::audio_quality::AudioQuality::default(),
+            obtained: std::time::Instant::now(),
+            source: "Monochrome",
+            connect_addr: None,
+        };
+        let (tx, mut rx) = mpsc::channel::<Vec<f32>>(CAPACITY);
+        let collect = async {
+            let mut samples = 0;
+            while let Some(chunk) = rx.recv().await {
+                samples += chunk.len();
+            }
+            samples
+        };
+        let (result, samples) =
+            tokio::join!(decode(&ffmpeg, &audio, 48000, 750, tx, None), collect);
+        result?;
+        assert_eq!(
+            samples,
+            48000 * 2 * 5 / 4,
+            "A 750 ms seek must leave 1.25 seconds of stereo audio"
+        );
         Ok(())
     }
 
@@ -743,6 +808,7 @@ mod tests {
             quality: crate::audio_quality::AudioQuality::default(),
             obtained: std::time::Instant::now(),
             source: "Volta",
+            connect_addr: None,
         };
         let (tx, mut rx) = mpsc::channel(CAPACITY);
         let (updates, mut reports) = mpsc::unbounded_channel();

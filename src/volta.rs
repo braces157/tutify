@@ -378,6 +378,7 @@ impl Client {
             quality,
             obtained: std::time::Instant::now(),
             source: "Volta",
+            connect_addr: None,
         })
     }
 }
@@ -388,6 +389,7 @@ pub(crate) struct Audio {
     pub(crate) quality: crate::audio_quality::AudioQuality,
     pub(crate) obtained: std::time::Instant,
     pub(crate) source: &'static str,
+    pub(crate) connect_addr: Option<std::net::SocketAddr>,
 }
 impl Audio {
     fn fresh(&self) -> bool {

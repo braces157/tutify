@@ -31,6 +31,20 @@ fn flac() -> Vec<u8> {
 }
 
 #[tokio::test]
+async fn ipv4_only_local_service_remains_reachable() {
+    let server = MockServer::start().await;
+    Mock::given(path("/track/123"))
+        .respond_with(ResponseTemplate::new(206).set_body_bytes(flac()))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let client = Client::mock(&format!("http://localhost:{}", server.address().port()));
+    let audio = client.stream("123").await.unwrap();
+    assert_eq!(audio.quality.label(), "FLAC 24-bit / 96 kHz");
+    assert_eq!(audio.connect_addr, None);
+}
+
+#[tokio::test]
 async fn exact_recording_uses_string_ids_and_measured_flac_quality() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
@@ -196,6 +210,78 @@ fn only_valid_flac_streaminfo_supplies_quality() {
     let mut invalid = flac();
     invalid[7] = 33;
     assert!(flac_quality(&invalid).is_none());
+}
+
+#[tokio::test]
+#[ignore = "Live Monochrome-only provider, muted playback and seek, no saved state changes"]
+async fn live_monochrome_audio_probe() -> Result<()> {
+    use crate::playback::{Command, Event, Playback};
+
+    let catalog = Catalog::offline()?.with_deezer(crate::deezer::Client::new()?);
+    let mut playback =
+        Playback::spawn_monochrome(catalog, 0, crate::visualizer::AudioVisualizer::new())?;
+    let id = std::env::var("TUITIFY_LIVE_TRACK").unwrap_or_else(|_| "deezer:1746860357".into());
+    playback.commands.send(Command::Load {
+        id: id.clone(),
+        position_ms: 0,
+        generation: 101,
+    })?;
+    let result = tokio::time::timeout(Duration::from_secs(90), async {
+        let mut measured_flac = false;
+        let mut monochrome_source = false;
+        let mut sought = false;
+        loop {
+            match playback
+                .events
+                .recv()
+                .await
+                .context("Audio worker stopped")?
+            {
+                Event::Fallback { source, .. } => {
+                    ensure!(source == "Monochrome", "Unexpected audio source: {source}");
+                    monochrome_source = true;
+                    println!("AUDIO SOURCE {source}");
+                }
+                Event::Metadata { track, .. } => {
+                    ensure!(track.id == id, "Original queue identity changed");
+                    println!("METADATA {} / {}", track.name, track.artists);
+                }
+                Event::Quality { quality, .. } => {
+                    measured_flac = quality.codec == Some(Codec::Flac)
+                        && quality.sample_rate.is_some()
+                        && quality.bit_depth.is_some();
+                    println!("QUALITY {}", quality.label());
+                }
+                Event::Position { position_ms, .. } if !sought && position_ms >= 5_000 => {
+                    playback.commands.send(Command::Seek(60_000))?;
+                    sought = true;
+                    println!("SEEK requested 60 seconds");
+                }
+                Event::Position { position_ms, .. } if sought && position_ms >= 65_000 => {
+                    ensure!(
+                        monochrome_source && measured_flac,
+                        "Monochrome FLAC was not verified"
+                    );
+                    break;
+                }
+                Event::TrackError { message, .. } | Event::Error(message) => {
+                    anyhow::bail!("{message}")
+                }
+                Event::Completed(_) | Event::PremiumRequired => {
+                    anyhow::bail!("Audio stopped before playback and seek were verified")
+                }
+                _ => (),
+            }
+        }
+        Ok::<_, anyhow::Error>(())
+    })
+    .await;
+    let _ = playback.commands.send(Command::Stop);
+    result.context("Monochrome audio probe timed out")??;
+    println!(
+        "PASS: Monochrome alone played five seconds, sought to 60 seconds and played five more, muted, with the original queue identity"
+    );
+    Ok(())
 }
 
 #[tokio::test]

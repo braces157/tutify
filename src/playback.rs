@@ -593,9 +593,11 @@ where
 }
 
 const SINK_BUFFER_HEADROOM_CHUNKS: usize = 24;
-pub const SINC_TAPS: usize = 16;
-pub const SINC_RADIUS: usize = 8;
-pub const SINC_PHASES: usize = 256;
+// A 16-tap filter attenuates 20 kHz by roughly 2.1 dB at 44.1 kHz input.
+// The longer Blackman window keeps the audible band flat and rejects aliases.
+pub const SINC_TAPS: usize = 64;
+pub const SINC_RADIUS: usize = SINC_TAPS / 2;
+pub const SINC_PHASES: usize = 1024;
 
 /// High-quality bandlimited windowed-sinc resampler for stereo audio.
 /// Eliminates linear interpolation distortion when output device operates at 48 kHz or != 44.1 kHz.
@@ -736,16 +738,16 @@ impl SincResampler {
             let window_start = k.saturating_sub(SINC_RADIUS - 1);
             let window = &self.history[window_start..window_start + SINC_TAPS];
 
-            let mut left = 0.0f32;
-            let mut right = 0.0f32;
+            let mut left = 0.0f64;
+            let mut right = 0.0f64;
             for (j, frame) in window.iter().enumerate() {
                 let w = w0[j] + frac * (w1[j] - w0[j]);
-                left += w * frame[0];
-                right += w * frame[1];
+                left += f64::from(w) * f64::from(frame[0]);
+                right += f64::from(w) * f64::from(frame[1]);
             }
 
-            output.push(left);
-            output.push(right);
+            output.push(left as f32);
+            output.push(right as f32);
 
             self.pos += self.ratio;
         }
@@ -1181,12 +1183,67 @@ mod tests {
             "High frequency peak {max_amp} dropped below expected threshold"
         );
     }
+
+    fn tone_amplitude(samples: &[f32], rate: u32, frequency: f64) -> f64 {
+        // Measure an integer number of tone cycles, after the startup transient.
+        let start = rate as usize / 100;
+        let count = rate as usize / 10;
+        let (mut re, mut im) = (0.0, 0.0);
+        for (index, frame) in samples.as_chunks::<2>().0[start..start + count]
+            .iter()
+            .enumerate()
+        {
+            let phase = std::f64::consts::TAU * frequency * index as f64 / f64::from(rate);
+            re += f64::from(frame[0]) * phase.cos();
+            im += f64::from(frame[0]) * phase.sin();
+        }
+        2.0 * re.hypot(im) / count as f64
+    }
+
+    #[test]
+    fn resampler_preserves_audible_band_at_windows_output_rates() {
+        let mut worst_db = 0.0f64;
+        for rate in [48000, 96000, 384000] {
+            for frequency in [1000.0, 12000.0, 18000.0, 20000.0] {
+                let frames: Vec<_> = (0..8820)
+                    .map(|index| {
+                        let sample = (0.5
+                            * (std::f64::consts::TAU * frequency * index as f64 / 44100.0).sin())
+                            as f32;
+                        [sample, sample]
+                    })
+                    .collect();
+                let samples = SincResampler::new(44100, rate).resample(&frames);
+                let db = 20.0 * (tone_amplitude(&samples, rate, frequency) / 0.5).log10();
+                println!("44100 -> {rate} Hz, {frequency} Hz tone: {db:.5} dB");
+                worst_db = worst_db.max(db.abs());
+            }
+        }
+        assert!(
+            worst_db < 0.1,
+            "Audible-band response error: {worst_db:.5} dB"
+        );
+    }
+
+    #[test]
+    fn resampler_rejects_out_of_band_aliases() {
+        let frames: Vec<_> = (0..8820)
+            .map(|index| {
+                let sample =
+                    (0.5 * (std::f64::consts::TAU * 20000.0 * index as f64 / 44100.0).sin()) as f32;
+                [sample, sample]
+            })
+            .collect();
+        let samples = SincResampler::new(44100, 32000).resample(&frames);
+        let db = 20.0 * (tone_amplitude(&samples, 32000, 12000.0) / 0.5).log10();
+        println!("20 kHz alias after 44100 -> 32000 Hz: {db:.2} dB");
+        assert!(db < -80.0, "Out-of-band tone aliases at {db:.2} dB");
+    }
     #[test]
     fn test_constants_and_config() {
         assert_eq!(SINK_BUFFER_HEADROOM_CHUNKS, 24);
-        assert_eq!(SINC_TAPS, 16);
-        assert_eq!(SINC_RADIUS, 8);
-        assert_eq!(SINC_PHASES, 256);
+        assert_eq!(SINC_TAPS, SINC_RADIUS * 2);
+        assert!(SINC_PHASES.is_power_of_two());
         let default_config = PlayerConfig::default();
         assert!(default_config.gapless);
     }

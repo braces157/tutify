@@ -16,6 +16,8 @@ use std::{
 };
 use tokio::sync::Mutex;
 
+pub(crate) mod connection;
+
 const BASE: &str = "https://tracks.monochrome.st";
 const AGENT: &str = concat!("Tuitify/", env!("CARGO_PKG_VERSION"));
 type Matches = HashMap<String, (String, Instant)>;
@@ -23,6 +25,7 @@ type Matches = HashMap<String, (String, Instant)>;
 #[derive(Clone)]
 pub(crate) struct Client {
     http: reqwest::Client,
+    ipv6_http: reqwest::Client,
     base: String,
     cooldown: Arc<Mutex<Option<ServiceFailure>>>,
     matches: Arc<Mutex<Matches>>,
@@ -30,12 +33,17 @@ pub(crate) struct Client {
 
 impl Client {
     pub(crate) fn new() -> Result<Self> {
-        Ok(Self {
-            http: reqwest::Client::builder()
+        let builder = || {
+            reqwest::Client::builder()
                 .connect_timeout(Duration::from_secs(3))
                 .timeout(Duration::from_secs(8))
                 .redirect(reqwest::redirect::Policy::limited(3))
                 .user_agent(AGENT)
+        };
+        Ok(Self {
+            http: builder().build()?,
+            ipv6_http: builder()
+                .dns_resolver(Arc::new(connection::Ipv6Dns))
                 .build()?,
             base: BASE.into(),
             cooldown: Arc::new(Mutex::new(None)),
@@ -64,10 +72,25 @@ impl Client {
         {
             return Err(failure.into());
         }
-        let response = request
-            .send()
-            .await
+        let request = request
+            .build()
             .map_err(|_| Self::failure(FailureKind::Transport))?;
+        // Monochrome's IPv4 and IPv6 paths can return different audio responses.
+        // Give IPv6 its own attempt; a fast IPv4 HTTP error must not win a race.
+        // Only connection failures fall back: HTTP rate limits remain authoritative.
+        let response = match self
+            .ipv6_http
+            .execute(
+                request
+                    .try_clone()
+                    .context("Could not prepare Monochrome request")?,
+            )
+            .await
+        {
+            Ok(response) => Ok(response),
+            Err(_) => self.http.execute(request).await,
+        }
+        .map_err(|_| Self::failure(FailureKind::Transport))?;
         if response.status().is_success() {
             return Ok(response);
         }
@@ -158,6 +181,8 @@ impl Client {
                     .header(reqwest::header::RANGE, "bytes=0-41"),
             )
             .await?;
+        let url = response.url().to_string();
+        let connect_addr = connection::verified_peer(&response).await;
         let mut header = Vec::with_capacity(42);
         while header.len() < 42 {
             let chunk = response
@@ -175,6 +200,7 @@ impl Client {
             quality,
             obtained: Instant::now(),
             source: "Monochrome",
+            connect_addr,
         })
     }
 }

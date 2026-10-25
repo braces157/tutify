@@ -6,6 +6,15 @@ the working tree and are not part of the published v0.7.0 download.
 
 ## Unreleased
 
+- Refresh the download website and move the silent browser player to its own
+  page, with responsive controls, keyboard navigation, filtering, lyrics, and
+  explicit sample-data labels. Keep v0.7.0 downloads separate from source-only
+  features and document installation on PATH before using the launch command.
+- Improve Spotify sample-rate conversion with a longer sinc filter and double
+  precision accumulation, preserving treble when Windows uses a different rate.
+  Retain decoded peaks through volume control and floating point Windows output,
+  clipping only for integer output. This avoids premature distortion in
+  Monochrome, Volta and YouTube audio.
 - Redesign the terminal interface and add a docked synchronized-lyrics column
   beside the player in tall windows. `L` toggles the panel and the choice is
   remembered; the queued track's lyrics are fetched ahead of time.

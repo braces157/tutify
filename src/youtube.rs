@@ -134,6 +134,7 @@ impl Stream {
             quality: self.quality,
             obtained: self.obtained_at,
             source: "YouTube",
+            connect_addr: None,
         }
     }
 

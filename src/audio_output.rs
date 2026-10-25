@@ -135,7 +135,7 @@ where
         &config.config(),
         move |data: &mut [T], _| {
             for sample in data {
-                *sample = T::from_sample(source.next().unwrap_or(0.0));
+                *sample = output_sample(source.next().unwrap_or(0.0));
             }
         },
         |error| log::error!("Windows audio stream error: {error}"),
@@ -147,6 +147,32 @@ where
         rate,
         _stream: stream,
     })
+}
+
+pub(crate) fn pcm_sample(bytes: [u8; 4]) -> f32 {
+    let sample = f32::from_le_bytes(bytes);
+    if sample.is_finite() {
+        // Lossy decoding and bandlimited resampling can produce valid peaks
+        // above full scale. Retain them until the sink has applied volume.
+        sample
+    } else {
+        0.0
+    }
+}
+
+fn output_sample<T>(sample: f32) -> T
+where
+    T: rodio::cpal::SizedSample + rodio::cpal::FromSample<f32>,
+{
+    let sample = if !sample.is_finite() {
+        0.0
+    } else if T::FORMAT.is_float() {
+        // Preserve headroom through the Windows floating point mixer as well.
+        sample
+    } else {
+        sample.clamp(-1.0, 1.0)
+    };
+    T::from_sample(sample)
 }
 
 /// FFmpeg's bandlimited converter handles rate changes before Rodio sees PCM.
@@ -165,6 +191,56 @@ pub(crate) fn pcm_args(command: &mut tokio::process::Command, rate: u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn decoded_peaks_retain_headroom_until_after_volume() {
+        let input = [
+            1.25f32,
+            -1.25,
+            0.5 + 1.0 / 8388608.0,
+            f32::NAN,
+            f32::INFINITY,
+        ];
+        let (sink, queue) = rodio::Sink::new_idle();
+        sink.set_volume(0.5);
+        sink.append(rodio::buffer::SamplesBuffer::new(
+            2,
+            48000,
+            input
+                .into_iter()
+                .map(|sample| pcm_sample(sample.to_le_bytes()))
+                .collect::<Vec<_>>(),
+        ));
+        let mut source = callback_source(queue, 2);
+        let actual: Vec<_> = source
+            .by_ref()
+            .take(input.len())
+            .map(output_sample::<f32>)
+            .collect();
+        assert_eq!(
+            actual,
+            [0.625, -0.625, (0.5 + 1.0 / 8388608.0) * 0.5, 0.0, 0.0]
+        );
+    }
+
+    #[test]
+    fn device_boundary_retains_float_headroom_and_bounds_integer_output() {
+        for sample in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            assert_eq!(output_sample::<f32>(sample), 0.0);
+            assert_eq!(output_sample::<i16>(sample), 0);
+            assert_eq!(output_sample::<u16>(sample), 32768);
+        }
+        assert_eq!(output_sample::<f32>(1.25), 1.25);
+        assert_eq!(output_sample::<f64>(-1.25), -1.25);
+        assert_eq!(output_sample::<i16>(1.25), i16::MAX);
+        assert_eq!(output_sample::<i16>(-1.25), i16::MIN);
+        assert_eq!(output_sample::<u16>(1.25), u16::MAX);
+        assert_eq!(output_sample::<u16>(-1.25), u16::MIN);
+        assert_eq!(
+            output_sample::<f32>(0.5 + 1.0 / 8388608.0),
+            0.5 + 1.0 / 8388608.0
+        );
+    }
 
     #[test]
     fn sink_to_callback_source_retains_24_bit_samples_at_native_rates() {
