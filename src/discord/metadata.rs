@@ -15,7 +15,7 @@ pub(super) struct Metadata {
 struct Cached {
     original: Track,
     resolved: Track,
-    at: Instant,
+    expires_at: Instant,
 }
 
 impl Metadata {
@@ -40,7 +40,7 @@ impl Metadata {
         }
         if let Some(cached) = self.cache.get(&original.id)
             && cached.original == *original
-            && cached.at.elapsed() < Duration::from_secs(300)
+            && Instant::now() < cached.expires_at
         {
             return cached.resolved.clone();
         }
@@ -58,7 +58,7 @@ impl Metadata {
             Cached {
                 original: original.clone(),
                 resolved: resolved.clone(),
-                at: Instant::now(),
+                expires_at: Instant::now() + Duration::from_secs(300),
             },
         );
         resolved

@@ -202,14 +202,7 @@ async fn decode(
                 .as_chunks::<4>()
                 .0
                 .iter()
-                .map(|bytes| {
-                    let sample = f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
-                    if sample.is_finite() {
-                        sample.clamp(-1.0, 1.0)
-                    } else {
-                        0.0
-                    }
-                })
+                .map(|bytes| crate::audio_output::pcm_sample(*bytes))
                 .collect();
             if chunks.send(pcm).await.is_err() {
                 return Ok(());

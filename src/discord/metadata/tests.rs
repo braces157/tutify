@@ -230,7 +230,7 @@ async fn cache_expires_rechecks_corrected_metadata_and_stays_bounded() {
         .await;
     let mut source = original("deezer:1");
     assert_eq!(metadata.resolve(&source).await.id, SPOTIFY_ID);
-    metadata.cache.get_mut(&source.id).unwrap().at = Instant::now() - Duration::from_secs(301);
+    metadata.cache.get_mut(&source.id).unwrap().expires_at = Instant::now();
     assert_eq!(metadata.resolve(&source).await.id, SPOTIFY_ID);
     source.name = "Corrected title".into();
     assert_eq!(metadata.resolve(&source).await, source);

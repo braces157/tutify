@@ -48,6 +48,11 @@ workflow inside Windows Terminal—no Electron shell and no background service.
 New here? Jump to [Install](#install), then [Controls](#controls). You can try the
 whole interface with `tuitify demo` before connecting any account.
 
+Visit the [website](https://braces157.github.io/tutify/) for downloads or try the
+[silent browser player](https://braces157.github.io/tutify/player.html) to explore
+sample queues, lyrics, and keyboard controls. The browser preview simulates
+playback; the native Windows app plays your music.
+
 ## Preview
 
 <p align="center">
@@ -207,6 +212,15 @@ music. Only a confirmed Spotify membership change updates the cached plan.
 Restored queues always start paused; press Space to resume.
 
 ### Fallbacks and audio quality
+
+Unreleased audio fixes preserve decoded peaks through volume control and use a
+64-tap Spotify resampler to reduce treble loss when Windows runs at a different
+sample rate. Monochrome also keeps FFmpeg on a verified IPv6 endpoint when one
+is available. These changes are source-build features; the v0.7.0 download does
+not contain them. See the [audio quality review](docs/audio-quality-validation.md)
+and [Monochrome validation](docs/monochrome-playback-validation.md) for the
+measurements, reproduction commands, and limits. Windows output remains shared
+mode; source-format labels do not establish bit-perfect delivery to a DAC.
 
 Monochrome and Volta prepare the next queue entry while the current song plays, keeping a
 small decoded audio buffer ready for the transition. Changing the next song or

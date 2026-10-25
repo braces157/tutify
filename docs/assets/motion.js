@@ -67,7 +67,7 @@
   let targetMode = 0;
   let mode = 0;
   // Ring colors drift from mint to teal across the torus.
-  const palette = [[167, 243, 201], [62, 224, 143], [94, 234, 212]];
+  const palette = [[241, 241, 239], [182, 201, 172], [119, 142, 115]];
   function mix(t) {
     const scaled = Math.max(0, Math.min(1, t)) * (palette.length - 1);
     const index = Math.min(palette.length - 2, Math.floor(scaled));
@@ -78,9 +78,9 @@
   function draw() {
     if (!ctx || !width || !height) return;
     const mobile = width < 600;
-    const radius = Math.min(width * (mobile ? .3 : .24), height * (mobile ? .23 : .4));
-    const centerX = width * (mobile ? .52 : .76);
-    const centerY = height * (mobile ? .73 : .52);
+    const radius = Math.min(width * (mobile ? .38 : .38), height * (mobile ? .29 : .36));
+    const centerX = width * (mobile ? .52 : .52);
+    const centerY = height * (mobile ? .57 : .54);
     const rings = mobile ? 38 : 60;
     const segments = mobile ? 52 : 72;
     const angleX = .95 + Math.sin(phase * .22) * .16 + smoothY * .3;

@@ -18,7 +18,44 @@ How to read it:
 See [docs/README.md](docs/README.md) for the full documentation map and
 [CHANGELOG.md](CHANGELOG.md) for what each release contains.
 
-## Current working tree — 2026-10-23
+## Website and audio refresh — 2026-10-25
+
+This source update retains v0.7.0 download links. Monochrome, the additional
+lyrics sources, and the audio fixes below remain unreleased.
+
+- `cargo fmt --check`, `cargo test --locked`, and strict all-target Clippy passed:
+  **728 unit tests and seven integration tests passed; 38 opt-ins ignored**.
+- Three FFmpeg opt-ins passed using generated FLAC over loopback: native-rate
+  24-bit sample preservation from 44.1 through 384 kHz, high-resolution
+  downsampling, and a 750 ms Monochrome output seek leaving 1.25 seconds of a
+  two-second recording. No live music service or audible output was used.
+- `npm test` rebuilt the static CSS and passed **33 Microsoft Edge tests**.
+  Checks cover the separate homepage/player pages, local assets, download
+  versions, source-versus-release copy, clipboard success/failure, motion
+  settings, sample-data labels, player controls, and 320–1920px layouts.
+- Review follow-ups add an IntersectionObserver fallback, stable accessible
+  names for motion toggles, absolute social-preview URLs, and a longer initial
+  buffering limit for Monochrome seeks. The generated-FLAC seek check passed.
+- CI exposed cache-expiry tests that could underflow Windows' monotonic clock
+  on a freshly booted runner with Rust 1.88. Expiration deadlines and an explicit
+  cache-check time remove that uptime assumption. The complete locked Rust 1.88
+  Windows-target suite passed locally: 728 unit and seven integration tests.
+- The website design reference now describes the actual shared palette, files,
+  motion behavior, installation flow, and the silent browser demo.
+- The locked release build and `scripts/test-release.ps1` passed. Package checks
+  verified fresh staging, local links, manifests, payload hashes, and rejection
+  of stale source and reparse points. Gitleaks found no secrets in Git history.
+- The existing installer updated the canonical PATH executable and all four
+  observed alternate copies. Their SHA-256 hashes matched the release build;
+  the canonical directory was first on the saved user PATH. No Tuitify process
+  was running at this check.
+
+See [audio quality](docs/audio-quality-validation.md) and
+[Monochrome playback](docs/monochrome-playback-validation.md) for earlier
+measurements and their limits. These checks do not establish analog audio
+quality, bit-perfect output, or current live-provider availability.
+
+## Working tree verification — 2026-10-23
 
 The working tree adds Monochrome as the first automatic audio attempt, NetEase
 Cloud Music and QQ Music lyrics sources, plain-lyrics auto-scroll, a docked lyrics

@@ -20,9 +20,10 @@ describe earlier snapshots.
 | `src/providers.rs` | Construction of catalog, recording resolver and playback services, including the Monochrome → Volta → Spotify → YouTube chain |
 | `src/deezer.rs`, `src/catalog/deezer.rs`, `src/deezer/recommendations.rs` | Public discovery metadata, related artists, balanced candidate selection and recording mapping to the selected audio provider |
 | `src/monochrome.rs` | Public Tracks API matching, FLAC header quality, and the first automatic audio attempt |
+| `src/monochrome/connection.rs` | IPv6-only DNS attempt, verified audio peer, and decoder-scoped loopback CONNECT tunnel to that endpoint |
 | `src/recommendation.rs` | Local taste profile: bounded signals, decay, fatigue, and candidate ranking |
 | `src/app/autoplay.rs` | Bounded queue refills and cancellable end-of-queue continuation |
-| `src/audio_output.rs`, `src/playback/pcm.rs` | Shared native output negotiation and bounded PCM playback |
+| `src/audio_output.rs`, `src/playback/pcm.rs` | Shared-mode output negotiation, floating point headroom through volume control, final integer clipping, and bounded PCM playback |
 | `src/playback/catalog.rs`, `src/playback/fallback.rs` | Catalog identity preservation and cancellable audio-provider fallback |
 | `src/app.rs` | Application state, playback transitions/accounting, queue undo |
 | `src/app/runtime.rs` | One provider session, event scheduling, redraws, ordered shutdown and session requests |

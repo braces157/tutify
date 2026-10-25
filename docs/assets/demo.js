@@ -1,6 +1,8 @@
 (function () {
   'use strict';
 
+  const isPlayerPage = document.body.hasAttribute('data-player-page');
+
   const catalog = [
     {
       id: '1', title: 'Bohemian Rhapsody', artist: 'Queen', duration: '5:54', sec: 354,
@@ -234,7 +236,7 @@
     heading.innerText = `Sample Lyrics — ${currentTrack.title}`;
 
     if (!lyrics.length) {
-      container.innerHTML = `<p class="text-slate-500 text-xs sm:text-sm">No sample lyrics are available for ${escapeHtml(currentTrack.title)}.</p>`;
+      container.innerHTML = `<p class="${isPlayerPage ? 'lyric-line' : 'text-slate-500 text-xs sm:text-sm'}">No sample lyrics are available for ${escapeHtml(currentTrack.title)}.</p>`;
       return;
     }
 
@@ -244,6 +246,9 @@
     container.innerHTML = visible.map((line, offset) => {
       const lineIndex = start + offset;
       const text = escapeHtml(line.text);
+      if (isPlayerPage) {
+        return `<div class="lyric-line${lineIndex === currentIndex ? ' lyric-line-active' : ''}">${text}</div>`;
+      }
       if (lineIndex === currentIndex) {
         return `<div class="text-[var(--term-accent)] font-bold text-sm sm:text-base py-1 px-3 bg-white/[0.05] rounded border border-[var(--term-accent)]/30 animate-pulse">${text}</div>`;
       }
@@ -254,8 +259,11 @@
   function updateViewMeta() {
     const meta = viewMeta();
     const matches = filteredTracks();
-    get('tui-table-title').firstChild.textContent = `${meta.title} • `;
-    get('tui-match-count').innerText = `${matches.length} of ${tracksForView().length} matches`;
+    const playerTitles = { 1: 'Find your next favorite', 2: 'Late night mix', 3: 'Liked songs', 4: 'Your queue', 5: 'Help' };
+    get('tui-table-title').firstChild.textContent = isPlayerPage ? playerTitles[currentView] : `${meta.title} • `;
+    get('tui-match-count').innerText = isPlayerPage && !activeFilter.trim()
+      ? `${matches.length} tracks`
+      : `${matches.length} of ${tracksForView().length} matches`;
     get('tui-view-description').innerText = meta.description;
     get('tui-catalog-view').setAttribute('aria-labelledby', `tui-tab-${currentView}`);
   }
@@ -273,8 +281,9 @@
     const matches = filteredTracks();
     if (selectedIndex >= matches.length) selectedIndex = Math.max(0, matches.length - 1);
     if (!matches.length) {
-      container.innerHTML = `
-        <div class="py-8 text-center text-slate-500 text-xs">
+      container.innerHTML = isPlayerPage
+        ? '<div class="track-empty"><strong>No songs found.</strong><p>Try another title or artist.<br>Press Esc to clear your search.</p></div>'
+        : `<div class="py-8 text-center text-slate-500 text-xs">
           No tracks match your filter.<br>
           <span class="text-slate-600 text-[11px]">Press Backspace to edit or Esc to clear.</span>
         </div>`;
@@ -286,6 +295,17 @@
       const isSelected = index === selectedIndex;
       const indicator = isCurrent ? (isPlaying ? '►' : '||') : '  ';
       const label = `Play ${track.title} by ${track.artist}`;
+      if (isPlayerPage) {
+        const symbol = isCurrent && isPlaying
+          ? '<path d="M8 6v12M16 6v12"/>'
+          : '<path d="m9 5 10 7-10 7z"/>';
+        const actionLabel = isCurrent && isPlaying ? `Pause ${track.title} by ${track.artist}` : label;
+        return `<button type="button" class="tui-track-row${isSelected ? ' tui-track-row-selected' : ''}" data-track-id="${escapeHtml(track.id)}" aria-label="${escapeHtml(actionLabel)}"${isCurrent ? ' aria-current="true"' : ''}>
+          <span class="track-symbol" aria-hidden="true"><svg viewBox="0 0 24 24">${symbol}</svg></span>
+          <span class="track-description"><span class="track-title">${escapeHtml(track.title)}</span><span class="track-artist">${escapeHtml(track.artist)}</span></span>
+          <span class="track-duration">${escapeHtml(track.duration)}</span>
+        </button>`;
+      }
       return `
         <button type="button" class="tui-track-row w-full px-3 py-2 flex items-center justify-between text-left cursor-pointer transition ${isSelected ? 'tui-track-row-selected' : ''}" data-track-id="${escapeHtml(track.id)}" aria-label="${escapeHtml(label)}"${isCurrent ? ' aria-current="true"' : ''}>
           <span class="flex items-center gap-3 truncate">
@@ -336,11 +356,20 @@
     const screen = get('tui-terminal-screen');
     headerTrack.innerText = `${currentTrack.title} — ${currentTrack.artist}`;
 
-    badge.innerText = isPlaying ? '► PLAYING' : '|| PAUSED';
-    badge.className = isPlaying
-      ? 'px-2 py-0.5 rounded bg-[var(--term-accent)] text-black font-bold text-xs'
-      : 'px-2 py-0.5 rounded bg-white/10 text-slate-300 font-bold text-xs border border-white/20';
-    button.innerText = isPlaying ? '⏸' : '▶';
+    if (isPlayerPage) {
+      get('tui-track-title').innerText = currentTrack.title;
+      get('tui-track-artist').innerText = currentTrack.artist;
+      badge.innerText = isPlaying ? 'Playing' : 'Paused';
+      button.innerHTML = isPlaying
+        ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6v12M16 6v12"/></svg>'
+        : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5 11 7-11 7z"/></svg>';
+    } else {
+      badge.innerText = isPlaying ? '► PLAYING' : '|| PAUSED';
+      badge.className = isPlaying
+        ? 'px-2 py-0.5 rounded bg-[var(--term-accent)] text-black font-bold text-xs'
+        : 'px-2 py-0.5 rounded bg-white/10 text-slate-300 font-bold text-xs border border-white/20';
+      button.innerText = isPlaying ? '⏸' : '▶';
+    }
     button.setAttribute('aria-label', isPlaying ? 'Pause demo playback' : 'Play demo playback');
     button.setAttribute('aria-pressed', String(isPlaying));
     screen.classList.toggle('is-playing', isPlaying);
@@ -398,7 +427,7 @@
 
   function handleVolumeChange(value) {
     const volume = Math.max(0, Math.min(100, Number(value) || 0));
-    get('tui-vol-label').innerText = `VOL ${volume}%`;
+    get('tui-vol-label').innerText = isPlayerPage ? `${volume}%` : `VOL ${volume}%`;
     const input = get('tui-volume');
     input.value = String(volume);
     input.setAttribute('aria-valuetext', `${volume} percent`);
@@ -536,6 +565,7 @@
 
   function handleDemoKeydown(event) {
     if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || isNativeInteractive(event.target)) return;
+    if (isPlayerPage && !shortcutsEnabled) return;
     if (event.key === ' ' || event.code === 'Space') {
       event.preventDefault();
       togglePlay();
@@ -544,6 +574,7 @@
     if (!shortcutsEnabled) return;
     if (event.key === '/') {
       event.preventDefault();
+      if (isPlayerPage) switchView(1);
       get('tui-filter-input').focus();
       return;
     }
@@ -593,7 +624,9 @@
     });
     rows.addEventListener('click', (event) => {
       const row = event.target.closest('.tui-track-row');
-      if (row) selectAndPlay(row.dataset.trackId);
+      if (!row) return;
+      if (isPlayerPage && row.dataset.trackId === currentTrack.id) togglePlay();
+      else selectAndPlay(row.dataset.trackId);
     });
     shortcutToggle.addEventListener('change', () => {
       shortcutsEnabled = shortcutToggle.checked;
@@ -609,7 +642,7 @@
 
     updateClock();
     switchView(currentView);
-    switchInstallTab(0);
+    if (get('install-tab-0')) switchInstallTab(0);
     updatePlayerUI();
     updatePanelViews();
     refreshDemoTimer();

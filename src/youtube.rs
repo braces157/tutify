@@ -134,11 +134,16 @@ impl Stream {
             quality: self.quality,
             obtained: self.obtained_at,
             source: "YouTube",
+            connect_addr: None,
         }
     }
 
     fn fresh(&self) -> bool {
-        if self.obtained_at.elapsed() >= Duration::from_secs(300) {
+        self.fresh_at(std::time::Instant::now())
+    }
+
+    fn fresh_at(&self, now: std::time::Instant) -> bool {
+        if now.saturating_duration_since(self.obtained_at) >= Duration::from_secs(300) {
             return false;
         }
         let expires = url::Url::parse(&self.url).ok().and_then(|url| {
