@@ -227,19 +227,22 @@ async fn decode(
     let stderr = child.stderr.take().context("FFmpeg stderr unavailable")?;
     let read = async {
         let mut buffer = vec![0u8; (output_rate as usize / 10) * 8];
+        let mut stall_limit = if position > 0 && audio.source == "Monochrome" {
+            Duration::from_secs(120)
+        } else {
+            Duration::from_secs(25)
+        };
         loop {
             let mut filled = 0;
             while filled < buffer.len() {
-                let count = tokio::time::timeout(
-                    Duration::from_secs(25),
-                    stdout.read(&mut buffer[filled..]),
-                )
-                .await
-                .context("Audio stream stalled; press Space to reconnect")??;
+                let count = tokio::time::timeout(stall_limit, stdout.read(&mut buffer[filled..]))
+                    .await
+                    .context("Audio stream stalled; press Space to reconnect")??;
                 if count == 0 {
                     break;
                 }
                 filled += count;
+                stall_limit = Duration::from_secs(25);
             }
             if filled == 0 {
                 break;

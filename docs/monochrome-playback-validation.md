@@ -70,6 +70,10 @@ or browser user-agent impersonation are needed.
 Input seeking produced extra failing byte-range requests during validation.
 Monochrome instead decodes and discards audio up to the requested timestamp.
 Large jumps can buffer longer because earlier frames must be fetched and decoded.
+The decoder allows up to 120 seconds for the first PCM on a Monochrome seek,
+then restores the regular 25-second PCM stall limit. FFmpeg's network I/O
+timeout remains 20 seconds per blocked network operation; cancellation still
+stops the decoder while a seek is buffering.
 
 The Monochrome-only production-provider probe played Panorama muted for five
 seconds, sought to 60 seconds and played five more seconds. It reported

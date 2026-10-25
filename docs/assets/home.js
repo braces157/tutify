@@ -12,7 +12,6 @@
     root.classList.toggle('motion-paused', !active || document.hidden);
     root.classList.toggle('motion-override', preference === 'on');
     motionButton.setAttribute('aria-pressed', String(active));
-    motionButton.setAttribute('aria-label', active ? 'Pause animations' : 'Enable animations');
     motionButton.firstElementChild.textContent = active ? 'Ⅱ' : '▷';
     motionButton.querySelector('.motion-word').textContent = active ? 'Motion on' : 'Motion off';
     dispatchEvent(new CustomEvent('tuitify:home-motion', { detail: { active } }));
@@ -30,6 +29,8 @@
       if (entry.isIntersecting) { entry.target.classList.add('in-view'); observer.unobserve(entry.target); }
     }), { threshold: .08, rootMargin: '0px 0px -30px' });
     document.querySelectorAll('[data-reveal]').forEach(element => observer.observe(element));
+  } else {
+    document.querySelectorAll('[data-reveal]').forEach(element => element.classList.add('in-view'));
   }
   const copy = document.getElementById('copy-command');
   copy.addEventListener('click', async () => {

@@ -81,7 +81,11 @@ impl Preparer {
     }
 
     pub(super) fn take(&mut self, id: &str) -> Option<Prepared> {
-        self.streams.retain(Stream::fresh);
+        self.take_at(id, std::time::Instant::now())
+    }
+
+    fn take_at(&mut self, id: &str, now: std::time::Instant) -> Option<Prepared> {
+        self.streams.retain(|stream| stream.fresh_at(now));
         if let Some(stream) = self.streams.iter().find(|stream| stream.track.id == id) {
             return Some(Prepared::Ready(Box::new(stream.clone())));
         }
@@ -138,8 +142,8 @@ mod tests {
         assert!(cache.take("youtube:v0000000009").is_some());
         cache.streams.back_mut().unwrap().url.push_str("?expire=1");
         assert!(cache.take("youtube:v0000000009").is_none());
-        cache.streams.back_mut().unwrap().obtained_at -= Duration::from_secs(301);
-        assert!(cache.take("youtube:v0000000008").is_none());
+        let expired_at = cache.streams.back().unwrap().obtained_at + Duration::from_secs(301);
+        assert!(cache.take_at("youtube:v0000000008", expired_at).is_none());
         cache.forget("youtube:v0000000007");
         assert!(cache.take("youtube:v0000000007").is_none());
     }

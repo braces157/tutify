@@ -29,10 +29,17 @@ lyrics sources, and the audio fixes below remain unreleased.
   24-bit sample preservation from 44.1 through 384 kHz, high-resolution
   downsampling, and a 750 ms Monochrome output seek leaving 1.25 seconds of a
   two-second recording. No live music service or audible output was used.
-- `npm test` rebuilt the static CSS and passed **32 Microsoft Edge tests**.
+- `npm test` rebuilt the static CSS and passed **33 Microsoft Edge tests**.
   Checks cover the separate homepage/player pages, local assets, download
   versions, source-versus-release copy, clipboard success/failure, motion
   settings, sample-data labels, player controls, and 320–1920px layouts.
+- Review follow-ups add an IntersectionObserver fallback, stable accessible
+  names for motion toggles, absolute social-preview URLs, and a longer initial
+  buffering limit for Monochrome seeks. The generated-FLAC seek check passed.
+- CI exposed cache-expiry tests that could underflow Windows' monotonic clock
+  on a freshly booted runner with Rust 1.88. Expiration deadlines and an explicit
+  cache-check time remove that uptime assumption. The complete locked Rust 1.88
+  Windows-target suite passed locally: 728 unit and seven integration tests.
 - The website design reference now describes the actual shared palette, files,
   motion behavior, installation flow, and the silent browser demo.
 - The locked release build and `scripts/test-release.ps1` passed. Package checks

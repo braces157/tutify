@@ -13,8 +13,8 @@
     scene.classList.toggle('record-paused', paused);
     control.disabled = !motionEnabled;
     control.setAttribute('aria-pressed', String(stopped));
-    control.setAttribute('aria-label', motionEnabled
-      ? (paused ? 'Resume record animation' : 'Pause record animation')
+    control.setAttribute('aria-description', motionEnabled
+      ? 'Pause or resume the spinning record.'
       : 'Record animation off; enable motion in the header');
     control.querySelector('span').textContent = motionEnabled
       ? (paused ? 'Resume motion' : 'Pause motion')

@@ -96,6 +96,7 @@ test('homepage motion follows reduced motion and persists explicit choices', asy
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   await page.goto('/docs/index.html');
   const toggle = page.locator('.motion-button');
+  await expect(toggle).toHaveAccessibleName('Motion');
   await expect(toggle).toHaveAttribute('aria-pressed', 'true');
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await expect(toggle).toHaveAttribute('aria-pressed', 'false');
@@ -107,6 +108,7 @@ test('homepage motion follows reduced motion and persists explicit choices', asy
   await expect(page.locator('html')).toHaveClass(/motion-paused/);
   await page.reload();
   await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  await expect(toggle).toHaveAccessibleName('Motion');
 });
 
 test('record animation pauses on request and while offscreen', async ({ page }) => {
@@ -117,9 +119,11 @@ test('record animation pauses on request and while offscreen', async ({ page }) 
   await expect(pause).toBeVisible();
   await pause.click();
   await expect(pause).toHaveAttribute('aria-pressed', 'true');
+  await expect(pause).toHaveAccessibleName('Pause record animation');
   await expect(record).toHaveCSS('animation-play-state', 'paused');
   await pause.click();
   await expect(record).toHaveCSS('animation-play-state', 'running');
+  await expect(pause).toHaveAccessibleName('Pause record animation');
   await page.locator('footer').scrollIntoViewIfNeeded();
   await expect(record).toHaveCSS('animation-play-state', 'paused');
 });
@@ -154,4 +158,18 @@ test('homepage content, install guidance and downloads work without JavaScript',
   await page.locator('.faq summary').first().click();
   await expect(page.locator('.faq details').first()).toHaveAttribute('open', '');
   await context.close();
+});
+
+
+test('reveal content stays readable without IntersectionObserver', async ({ page }) => {
+  await page.addInitScript(() => { delete window.IntersectionObserver; });
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await page.goto('/docs/index.html');
+  for (const panel of await page.locator('[data-reveal]').all()) {
+    await expect(panel).toHaveCSS('opacity', '1');
+  }
+  const motion = page.locator('.motion-button');
+  await motion.click();
+  await expect(page.locator('.record-motion')).toBeDisabled();
+  await expect(page.locator('.record-motion')).toHaveAccessibleDescription('Record animation off; enable motion in the header');
 });
