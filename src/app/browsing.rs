@@ -89,6 +89,13 @@ impl BrowseState {
     pub fn is_filtered(&self) -> bool {
         (self.view == View::Liked || self.view == View::Playlists) && !self.filter.is_empty()
     }
+    pub(super) fn selected_source_index(&self) -> Option<usize> {
+        if self.is_filtered() {
+            self.filtered_indices().get(self.selected).copied()
+        } else {
+            Some(self.selected)
+        }
+    }
     pub fn raw_len(&self) -> usize {
         match &self.rows {
             Rows::Tracks(t) => t.len(),

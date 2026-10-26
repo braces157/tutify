@@ -54,11 +54,7 @@ pub(super) fn apply(
             if let Rows::Playlists(rows) = &app.catalog.rows
                 && app.catalog.view == View::Playlists
             {
-                let actual_idx = if app.is_filtered() {
-                    app.filtered_indices().get(app.catalog.selected).copied()
-                } else {
-                    Some(app.catalog.selected)
-                };
+                let actual_idx = app.catalog.selected_source_index();
                 if let Some(idx) = actual_idx
                     && let Some(p) = rows.get(idx).cloned()
                 {
@@ -149,11 +145,7 @@ pub(super) fn apply(
             if let Rows::Playlists(playlists) = &app.catalog.rows
                 && app.catalog.view == View::Playlists
             {
-                let actual_idx = if app.is_filtered() {
-                    app.filtered_indices().get(app.catalog.selected).copied()
-                } else {
-                    Some(app.catalog.selected)
-                };
+                let actual_idx = app.catalog.selected_source_index();
                 if let Some(idx) = actual_idx
                     && let Some(p) = playlists.get(idx).cloned()
                 {

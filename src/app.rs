@@ -835,11 +835,7 @@ impl App {
                         .unwrap_or_else(|| Track::unknown(id))
                 })
         } else if let Rows::Tracks(t) = &self.catalog.rows {
-            let actual_idx = if self.is_filtered() {
-                *self.filtered_indices().get(self.catalog.selected)?
-            } else {
-                self.catalog.selected
-            };
+            let actual_idx = self.catalog.selected_source_index()?;
             t.get(actual_idx).cloned()
         } else {
             None
