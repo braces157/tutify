@@ -1,3 +1,4 @@
+use super::local_filter::FilterTerms;
 use super::{App, Browse, Rows, SearchScope, View};
 use std::{cell::RefCell, sync::Arc};
 
@@ -108,40 +109,18 @@ impl BrowseState {
         {
             return cached.indices.clone();
         }
-        let terms: Vec<String> = query
-            .to_lowercase()
-            .split_whitespace()
-            .map(str::to_owned)
-            .collect();
+        let terms = FilterTerms::new(query);
         let indices = match &self.rows {
             Rows::Tracks(tracks) => tracks
                 .iter()
                 .enumerate()
-                .filter(|(_, t)| {
-                    if terms.is_empty() {
-                        return true;
-                    }
-                    let name = t.name.to_lowercase();
-                    let artists = t.artists.to_lowercase();
-                    terms
-                        .iter()
-                        .all(|term| name.contains(term) || artists.contains(term))
-                })
+                .filter(|(_, t)| terms.matches([t.name.as_str(), t.artists.as_str()]))
                 .map(|(i, _)| i)
                 .collect(),
             Rows::Playlists(playlists) => playlists
                 .iter()
                 .enumerate()
-                .filter(|(_, p)| {
-                    if terms.is_empty() {
-                        return true;
-                    }
-                    let name = p.name.to_lowercase();
-                    let owner = p.owner.to_lowercase();
-                    terms
-                        .iter()
-                        .all(|term| name.contains(term) || owner.contains(term))
-                })
+                .filter(|(_, p)| terms.matches([p.name.as_str(), p.owner.as_str()]))
                 .map(|(i, _)| i)
                 .collect(),
         };

@@ -7,6 +7,7 @@ mod diagnostics;
 mod input;
 mod jobs;
 pub(crate) mod listening;
+mod local_filter;
 mod lyrics_state;
 mod mouse;
 mod persistence;
