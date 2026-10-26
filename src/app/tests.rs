@@ -4,6 +4,7 @@ mod artist_provenance;
 mod autoplay;
 mod deezer;
 mod diagnostics;
+mod filtering;
 mod input_events;
 mod jobs;
 mod library_coverage;
