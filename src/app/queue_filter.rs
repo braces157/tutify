@@ -1,3 +1,4 @@
+use super::local_filter::FilterTerms;
 use super::*;
 use std::cell::RefCell;
 
@@ -34,12 +35,7 @@ impl QueueFilter {
         if cached.stamp == Some(stamp) && cached.query == self.query {
             return cached.indices.clone();
         }
-        let terms: Vec<String> = self
-            .query
-            .to_lowercase()
-            .split_whitespace()
-            .map(str::to_owned)
-            .collect();
+        let terms = FilterTerms::new(&self.query);
         let mut indices = Vec::new();
         let mut missing = 0;
         for (at, original) in queue.order.iter().enumerate() {
@@ -52,12 +48,11 @@ impl QueueFilter {
                 missing += 1;
             }
             if track.is_some_and(|track| {
-                let name = track.name.to_lowercase();
-                let artists = track.artists.to_lowercase();
-                let album = track.album.as_deref().unwrap_or_default().to_lowercase();
-                terms.iter().all(|term| {
-                    name.contains(term) || artists.contains(term) || album.contains(term)
-                })
+                terms.matches([
+                    track.name.as_str(),
+                    track.artists.as_str(),
+                    track.album.as_deref().unwrap_or_default(),
+                ])
             }) {
                 indices.push(at);
             }

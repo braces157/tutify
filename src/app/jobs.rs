@@ -130,11 +130,7 @@ impl Tasks {
                     name: app.catalog.title.clone(),
                 },
                 _ => {
-                    let index = if app.is_filtered() {
-                        app.filtered_indices().get(app.catalog.selected).copied()
-                    } else {
-                        Some(app.catalog.selected)
-                    };
+                    let index = app.catalog.selected_source_index();
                     match (&app.catalog.rows, index) {
                         (Rows::Playlists(rows), Some(index)) => rows
                             .get(index)
