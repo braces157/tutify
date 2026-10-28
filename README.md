@@ -420,6 +420,11 @@ catalog app uses `/callback`.
 
 ## Controls
 
+Press `Ctrl+P` or `F8` to search existing commands, including lyrics, radio,
+sleep timers, shuffle, and account connections. Use arrows to choose, `Enter`
+to run, and `Esc` to return to your draft. Disabled commands explain what is
+needed.
+
 Press `?` or `F1` outside text entry for help. Mix Builder and Listening Tools use
 these keys for their own menus. While typing a search, queue filter, or recipe
 name, ordinary shortcut letters enter text; finish text entry before using

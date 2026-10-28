@@ -1,5 +1,5 @@
 use super::*;
-use crate::app::listening::{SleepTimer, TOOL_LABELS};
+use crate::app::listening::{ListeningTool, SleepTimer};
 
 fn text(terminal: &Terminal<TestBackend>) -> String {
     terminal
@@ -34,7 +34,7 @@ fn listening_menu_keeps_selected_action_and_apply_close_controls_visible() {
                     .unwrap();
                 let rendered = text(&terminal);
                 assert!(
-                    rendered.contains(TOOL_LABELS[selected]),
+                    rendered.contains(ListeningTool::ALL[selected].label()),
                     "{width}x{height} {theme}: {rendered}"
                 );
                 assert!(rendered.contains("Enter Apply"), "{rendered}");

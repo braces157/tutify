@@ -22,31 +22,15 @@ pub(super) fn apply(
     tasks: &mut Tasks,
     tx: &mpsc::UnboundedSender<Command>,
 ) {
-    if app.config.source == crate::model::MusicSource::Youtube
-        && !app.config.youtube_music
-        && app
-            .selected_track()
-            .is_none_or(|track| crate::deezer::key(&track.id).is_none())
-        && matches!(action, Action::ViewAlbum | Action::ViewArtist)
-    {
-        app.status =
-            "YouTube results have no Spotify album/artist links. Press / to search by artist name."
-                .into();
+    if let Some(reason) = unavailable(app, action) {
+        app.status = reason.into();
         return;
     }
-    if app.catalog.view == View::Queue {
-        if action == Action::ClearQueue && !app.ui.queue.query.is_empty() {
-            app.status = "Press Esc to clear the filter before clearing the entire queue.".into();
-            return;
-        }
-        if !matches!(action, Action::Undo | Action::ClearQueue) {
-            let Some(at) = app.selected_queue_index() else {
-                app.status =
-                    "No matching queue tracks. Press / to edit or Esc to clear the filter.".into();
-                return;
-            };
-            app.queue.selected = at;
-        }
+    if app.catalog.view == View::Queue
+        && !matches!(action, Action::Undo | Action::ClearQueue)
+        && let Some(at) = app.selected_queue_index()
+    {
+        app.queue.selected = at;
     }
     match action {
         Action::Undo => perform_undo(app, tasks, tx),
@@ -69,10 +53,6 @@ pub(super) fn apply(
                 return;
             }
             if let Some(track) = app.selected_track() {
-                if !track.playable {
-                    app.status = "This track is unavailable for your account or region.".into();
-                    return;
-                }
                 if app.catalog.view == View::Search
                     && (app.config.source != crate::model::MusicSource::Youtube
                         || crate::deezer::key(&track.id).is_some())
@@ -209,12 +189,6 @@ pub(super) fn apply(
         }
         Action::StartRadio if app.catalog.view != View::Help => {
             if let Some(track) = app.selected_track() {
-                if track.artists.is_empty() || track.name.is_empty() {
-                    app.status =
-                        "Wait for track metadata before starting Radio; F5 retries metadata."
-                            .into();
-                    return;
-                }
                 if track.playable {
                     tasks.start_radio(app, track, tx);
                 } else {
@@ -355,5 +329,94 @@ pub(super) fn apply(
             }
         }
         _ => (),
+    }
+}
+
+pub(super) fn unavailable(app: &App, action: Action) -> Option<&'static str> {
+    if action == Action::Undo {
+        return (!app.can_undo()).then_some("No queue edit to undo.");
+    }
+    if app.catalog.view == View::Queue {
+        if action == Action::ClearQueue && !app.ui.queue.query.is_empty() {
+            return Some("Press Esc to clear the filter before clearing the entire queue.");
+        }
+        if action != Action::ClearQueue && app.selected_queue_index().is_none() {
+            return Some(if app.queue.ids.is_empty() {
+                "The queue is empty."
+            } else {
+                "No matching queue tracks. Press / to edit or Esc to clear the filter."
+            });
+        }
+    }
+    if matches!(
+        action,
+        Action::ClearQueue | Action::MoveUp | Action::MoveDown | Action::RemoveSelected
+    ) {
+        if app.catalog.view != View::Queue {
+            return Some("Open Queue to use this action.");
+        }
+        if app.queue.ids.is_empty() {
+            return Some("The queue is empty.");
+        }
+        let at = app.selected_queue_index().unwrap_or(0);
+        if action == Action::MoveUp && at == 0 {
+            return Some("This entry is already first in the queue.");
+        }
+        if action == Action::MoveDown && at + 1 >= app.queue.order.len() {
+            return Some("This entry is already last in the queue.");
+        }
+        return None;
+    }
+    if app.catalog.view == View::Help {
+        return Some("Select a track in a music view.");
+    }
+    if matches!(action, Action::PlaySelected | Action::EnqueueSelected)
+        && app.catalog.view == View::Playlists
+        && matches!(&app.catalog.rows, Rows::Playlists(rows) if app.catalog.selected_source_index().is_some_and(|at| at < rows.len()))
+    {
+        return None;
+    }
+    if app.config.source == crate::model::MusicSource::Youtube
+        && !app.config.youtube_music
+        && app
+            .selected_track()
+            .is_none_or(|track| crate::deezer::key(&track.id).is_none())
+        && matches!(action, Action::ViewAlbum | Action::ViewArtist)
+    {
+        return Some(
+            "YouTube results have no Spotify album/artist links. Press / to search by artist name.",
+        );
+    }
+    let Some(track) = app.selected_track() else {
+        return Some(match action {
+            Action::ViewAlbum => "Select a track to view album.",
+            Action::ViewArtist => "Select a track to view artist.",
+            _ => "Select a track first.",
+        });
+    };
+    match action {
+        Action::StartRadio if track.artists.is_empty() || track.name.is_empty() => {
+            Some("Wait for track metadata before starting Radio; F5 retries metadata.")
+        }
+        Action::StartRadio if !track.playable => Some("Unavailable track cannot start Radio."),
+        Action::PlaySelected if !track.playable => {
+            Some("This track is unavailable for your account or region.")
+        }
+        Action::PlayNext | Action::EnqueueSelected if !track.playable => {
+            Some("Unavailable track cannot be queued.")
+        }
+        Action::PlayNext
+            if app.catalog.view == View::Queue
+                && app.queue.cursor == app.selected_queue_index() =>
+        {
+            Some("This queue entry is already playing.")
+        }
+        Action::ViewAlbum if track.album_id.as_ref().is_none_or(|id| id.is_empty()) => {
+            Some("No album information available for this track.")
+        }
+        Action::ViewArtist if track.artist_ids.first().is_none_or(|id| id.is_empty()) => {
+            Some("No artist information available for this track.")
+        }
+        _ => None,
     }
 }

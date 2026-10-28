@@ -1,3 +1,4 @@
+use super::command_palette::UiCommand;
 use super::*;
 
 /// Route terminal events through the same application boundary in production
@@ -10,6 +11,24 @@ pub(super) fn route_input(
 ) -> bool {
     match event {
         Input::Key(event) => {
+            if event.code == KeyCode::Enter {
+                if event.kind == KeyEventKind::Release {
+                    app.ui.palette_enter_down = false;
+                    return false;
+                }
+                if app.ui.palette_enter_down {
+                    return false;
+                }
+                if app.ui.palette.is_some() {
+                    if event.kind == KeyEventKind::Repeat {
+                        return false;
+                    }
+                    app.ui.palette_enter_down = true;
+                }
+            } else if event.kind != KeyEventKind::Release {
+                app.ui.palette_enter_down = false;
+            }
+
             if event.code == KeyCode::Char(' ') {
                 if event.kind == KeyEventKind::Release {
                     app.playback_space_down = false;
@@ -17,16 +36,17 @@ pub(super) fn route_input(
                 }
                 // Windows reports held keys as successive Press events, not
                 // Repeat. A playback toggle must happen only once per key-down.
-                let editing = match app.ui.overlay {
-                    Overlay::Stats => app.ui.stats.borrow().editing,
-                    Overlay::MixBuilder => app.mix.naming,
-                    Overlay::None => {
-                        app.catalog.editing
-                            || app.catalog.filtering
-                            || (app.catalog.view == View::Queue && app.ui.queue.editing)
-                    }
-                    _ => false,
-                };
+                let editing = app.ui.palette.is_some()
+                    || match app.ui.overlay {
+                        Overlay::Stats => app.ui.stats.borrow().editing,
+                        Overlay::MixBuilder => app.mix.naming,
+                        Overlay::None => {
+                            app.catalog.editing
+                                || app.catalog.filtering
+                                || (app.catalog.view == View::Queue && app.ui.queue.editing)
+                        }
+                        _ => false,
+                    };
                 if !editing && (app.playback_space_down || event.kind == KeyEventKind::Repeat) {
                     return false;
                 }
@@ -37,10 +57,14 @@ pub(super) fn route_input(
         }
         Input::FocusLost => {
             app.playback_space_down = false;
+            app.ui.palette_enter_down = false;
             false
         }
         Input::Mouse(event) => mouse(app, event, tasks, tx),
         Input::Resize(_, _) => {
+            if app.ui.palette.is_some() {
+                app.ui.render.get_mut().mouse_hits.clear();
+            }
             app.context_menu = None;
             app.mix.detail_scroll = 0;
             true
@@ -72,6 +96,10 @@ pub(super) fn coverage_key(app: &mut App, code: KeyCode, tasks: &mut Tasks) {
 }
 
 fn paste(app: &mut App, text: &str) -> bool {
+    if app.ui.palette.is_some() {
+        command_palette::paste(app, text);
+        return true;
+    }
     if app.ui.overlay == Overlay::Diagnostics {
         return true;
     }
@@ -138,6 +166,16 @@ pub(super) fn key(
         app.quit = true;
         return;
     }
+    if app.ui.palette.is_some() {
+        command_palette::key(app, key, tasks, tx);
+        return;
+    }
+    if key.code == KeyCode::F(8)
+        || (key.code == KeyCode::Char('p') && key.modifiers.contains(KeyModifiers::CONTROL))
+    {
+        command_palette::open(app);
+        return;
+    }
     if app.ui.overlay == Overlay::Diagnostics {
         diagnostics_key(app, key.code, tasks);
         return;
@@ -179,11 +217,7 @@ pub(super) fn key(
         && !app.ui.queue.editing
         && !app.ui.stats.borrow().editing
     {
-        if app.ui.overlay == Overlay::ListeningTools {
-            app.ui.close(Overlay::ListeningTools);
-        } else {
-            app.open_listening_tools();
-        }
+        apply_ui_command(app, UiCommand::ListeningTools, tasks, tx);
         return;
     }
     if app.ui.overlay == Overlay::ListeningTools {
@@ -546,15 +580,7 @@ pub(super) fn key(
                 }
             }
         }
-        KeyCode::F(5) => {
-            tasks.retry_metadata(app);
-            if matches!(
-                app.catalog.view,
-                View::Search | View::Playlists | View::Liked | View::Album | View::Artist
-            ) {
-                tasks.request(app, 0);
-            }
-        }
+        KeyCode::F(5) => apply_ui_command(app, UiCommand::RetryMetadata, tasks, tx),
         KeyCode::Backspace if matches!(app.catalog.browse, Browse::Playlist(_)) => {
             tasks.view(app, View::Playlists)
         }
@@ -571,63 +597,14 @@ pub(super) fn key(
         code if playback_control(code).is_some() => {
             app.control(playback_control(code).unwrap(), tx);
         }
-        KeyCode::Char('s') => {
-            tasks.cycle_shuffle(app);
-            app.check_preload(tx);
-        }
-        KeyCode::Char('r') => {
-            app.config.repeat = app.config.repeat.cycle();
-            app.status = format!("Repeat: {:?}", app.config.repeat);
-            app.check_preload(tx);
-        }
-        KeyCode::Char('t') => {
-            let current = ui::Theme::from_str(&app.config.theme);
-            let next = current.next();
-            app.config.theme = next.as_str().to_string();
-            app.status = format!("Theme: {}", next.name());
-        }
-        KeyCode::Char('l') => {
-            app.ui.toggle(Overlay::Lyrics);
-            if app.ui.overlay == Overlay::Lyrics {
-                app.status = "Lyrics active (press l or Esc to exit)".into();
-            } else {
-                app.status = "Exited lyrics".into();
-            }
-        }
-        KeyCode::Char('L') => {
-            let (width, height) = app.ui.render.borrow().terminal_size;
-            let portrait = crate::ui::background::orientation_for_size(width, height)
-                == crate::ui::background::Orientation::Vertical;
-            app.ui.lyrics_panel = !app.ui.lyrics_panel;
-            app.config.lyrics_panel = app.ui.lyrics_panel;
-            app.status = if app.ui.lyrics_panel {
-                if portrait {
-                    "Lyrics panel on (L closes it)".into()
-                } else {
-                    "Lyrics panel on (shown in tall windows)".into()
-                }
-            } else {
-                "Lyrics panel off".into()
-            };
-        }
-        KeyCode::Char('v') => {
-            app.ui.toggle(Overlay::Visualizer);
-            if app.ui.overlay == Overlay::Visualizer {
-                app.status = "Retro visualizer active (press v or Esc to exit)".into();
-            } else {
-                app.status = "Exited visualizer".into();
-            }
-        }
-        KeyCode::Char('S') => {
-            app.ui.overlay = Overlay::Stats;
-            app.catalog.sidebar = false;
-            app.ui.stats.get_mut().selected = 0;
-            app.ui.render.borrow_mut().stats_scroll = 0;
-            app.ui.stats.get_mut().editing = false;
-            app.stats.refresh_metadata(&app.cache);
-            app.status = "Song statistics (press S or Esc to exit)".into();
-        }
-        KeyCode::Char('M') => tasks.open_mix(app),
+        KeyCode::Char('s') => apply_ui_command(app, UiCommand::Shuffle, tasks, tx),
+        KeyCode::Char('r') => apply_ui_command(app, UiCommand::Repeat, tasks, tx),
+        KeyCode::Char('t') => apply_ui_command(app, UiCommand::Theme, tasks, tx),
+        KeyCode::Char('l') => apply_ui_command(app, UiCommand::Lyrics, tasks, tx),
+        KeyCode::Char('L') => apply_ui_command(app, UiCommand::LyricsPanel, tasks, tx),
+        KeyCode::Char('v') => apply_ui_command(app, UiCommand::Visualizer, tasks, tx),
+        KeyCode::Char('S') => apply_ui_command(app, UiCommand::Stats, tasks, tx),
+        KeyCode::Char('M') => apply_ui_command(app, UiCommand::MixBuilder, tasks, tx),
         KeyCode::Char('a')
             if key
                 .modifiers
@@ -892,5 +869,88 @@ fn stats_key(app: &mut App, key: KeyEvent, tx: &mpsc::UnboundedSender<Command>) 
             app.control(playback_control(code).unwrap(), tx);
         }
         _ => (),
+    }
+}
+
+pub(super) fn apply_ui_command(
+    app: &mut App,
+    command: UiCommand,
+    tasks: &mut Tasks,
+    tx: &mpsc::UnboundedSender<Command>,
+) {
+    match command {
+        UiCommand::Shuffle => {
+            tasks.cycle_shuffle(app);
+            app.check_preload(tx);
+        }
+        UiCommand::Repeat => {
+            app.config.repeat = app.config.repeat.cycle();
+            app.status = format!("Repeat: {:?}", app.config.repeat);
+            app.check_preload(tx);
+        }
+        UiCommand::Theme => {
+            let current = ui::Theme::from_str(&app.config.theme);
+            let next = current.next();
+            app.config.theme = next.as_str().to_string();
+            app.status = format!("Theme: {}", next.name());
+        }
+        UiCommand::Lyrics => {
+            app.ui.toggle(Overlay::Lyrics);
+            if app.ui.overlay == Overlay::Lyrics {
+                app.status = "Lyrics active (press l or Esc to exit)".into();
+            } else {
+                app.status = "Exited lyrics".into();
+            }
+        }
+        UiCommand::LyricsPanel => {
+            let (width, height) = app.ui.render.borrow().terminal_size;
+            let portrait = crate::ui::background::orientation_for_size(width, height)
+                == crate::ui::background::Orientation::Vertical;
+            app.ui.lyrics_panel = !app.ui.lyrics_panel;
+            app.config.lyrics_panel = app.ui.lyrics_panel;
+            app.status = if app.ui.lyrics_panel {
+                if portrait {
+                    "Lyrics panel on (L closes it)".into()
+                } else {
+                    "Lyrics panel on (shown in tall windows)".into()
+                }
+            } else {
+                "Lyrics panel off".into()
+            };
+        }
+        UiCommand::Visualizer => {
+            app.ui.toggle(Overlay::Visualizer);
+            if app.ui.overlay == Overlay::Visualizer {
+                app.status = "Retro visualizer active (press v or Esc to exit)".into();
+            } else {
+                app.status = "Exited visualizer".into();
+            }
+        }
+        UiCommand::Stats => {
+            app.ui.overlay = Overlay::Stats;
+            app.catalog.sidebar = false;
+            app.ui.stats.get_mut().selected = 0;
+            app.ui.render.borrow_mut().stats_scroll = 0;
+            app.ui.stats.get_mut().editing = false;
+            app.stats.refresh_metadata(&app.cache);
+            app.status = "Song statistics (press S or Esc to exit)".into();
+        }
+        UiCommand::MixBuilder => tasks.open_mix(app),
+        UiCommand::ListeningTools => {
+            if app.ui.overlay == Overlay::ListeningTools {
+                app.ui.close(Overlay::ListeningTools);
+            } else {
+                app.open_listening_tools();
+            }
+        }
+        UiCommand::RetryMetadata => {
+            tasks.retry_metadata(app);
+            if matches!(
+                app.catalog.view,
+                View::Search | View::Playlists | View::Liked | View::Album | View::Artist
+            ) {
+                tasks.request(app, 0);
+            }
+        }
     }
 }

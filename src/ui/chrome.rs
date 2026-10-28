@@ -220,6 +220,7 @@ pub(super) fn footer(frame: &mut Frame<'_>, app: &App, area: Rect) {
         return;
     }
     let mut hints = Vec::new();
+    push_hint(&mut hints, "F8", "Commands", false, theme);
     if app.ui.overlay == Overlay::ListeningTools {
         push_hint(&mut hints, "Enter", "Apply", true, theme);
         push_hint(&mut hints, "↑/↓", "Choose", false, theme);

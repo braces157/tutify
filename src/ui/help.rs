@@ -5,6 +5,7 @@ pub(super) fn help(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, a
     let palette = theme.palette();
     let text = "Tuitify, your way\n\n\
     Navigation\n\
+    Ctrl+P / F8    Search commands; Enter runs, Esc cancels\n\
     1-5 / Tab      Switch views / toggle sidebar focus\n\
     Up/Down, j/k   Move cursor in current view\n\
     Enter          Play track or open playlist\n\

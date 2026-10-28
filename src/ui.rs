@@ -1,4 +1,5 @@
 mod chrome;
+mod command_palette;
 use chrome::{context_menu, footer, header};
 pub(crate) mod background;
 pub(crate) use background::BackgroundState;
@@ -87,6 +88,7 @@ pub fn draw(frame: &mut Frame<'_>, app: &App, render: &mut RenderState) {
             area,
         );
         background::apply(frame, app, render, theme);
+        command_palette::draw(frame, app, render);
         return;
     }
     let compact = area.height < 18;
@@ -108,6 +110,7 @@ pub fn draw(frame: &mut Frame<'_>, app: &App, render: &mut RenderState) {
         let _ = body(frame, app, render, vertical[1]);
         footer(frame, app, vertical[2]);
         background::apply(frame, app, render, theme);
+        command_palette::draw(frame, app, render);
         return;
     }
     let docked = docked_player(app, area);
@@ -137,6 +140,7 @@ pub fn draw(frame: &mut Frame<'_>, app: &App, render: &mut RenderState) {
     footer(frame, app, vertical[3]);
     context_menu(frame, app, render, area);
     background::apply(frame, app, render, theme);
+    command_palette::draw(frame, app, render);
 }
 
 fn center(frame: &mut Frame<'_>, app: &App, render: &mut RenderState, area: Rect) {
