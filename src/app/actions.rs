@@ -341,7 +341,11 @@ pub(super) fn unavailable(app: &App, action: Action) -> Option<&'static str> {
             return Some("Press Esc to clear the filter before clearing the entire queue.");
         }
         if action != Action::ClearQueue && app.selected_queue_index().is_none() {
-            return Some("No matching queue tracks. Press / to edit or Esc to clear the filter.");
+            return Some(if app.queue.ids.is_empty() {
+                "The queue is empty."
+            } else {
+                "No matching queue tracks. Press / to edit or Esc to clear the filter."
+            });
         }
     }
     if matches!(

@@ -383,6 +383,8 @@ fn execute(app: &mut App, tasks: &mut Tasks, tx: &mpsc::UnboundedSender<Command>
         app.status = reason.into();
         return;
     }
+    let previous_overlay = app.ui.overlay;
+    let previous_view = app.catalog.view;
     close(app);
     app.context_menu = None;
     match spec.command {
@@ -393,6 +395,20 @@ fn execute(app: &mut App, tasks: &mut Tasks, tx: &mpsc::UnboundedSender<Command>
         PaletteCommand::View(view) => {
             app.catalog.history.clear();
             tasks.view(app, view);
+        }
+    }
+    if (previous_overlay, previous_view) != (app.ui.overlay, app.catalog.view) {
+        match previous_overlay {
+            Overlay::None => {
+                app.catalog.editing = false;
+                app.catalog.filtering = false;
+                if previous_view == View::Queue {
+                    app.ui.queue.editing = false;
+                }
+            }
+            Overlay::Stats => app.ui.stats.get_mut().editing = false,
+            Overlay::MixBuilder => app.mix.naming = false,
+            _ => (),
         }
     }
 }
