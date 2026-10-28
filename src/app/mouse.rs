@@ -80,6 +80,10 @@ pub(super) fn mouse(
     tasks: &mut Tasks,
     tx: &mpsc::UnboundedSender<Command>,
 ) -> bool {
+    if app.ui.palette.is_some() {
+        command_palette::mouse(app, event, tasks, tx);
+        return true;
+    }
     if app.ui.overlay == Overlay::Diagnostics {
         let target = app
             .ui
@@ -154,9 +158,11 @@ pub(super) fn mouse(
             });
         match event.kind {
             MouseEventKind::Down(MouseButton::Left) => match target {
-                Some(MouseTarget::ListeningRow(index)) if index < listening::TOOL_LABELS.len() => {
+                Some(MouseTarget::ListeningRow(index))
+                    if index < listening::ListeningTool::ALL.len() =>
+                {
                     app.ui.listening.selected = index;
-                    app.status = listening::TOOL_DETAILS[index].into();
+                    app.status = listening::ListeningTool::ALL[index].detail().into();
                 }
                 Some(MouseTarget::ListeningApply) => app.listening_key(KeyCode::Enter, tasks, tx),
                 Some(MouseTarget::ListeningClose) => app.listening_key(KeyCode::Esc, tasks, tx),

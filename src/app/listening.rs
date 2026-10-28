@@ -1,34 +1,121 @@
 use super::*;
 
-pub const TOOL_LABELS: [&str; 12] = [
-    "Sleep in 15 minutes",
-    "Sleep in 30 minutes",
-    "Sleep in 45 minutes",
-    "Sleep in 60 minutes",
-    "Stop after current track",
-    "Cancel sleep timer",
-    "Remove played queue entries",
-    "Remove upcoming duplicates",
-    "Remove unavailable tracks",
-    "Connect Spotify account",
-    "Connect Google music library",
-    "Update playback tools",
-];
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ListeningTool {
+    Sleep15,
+    Sleep30,
+    Sleep45,
+    Sleep60,
+    StopAfterTrack,
+    CancelSleep,
+    RemovePlayed,
+    RemoveDuplicates,
+    RemoveUnavailable,
+    ConnectSpotify,
+    ConnectGoogle,
+    UpdatePlayback,
+}
 
-pub const TOOL_DETAILS: [&str; 12] = [
-    "Pause in 15 minutes, keeping your queue and position. Enter applies; Esc closes.",
-    "Pause in 30 minutes, keeping your queue and position. Enter applies; Esc closes.",
-    "Pause in 45 minutes, keeping your queue and position. Enter applies; Esc closes.",
-    "Pause in 60 minutes, keeping your queue and position. Enter applies; Esc closes.",
-    "Finish the loaded track, then stop even with Repeat enabled. Changing tracks cancels it.",
-    "Cancel the timer without changing playback or volume.",
-    "Remove entries before the current track in the full queue. Current track stays; u undoes.",
-    "Keep one occurrence of each upcoming track ID, excluding the current track. u undoes.",
-    "Remove known unavailable entries from the full queue. Current and unknown tracks stay; u undoes.",
-    "Sign in in your browser. Premium plays Spotify; free accounts use free music automatically. Your queue is saved first.",
-    "Sign in in your browser for playlists and Liked Songs. Playback needs no paid subscription. Your queue is saved first.",
-    "Update playback dependencies, then return to your saved queue. No launch options are needed.",
-];
+impl ListeningTool {
+    pub const ALL: [Self; 12] = [
+        Self::Sleep15,
+        Self::Sleep30,
+        Self::Sleep45,
+        Self::Sleep60,
+        Self::StopAfterTrack,
+        Self::CancelSleep,
+        Self::RemovePlayed,
+        Self::RemoveDuplicates,
+        Self::RemoveUnavailable,
+        Self::ConnectSpotify,
+        Self::ConnectGoogle,
+        Self::UpdatePlayback,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Sleep15 => "Sleep in 15 minutes",
+            Self::Sleep30 => "Sleep in 30 minutes",
+            Self::Sleep45 => "Sleep in 45 minutes",
+            Self::Sleep60 => "Sleep in 60 minutes",
+            Self::StopAfterTrack => "Stop after current track",
+            Self::CancelSleep => "Cancel sleep timer",
+            Self::RemovePlayed => "Remove played queue entries",
+            Self::RemoveDuplicates => "Remove upcoming duplicates",
+            Self::RemoveUnavailable => "Remove unavailable tracks",
+            Self::ConnectSpotify => "Connect Spotify account",
+            Self::ConnectGoogle => "Connect Google music library",
+            Self::UpdatePlayback => "Update playback tools",
+        }
+    }
+
+    pub fn detail(self) -> &'static str {
+        match self {
+            Self::Sleep15 => {
+                "Pause in 15 minutes, keeping your queue and position. Enter applies; Esc closes."
+            }
+            Self::Sleep30 => {
+                "Pause in 30 minutes, keeping your queue and position. Enter applies; Esc closes."
+            }
+            Self::Sleep45 => {
+                "Pause in 45 minutes, keeping your queue and position. Enter applies; Esc closes."
+            }
+            Self::Sleep60 => {
+                "Pause in 60 minutes, keeping your queue and position. Enter applies; Esc closes."
+            }
+            Self::StopAfterTrack => {
+                "Finish the loaded track, then stop even with Repeat enabled. Changing tracks cancels it."
+            }
+            Self::CancelSleep => "Cancel the timer without changing playback or volume.",
+            Self::RemovePlayed => {
+                "Remove entries before the current track in the full queue. Current track stays; u undoes."
+            }
+            Self::RemoveDuplicates => {
+                "Keep one occurrence of each upcoming track ID, excluding the current track. u undoes."
+            }
+            Self::RemoveUnavailable => {
+                "Remove known unavailable entries from the full queue. Current and unknown tracks stay; u undoes."
+            }
+            Self::ConnectSpotify => {
+                "Sign in in your browser. Premium plays Spotify; free accounts use free music automatically. Your queue is saved first."
+            }
+            Self::ConnectGoogle => {
+                "Sign in in your browser for playlists and Liked Songs. Playback needs no paid subscription. Your queue is saved first."
+            }
+            Self::UpdatePlayback => {
+                "Update playback dependencies, then return to your saved queue. No launch options are needed."
+            }
+        }
+    }
+
+    pub(super) fn aliases(self) -> &'static str {
+        match self {
+            Self::Sleep15 | Self::Sleep30 | Self::Sleep45 | Self::Sleep60 => "timer pause bedtime",
+            Self::StopAfterTrack => "sleep timer finish stop",
+            Self::CancelSleep => "timer off disable",
+            Self::RemovePlayed => "cleanup history queue",
+            Self::RemoveDuplicates => "cleanup repeated queue",
+            Self::RemoveUnavailable => "cleanup unplayable queue",
+            Self::ConnectSpotify => "account login sign in premium",
+            Self::ConnectGoogle => "account login sign in youtube playlists liked songs",
+            Self::UpdatePlayback => "repair dependencies download yt-dlp deno",
+        }
+    }
+
+    pub(super) fn unavailable(self, app: &App) -> Option<&'static str> {
+        match self {
+            Self::StopAfterTrack
+                if !app.loaded || app.queue.current().is_none() || app.state == State::Failed =>
+            {
+                Some("Start a track before choosing stop after current track.")
+            }
+            Self::ConnectSpotify | Self::ConnectGoogle | Self::UpdatePlayback if app.demo => {
+                Some("Account connections are unavailable in the offline demo.")
+            }
+            _ => None,
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum SleepTimer {
@@ -69,8 +156,10 @@ impl App {
         self.context_menu = None;
         self.catalog.sidebar = false;
         self.ui.overlay = Overlay::ListeningTools;
-        self.ui.listening.selected = self.ui.listening.selected.min(TOOL_LABELS.len() - 1);
-        self.status = TOOL_DETAILS[self.ui.listening.selected].into();
+        self.ui.listening.selected = self.ui.listening.selected.min(ListeningTool::ALL.len() - 1);
+        self.status = ListeningTool::ALL[self.ui.listening.selected]
+            .detail()
+            .into();
     }
 
     pub(super) fn listening_key(
@@ -86,10 +175,14 @@ impl App {
             }
             KeyCode::Down | KeyCode::Char('j') => {
                 self.ui.listening.selected =
-                    (self.ui.listening.selected + 1).min(TOOL_LABELS.len() - 1)
+                    (self.ui.listening.selected + 1).min(ListeningTool::ALL.len() - 1)
             }
             KeyCode::Enter => {
-                self.apply_listening_tool(tasks, tx);
+                self.apply_listening_tool(
+                    ListeningTool::ALL[self.ui.listening.selected],
+                    tasks,
+                    tx,
+                );
                 return;
             }
             KeyCode::Char('q') => self.quit = true,
@@ -97,45 +190,59 @@ impl App {
             _ => return,
         }
         if self.ui.overlay == Overlay::ListeningTools {
-            self.status = TOOL_DETAILS[self.ui.listening.selected].into();
+            self.status = ListeningTool::ALL[self.ui.listening.selected]
+                .detail()
+                .into();
         }
     }
 
-    fn apply_listening_tool(&mut self, tasks: &mut Tasks, tx: &mpsc::UnboundedSender<Command>) {
-        match self.ui.listening.selected {
-            at @ 0..=3 => {
-                let minutes = [15, 30, 45, 60][at];
+    pub(super) fn apply_listening_tool(
+        &mut self,
+        tool: ListeningTool,
+        tasks: &mut Tasks,
+        tx: &mpsc::UnboundedSender<Command>,
+    ) {
+        if let Some(reason) = tool.unavailable(self) {
+            self.status = reason.into();
+            return;
+        }
+        match tool {
+            ListeningTool::Sleep15
+            | ListeningTool::Sleep30
+            | ListeningTool::Sleep45
+            | ListeningTool::Sleep60 => {
+                let minutes = match tool {
+                    ListeningTool::Sleep15 => 15,
+                    ListeningTool::Sleep30 => 30,
+                    ListeningTool::Sleep45 => 45,
+                    _ => 60,
+                };
                 self.ui.listening.sleep =
                     SleepTimer::Deadline(Instant::now() + Duration::from_secs(minutes * 60));
                 self.status =
                     format!("Sleep timer set for {minutes} minutes. F6 changes or cancels it.");
             }
-            4 if self.loaded && self.queue.current().is_some() && self.state != State::Failed => {
+            ListeningTool::StopAfterTrack => {
                 self.ui.listening.sleep = SleepTimer::EndOfTrack(self.generation);
                 self.status = "Will stop after the current track. F6 cancels; changing tracks cancels this timer.".into();
             }
-            4 => {
-                self.status = "Start a track before choosing stop after current track.".into();
-                return;
-            }
-            5 => {
+            ListeningTool::CancelSleep => {
                 self.ui.listening.sleep = SleepTimer::Off;
                 self.status = "Sleep timer cancelled; playback unchanged.".into();
             }
-            at @ 6..=8 => self.clean_queue(at, tasks, tx),
-            at @ 9..=11 => {
-                if self.demo {
-                    self.status = "Account connections are unavailable in the offline demo.".into();
-                    return;
-                }
-                self.session_request = match at {
-                    9 => crate::model::SessionRequest::ConnectSpotify,
-                    10 => crate::model::SessionRequest::ConnectGoogle,
+            ListeningTool::RemovePlayed
+            | ListeningTool::RemoveDuplicates
+            | ListeningTool::RemoveUnavailable => self.clean_queue(tool, tasks, tx),
+            ListeningTool::ConnectSpotify
+            | ListeningTool::ConnectGoogle
+            | ListeningTool::UpdatePlayback => {
+                self.session_request = match tool {
+                    ListeningTool::ConnectSpotify => crate::model::SessionRequest::ConnectSpotify,
+                    ListeningTool::ConnectGoogle => crate::model::SessionRequest::ConnectGoogle,
                     _ => crate::model::SessionRequest::RepairPlayback,
                 };
                 self.quit = true;
             }
-            _ => return,
         }
         self.ui.close(Overlay::ListeningTools);
     }
@@ -178,7 +285,7 @@ impl App {
 
     fn clean_queue(
         &mut self,
-        option: usize,
+        option: ListeningTool,
         tasks: &mut Tasks,
         tx: &mpsc::UnboundedSender<Command>,
     ) {
@@ -198,9 +305,13 @@ impl App {
                 }
                 let id = &self.queue.ids[original];
                 let remove = match option {
-                    6 => current.is_some_and(|cursor| at < cursor),
-                    7 => current.is_none_or(|cursor| at > cursor) && !seen.insert(id.clone()),
-                    8 => self.cache.get(id).is_some_and(|track| !track.playable),
+                    ListeningTool::RemovePlayed => current.is_some_and(|cursor| at < cursor),
+                    ListeningTool::RemoveDuplicates => {
+                        current.is_none_or(|cursor| at > cursor) && !seen.insert(id.clone())
+                    }
+                    ListeningTool::RemoveUnavailable => {
+                        self.cache.get(id).is_some_and(|track| !track.playable)
+                    }
                     _ => false,
                 };
                 remove.then_some(original)

@@ -1,5 +1,5 @@
 use super::*;
-use crate::app::listening::TOOL_LABELS;
+use crate::app::listening::ListeningTool;
 
 pub(super) fn listening_tools(
     frame: &mut Frame<'_>,
@@ -22,16 +22,16 @@ pub(super) fn listening_tools(
     let inner = outer.inner(area);
     frame.render_widget(outer, area);
     let parts = Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).split(inner);
-    let selected = app.ui.listening.selected.min(TOOL_LABELS.len() - 1);
+    let selected = app.ui.listening.selected.min(ListeningTool::ALL.len() - 1);
     let visible = viewport(
         selected,
-        TOOL_LABELS.len(),
+        ListeningTool::ALL.len(),
         parts[0].height as usize,
         &mut render.tools_scroll,
     );
     let items = visible
         .clone()
-        .map(|index| ListItem::new(TOOL_LABELS[index]));
+        .map(|index| ListItem::new(ListeningTool::ALL[index].label()));
     let mut state =
         ListState::default().with_selected(Some(selected.saturating_sub(visible.start)));
     frame.render_stateful_widget(

@@ -1,6 +1,6 @@
 use super::*;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Seek {
     Start,
     End,
@@ -8,7 +8,7 @@ pub(super) enum Seek {
     Position(u32),
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Control {
     Media(MediaAction),
     Seek(Seek),
@@ -16,9 +16,28 @@ pub(super) enum Control {
     Mute,
 }
 
+impl Control {
+    pub(super) fn unavailable(self, app: &App) -> Option<&'static str> {
+        if let Self::Seek(_) = self {
+            match app.current_track() {
+                None => return Some("Choose a track before seeking."),
+                Some(track) if track.duration_ms == 0 => {
+                    return Some("Track duration is not available yet.");
+                }
+                _ => (),
+            }
+        }
+        None
+    }
+}
+
 impl App {
     /// Shared by normal input, overlays, mouse controls, and media buttons.
     pub(super) fn control(&mut self, control: Control, tx: &mpsc::UnboundedSender<Command>) {
+        if let Some(reason) = control.unavailable(self) {
+            self.status = reason.into();
+            return;
+        }
         match control {
             Control::Media(action) => self.media_action(action, tx),
             Control::Seek(seek) => {
@@ -26,10 +45,6 @@ impl App {
                     self.status = "Choose a track before seeking.".into();
                     return;
                 };
-                if track.duration_ms == 0 {
-                    self.status = "Track duration is not available yet.".into();
-                    return;
-                }
                 let position = match seek {
                     Seek::Start => 0,
                     Seek::End => track.duration_ms - 1,

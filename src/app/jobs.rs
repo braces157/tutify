@@ -1,5 +1,14 @@
 use super::*;
 
+pub(super) fn view_unavailable(app: &App, view: View) -> Option<&'static str> {
+    (app.config.source == crate::model::MusicSource::Youtube
+        && ((matches!(view, View::Playlists | View::Liked) && !app.config.youtube_connected)
+            || (matches!(view, View::Album | View::Artist)
+                && !app.config.youtube_music
+                && !app.config.deezer_search)))
+        .then_some("This library view is unavailable until your Google library is connected. F6 > Connect Google music library. Your queue is preserved.")
+}
+
 pub(super) enum Background {
     LibraryProgress(u64, crate::library::LibraryProgress),
     LibraryDone(u64, Result<()>),
@@ -949,13 +958,8 @@ impl Tasks {
         }
     }
     pub(super) fn view(&mut self, app: &mut App, view: View) {
-        if app.config.source == crate::model::MusicSource::Youtube
-            && ((matches!(view, View::Playlists | View::Liked) && !app.config.youtube_connected)
-                || (matches!(view, View::Album | View::Artist)
-                    && !app.config.youtube_music
-                    && !app.config.deezer_search))
-        {
-            app.status = "This library view is unavailable until your Google library is connected. F6 > Connect Google music library. Your queue is preserved.".into();
+        if let Some(reason) = view_unavailable(app, view) {
+            app.status = reason.into();
             return;
         }
         app.catalog.view = view;

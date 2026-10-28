@@ -1,6 +1,7 @@
 mod actions;
 mod autoplay;
 mod browsing;
+pub(crate) mod command_palette;
 mod controls;
 mod demo_runtime;
 mod diagnostics;
@@ -123,6 +124,9 @@ impl SearchScope {
 pub use crate::model::PlaybackState as State;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MouseTarget {
+    PaletteRow(usize),
+    PaletteApply,
+    PaletteClose,
     Navigation(View),
     SearchMode(SearchScope),
     Catalog(usize),

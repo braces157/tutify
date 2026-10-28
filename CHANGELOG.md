@@ -6,6 +6,9 @@ the working tree and are not part of the published v0.7.0 download.
 
 ## Unreleased
 
+- Add a searchable command palette on `Ctrl+P` or `F8`, with shortcut hints,
+  disabled-action reasons, and preserved search and filter drafts on cancel.
+
 - Refresh the download website and move the silent browser player to its own
   page, with responsive controls, keyboard navigation, filtering, lyrics, and
   explicit sample-data labels. Keep v0.7.0 downloads separate from source-only

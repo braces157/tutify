@@ -16,6 +16,8 @@ pub enum Overlay {
 
 #[derive(Default)]
 pub struct UiState {
+    pub palette: Option<super::command_palette::CommandPalette>,
+    pub(super) palette_enter_down: bool,
     pub overlay: Overlay,
     /// Shows synced lyrics in the docked player column of tall windows.
     pub lyrics_panel: bool,
@@ -155,6 +157,7 @@ pub struct RenderState {
     pub stats_scroll: usize,
     pub queue_scroll: usize,
     pub tools_scroll: usize,
+    pub palette_scroll: usize,
     pub coverage_scroll: usize,
     pub diagnostics_scroll: usize,
     pub diagnostics_length: usize,
@@ -177,6 +180,7 @@ impl Default for RenderState {
             stats_scroll: 0,
             queue_scroll: 0,
             tools_scroll: 0,
+            palette_scroll: 0,
             coverage_scroll: 0,
             diagnostics_scroll: 0,
             diagnostics_length: 1,
