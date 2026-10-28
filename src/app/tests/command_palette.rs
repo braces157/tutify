@@ -49,6 +49,334 @@ fn palette_text(app: &App, width: u16, height: u16) -> String {
         .join(" ")
 }
 
+fn edit_stats_search(app: &mut App, tasks: &mut Tasks, tx: &mpsc::UnboundedSender<Command>) {
+    app.stats.add_play(&test_track(0).id, "Song 0", "Artist");
+    send(app, tasks, tx, KeyCode::Char('S'));
+    send(app, tasks, tx, KeyCode::Char('/'));
+    route_input(app, Input::Paste("stats draft".into()), tasks, tx);
+    assert_eq!(app.ui.overlay, Overlay::Stats);
+    assert_eq!(app.ui.stats.borrow().query, "stats draft");
+}
+
+#[test]
+fn command_palette_empty_queue_reports_empty_instead_of_filter_guidance() {
+    for command in [
+        "move selected queue entry up",
+        "move selected queue entry down",
+        "remove selected queue entry",
+        "clear entire queue",
+    ] {
+        let mut app = App::new(Config::default(), Queue::default());
+        app.catalog.view = View::Queue;
+        let (mut tasks, _) = tasks();
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        query(&mut app, &mut tasks, &tx, command);
+        send(&mut app, &mut tasks, &tx, KeyCode::Enter);
+        assert_eq!(app.status, "The queue is empty.", "{command}");
+        assert!(palette_text(&app, 120, 32).contains("The queue is empty."));
+        assert!(app.ui.palette.is_some());
+        assert!(app.queue.ids.is_empty());
+        assert!(!app.can_undo());
+        assert!(rx.try_recv().is_err());
+    }
+}
+
+#[test]
+fn command_palette_nonempty_queue_keeps_filter_and_stale_selection_guards() {
+    for (filter, selected) in [("no matching song", 0), ("", 10)] {
+        let mut app = App::new(Config::default(), Queue::default());
+        let track = test_track(0);
+        app.queue.enqueue(track.id.clone());
+        app.cache.insert(track.id.clone(), track);
+        app.catalog.view = View::Queue;
+        app.ui.queue.query = filter.into();
+        app.queue.selected = selected;
+        let before = app.queue.ids.clone();
+        let (mut tasks, _) = tasks();
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        query(&mut app, &mut tasks, &tx, "remove selected queue entry");
+        send(&mut app, &mut tasks, &tx, KeyCode::Enter);
+        let reason = "No matching queue tracks. Press / to edit or Esc to clear the filter.";
+        assert_eq!(app.status, reason);
+        assert!(palette_text(&app, 120, 32).contains(reason));
+        assert!(app.ui.palette.is_some());
+        assert_eq!(app.queue.ids, before);
+        assert_eq!(app.queue.selected, selected);
+        assert!(!app.can_undo());
+        assert!(rx.try_recv().is_err());
+    }
+}
+
+#[test]
+fn command_palette_undo_restores_a_cleared_queue() {
+    let mut app = crate::demo::app();
+    let before = app.queue.ids.clone();
+    let (mut tasks, _) = tasks();
+    let (tx, _) = mpsc::unbounded_channel();
+    query(&mut app, &mut tasks, &tx, "clear entire queue");
+    send(&mut app, &mut tasks, &tx, KeyCode::Enter);
+    assert!(app.queue.ids.is_empty());
+    query(&mut app, &mut tasks, &tx, "undo queue edit");
+    send(&mut app, &mut tasks, &tx, KeyCode::Enter);
+    assert!(app.ui.palette.is_none());
+    assert_eq!(app.queue.ids, before);
+}
+
+#[test]
+fn command_palette_leaving_stats_for_queue_restores_f6_and_f7() {
+    let mut app = crate::demo::app();
+    let (mut tasks, _) = tasks();
+    let (tx, _) = mpsc::unbounded_channel();
+    edit_stats_search(&mut app, &mut tasks, &tx);
+    query(&mut app, &mut tasks, &tx, "view queue");
+    send(&mut app, &mut tasks, &tx, KeyCode::Enter);
+    assert!(app.ui.palette.is_none());
+    assert_eq!(app.ui.overlay, Overlay::None);
+    assert_eq!(app.catalog.view, View::Queue);
+    assert_eq!(app.ui.stats.borrow().query, "stats draft");
+    send(&mut app, &mut tasks, &tx, KeyCode::F(6));
+    assert_eq!(app.ui.overlay, Overlay::ListeningTools);
+    send(&mut app, &mut tasks, &tx, KeyCode::Esc);
+    send(&mut app, &mut tasks, &tx, KeyCode::F(7));
+    assert_eq!(app.ui.overlay, Overlay::Diagnostics);
+}
+
+#[tokio::test]
+async fn command_palette_leaving_stats_for_another_overlay_restores_f6_and_f7() {
+    for (command, overlay) in [
+        ("toggle lyrics view", Overlay::Lyrics),
+        ("toggle visualizer", Overlay::Visualizer),
+        ("toggle listening tools", Overlay::ListeningTools),
+        ("open mix builder", Overlay::MixBuilder),
+    ] {
+        let mut app = crate::demo::app();
+        let (mut tasks, _) = tasks();
+        let (tx, _) = mpsc::unbounded_channel();
+        edit_stats_search(&mut app, &mut tasks, &tx);
+        query(&mut app, &mut tasks, &tx, command);
+        send(&mut app, &mut tasks, &tx, KeyCode::Enter);
+        assert!(app.ui.palette.is_none(), "{command}");
+        assert_eq!(app.ui.overlay, overlay, "{command}");
+        assert_eq!(app.ui.stats.borrow().query, "stats draft", "{command}");
+        send(&mut app, &mut tasks, &tx, KeyCode::Esc);
+        send(&mut app, &mut tasks, &tx, KeyCode::F(6));
+        assert_eq!(app.ui.overlay, Overlay::ListeningTools, "{command}");
+        send(&mut app, &mut tasks, &tx, KeyCode::Esc);
+        send(&mut app, &mut tasks, &tx, KeyCode::F(7));
+        assert_eq!(app.ui.overlay, Overlay::Diagnostics, "{command}");
+    }
+}
+
+#[test]
+fn command_palette_preserves_stats_search_when_it_stays_open() {
+    for (command, key, palette_open) in [
+        ("view queue", KeyCode::Esc, false),
+        ("no-such-command", KeyCode::Enter, true),
+        ("start radio", KeyCode::Enter, true),
+        ("view playlists", KeyCode::Enter, true),
+        ("cycle theme", KeyCode::Enter, false),
+        ("increase volume", KeyCode::Enter, false),
+    ] {
+        let mut app = crate::demo::app();
+        app.config.source = crate::model::MusicSource::Youtube;
+        app.config.youtube_connected = false;
+        let (mut tasks, _) = tasks();
+        let (tx, _) = mpsc::unbounded_channel();
+        edit_stats_search(&mut app, &mut tasks, &tx);
+        query(&mut app, &mut tasks, &tx, command);
+        send(&mut app, &mut tasks, &tx, key);
+        assert_eq!(app.ui.palette.is_some(), palette_open, "{command}");
+        if palette_open {
+            send(&mut app, &mut tasks, &tx, KeyCode::Esc);
+        }
+        assert_eq!(app.ui.overlay, Overlay::Stats, "{command}");
+        assert_eq!(app.ui.stats.borrow().query, "stats draft", "{command}");
+        send(&mut app, &mut tasks, &tx, KeyCode::Char('x'));
+        assert_eq!(app.ui.stats.borrow().query, "stats draftx", "{command}");
+    }
+}
+
+#[tokio::test]
+async fn command_palette_leaving_base_editors_for_overlays_restores_f6_and_f7() {
+    for view in [View::Search, View::Liked, View::Queue] {
+        for (command, overlay) in [
+            ("toggle lyrics view", Overlay::Lyrics),
+            ("toggle visualizer", Overlay::Visualizer),
+            ("toggle listening tools", Overlay::ListeningTools),
+            ("open song statistics", Overlay::Stats),
+            ("open mix builder", Overlay::MixBuilder),
+        ] {
+            let mut app = crate::demo::app();
+            app.catalog.view = view;
+            app.catalog.query.clear();
+            let (mut tasks, _) = tasks();
+            let (tx, _) = mpsc::unbounded_channel();
+            send(
+                &mut app,
+                &mut tasks,
+                &tx,
+                if view == View::Search {
+                    KeyCode::F(2)
+                } else {
+                    KeyCode::Char('/')
+                },
+            );
+            route_input(&mut app, Input::Paste("draft".into()), &mut tasks, &tx);
+            query(&mut app, &mut tasks, &tx, command);
+            send(&mut app, &mut tasks, &tx, KeyCode::Enter);
+            assert!(app.ui.palette.is_none(), "{view:?}: {command}");
+            assert_eq!(app.ui.overlay, overlay, "{view:?}: {command}");
+            let draft = match view {
+                View::Search => &app.catalog.query,
+                View::Liked => &app.catalog.filter,
+                View::Queue => &app.ui.queue.query,
+                _ => unreachable!(),
+            };
+            assert_eq!(draft, "draft", "{view:?}: {command}");
+            if overlay == Overlay::MixBuilder {
+                send(&mut app, &mut tasks, &tx, KeyCode::Esc);
+            }
+            send(&mut app, &mut tasks, &tx, KeyCode::F(6));
+            if overlay == Overlay::ListeningTools {
+                assert_eq!(app.ui.overlay, Overlay::None, "{view:?}: {command}");
+                send(&mut app, &mut tasks, &tx, KeyCode::F(6));
+            }
+            assert_eq!(
+                app.ui.overlay,
+                Overlay::ListeningTools,
+                "{view:?}: {command}"
+            );
+            send(&mut app, &mut tasks, &tx, KeyCode::Esc);
+            send(&mut app, &mut tasks, &tx, KeyCode::F(7));
+            assert_eq!(app.ui.overlay, Overlay::Diagnostics, "{view:?}: {command}");
+        }
+    }
+}
+
+#[tokio::test]
+async fn command_palette_leaving_search_for_track_details_finishes_the_editor() {
+    for (command, view) in [("view album", View::Album), ("view artist", View::Artist)] {
+        let mut app = crate::demo::app();
+        app.catalog.view = View::Search;
+        app.catalog.query.clear();
+        let mut track = test_track(0);
+        track.album_id = Some("1".repeat(22));
+        track.artist_ids = vec!["2".repeat(22)];
+        let (mut tasks, _) = tasks();
+        let (tx, _) = mpsc::unbounded_channel();
+        send(&mut app, &mut tasks, &tx, KeyCode::F(2));
+        app.catalog.rows = Rows::Tracks(vec![track]);
+        app.catalog.selected = 0;
+        route_input(&mut app, Input::Paste("draft".into()), &mut tasks, &tx);
+        query(&mut app, &mut tasks, &tx, command);
+        send(&mut app, &mut tasks, &tx, KeyCode::Enter);
+        assert!(app.ui.palette.is_none(), "{command}");
+        assert_eq!(app.catalog.view, view, "{command}");
+        assert_eq!(app.catalog.query, "draft", "{command}");
+        send(&mut app, &mut tasks, &tx, KeyCode::F(6));
+        assert_eq!(app.ui.overlay, Overlay::ListeningTools, "{command}");
+    }
+}
+
+#[test]
+fn command_palette_preserves_base_editors_when_the_context_stays_open() {
+    for view in [View::Search, View::Liked, View::Queue] {
+        for (command, key, palette_open) in [
+            ("toggle lyrics view", KeyCode::Esc, false),
+            ("no-such-command", KeyCode::Enter, true),
+            ("connect spotify", KeyCode::Enter, true),
+            ("view playlists", KeyCode::Enter, true),
+            ("cycle theme", KeyCode::Enter, false),
+            ("increase volume", KeyCode::Enter, false),
+        ] {
+            let mut app = crate::demo::app();
+            app.config.source = crate::model::MusicSource::Youtube;
+            app.config.youtube_connected = false;
+            app.catalog.view = view;
+            app.catalog.query.clear();
+            let (mut tasks, _) = tasks();
+            let (tx, _) = mpsc::unbounded_channel();
+            send(
+                &mut app,
+                &mut tasks,
+                &tx,
+                if view == View::Search {
+                    KeyCode::F(2)
+                } else {
+                    KeyCode::Char('/')
+                },
+            );
+            route_input(&mut app, Input::Paste("draft".into()), &mut tasks, &tx);
+            query(&mut app, &mut tasks, &tx, command);
+            send(&mut app, &mut tasks, &tx, key);
+            assert_eq!(
+                app.ui.palette.is_some(),
+                palette_open,
+                "{view:?}: {command}"
+            );
+            if palette_open {
+                send(&mut app, &mut tasks, &tx, KeyCode::Esc);
+            }
+            assert_eq!(app.ui.overlay, Overlay::None, "{view:?}: {command}");
+            assert_eq!(app.catalog.view, view, "{view:?}: {command}");
+            send(&mut app, &mut tasks, &tx, KeyCode::Char('x'));
+            let draft = match view {
+                View::Search => &app.catalog.query,
+                View::Liked => &app.catalog.filter,
+                View::Queue => &app.ui.queue.query,
+                _ => unreachable!(),
+            };
+            assert_eq!(draft, "draftx", "{view:?}: {command}");
+        }
+    }
+}
+
+#[tokio::test]
+async fn command_palette_finishes_mix_naming_only_when_leaving_its_overlay() {
+    for (command, key, overlay, palette_open) in [
+        ("toggle lyrics view", KeyCode::Enter, Overlay::Lyrics, false),
+        ("view queue", KeyCode::Enter, Overlay::None, false),
+        (
+            "toggle lyrics view",
+            KeyCode::Esc,
+            Overlay::MixBuilder,
+            false,
+        ),
+        ("no-such-command", KeyCode::Enter, Overlay::MixBuilder, true),
+        ("connect spotify", KeyCode::Enter, Overlay::MixBuilder, true),
+        ("view playlists", KeyCode::Enter, Overlay::MixBuilder, true),
+        ("cycle theme", KeyCode::Enter, Overlay::MixBuilder, false),
+        (
+            "increase volume",
+            KeyCode::Enter,
+            Overlay::MixBuilder,
+            false,
+        ),
+    ] {
+        let mut app = crate::demo::app();
+        app.config.source = crate::model::MusicSource::Youtube;
+        app.config.youtube_connected = false;
+        let (mut tasks, _) = tasks();
+        let (tx, _) = mpsc::unbounded_channel();
+        send(&mut app, &mut tasks, &tx, KeyCode::Char('M'));
+        app.mix.recipe_name = "mix draft".into();
+        send(&mut app, &mut tasks, &tx, KeyCode::Char('w'));
+        query(&mut app, &mut tasks, &tx, command);
+        send(&mut app, &mut tasks, &tx, key);
+        assert_eq!(app.ui.palette.is_some(), palette_open, "{command}");
+        assert_eq!(app.ui.overlay, overlay, "{command}");
+        assert_eq!(app.mix.recipe_name, "mix draft", "{command}");
+        assert_eq!(app.mix.naming, overlay == Overlay::MixBuilder, "{command}");
+        if overlay == Overlay::MixBuilder {
+            if palette_open {
+                send(&mut app, &mut tasks, &tx, KeyCode::Esc);
+            }
+            send(&mut app, &mut tasks, &tx, KeyCode::Char('x'));
+            assert_eq!(app.mix.recipe_name, "mix draftx", "{command}");
+        }
+    }
+}
+
 #[test]
 fn command_palette_cancel_preserves_every_editor_and_selection() {
     for mode in 0..5 {
